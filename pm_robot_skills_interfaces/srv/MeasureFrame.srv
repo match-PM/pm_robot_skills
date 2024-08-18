@@ -1,0 +1,5 @@
+string frame_name
+string vision_process_file_name
+---
+bool success
+geometry_msgs/Vector3 result_vector
