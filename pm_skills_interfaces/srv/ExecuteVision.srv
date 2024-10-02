@@ -1,0 +1,12 @@
+string process_filename
+string camera_config_filename
+string process_uid
+float32 image_display_time
+bool run_cross_validation
+---
+bool success
+string results_dict
+string results_path
+float32[] points 
+string process_uid
+
