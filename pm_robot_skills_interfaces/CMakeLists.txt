@@ -18,6 +18,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   #"msg/Sphere.msg"
   "srv/MeasureFrame.srv"
   "srv/CorrectFrame.srv"
+  "srv/GripComponent.srv"
+  "srv/PlaceComponent.srv"
   DEPENDENCIES geometry_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
 )
 
