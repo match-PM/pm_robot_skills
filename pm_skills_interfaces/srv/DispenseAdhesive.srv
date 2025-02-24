@@ -1,4 +1,4 @@
 string dispenser 
-string dispense_time
+float32 dispense_time
 ---
 bool success
