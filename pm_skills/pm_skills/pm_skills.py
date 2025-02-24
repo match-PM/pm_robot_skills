@@ -7,14 +7,12 @@ from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 
-from pm_skills_interfaces.srv import VacuumGripper, DispenseAdhesive, ConfocalLaser, ExecuteVision
 import pm_skills_interfaces.srv as pm_skill_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, MoveRelative
 from example_interfaces.srv import SetBool
 import std_msgs.msg as std_msg
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
-import pm_robot_skills_interfaces.srv as pm_skill_srv
 import pm_moveit_interfaces.srv as pm_moveit_srv
 
 from pm_msgs.srv import EmptyWithSuccess
@@ -47,12 +45,12 @@ class PmSkills(Node):
         self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
         #self.vision_service = self.create_service(ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
         
-        self.vacuum_gripper_service = self.create_service(pm_skill_srv.GripComponent, "pm_skills/vacuum_gripper", self.grip_vaccum_gripper_callback, callback_group=self.callback_group_me)
+        self.vacuum_gripper_service = self.create_service(pm_skill_srv.VacuumGripper, "pm_skills/vacuum_gripper", self.grip_vaccum_gripper_callback, callback_group=self.callback_group_me)
         self.move_uv_in_curing_position_service = self.create_service(SetBool, "pm_skills/move_uv_in_curing_position", self.move_uv_in_curing_position_service_callback,callback_group=self.callback_group_me)
     
-        self.dispenser_service = self.create_service(DispenseAdhesive, "pm_skills/dispense_adhesive", self.dispenser_callback)
-        self.confocal_laser_service = self.create_service(ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
-        self.vision_service = self.create_service(ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
+        self.dispenser_service = self.create_service(pm_skill_srv.DispenseAdhesive, "pm_skills/dispense_adhesive", self.dispenser_callback)
+        self.confocal_laser_service = self.create_service(pm_skill_srv.ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
+        self.vision_service = self.create_service(pm_skill_srv.ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
 
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.set_UV_Front_Joint = self.create_client(SetBool, "pm_pneumatic_dummy/set_UV_LED_Front_Joint")
