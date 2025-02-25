@@ -9,7 +9,7 @@ from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 
 import pm_skills_interfaces.srv as pm_skill_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, MoveRelative
-from example_interfaces.srv import SetBool
+from example_interfaces.srv import SetBool, Trigger
 import std_msgs.msg as std_msg
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
@@ -45,22 +45,22 @@ class PmSkills(Node):
         self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
         #self.vision_service = self.create_service(ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
         
-        self.vacuum_gripper_service = self.create_service(pm_skill_srv.VacuumGripper, "pm_skills/vacuum_gripper", self.grip_vaccum_gripper_callback, callback_group=self.callback_group_me)
-        self.move_uv_in_curing_position_service = self.create_service(SetBool, "pm_skills/move_uv_in_curing_position", self.move_uv_in_curing_position_service_callback,callback_group=self.callback_group_me)
+        self.vacuum_gripper_service = self.create_service(pm_skill_srv.VacuumGripper, "pm_skills/vacuum_gripper", self.vaccum_gripper_callback, callback_group=self.callback_group_me)
     
         self.dispenser_service = self.create_service(pm_skill_srv.DispenseAdhesive, "pm_skills/dispense_adhesive", self.dispenser_callback)
         self.confocal_laser_service = self.create_service(pm_skill_srv.ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
         self.vision_service = self.create_service(pm_skill_srv.ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
 
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
-        self.set_UV_Front_Joint = self.create_client(SetBool, "pm_pneumatic_dummy/set_UV_LED_Front_Joint")
-        self.set_UV_Back_Joint = self.create_client(SetBool, "pm_pneumatic_dummy/set_UV_LED_Back_Joint")
-
         self.move_robot_tool_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
         self.move_robot_tool_relative = self.create_client(MoveRelative, '/pm_moveit_server/move_tool_relative')
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.align_gonio_right_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.align_gonio_left_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_left')
+
+        self.vacuum_gripper_on_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
+        self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
+        self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
 
         self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10, callback_group=self.callback_group_re)
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
@@ -297,41 +297,89 @@ class PmSkills(Node):
 
         return response
 
-    def move_uv_in_curing_position_service_callback(self, request:SetBool.Request, response:SetBool.Response):
-        """Moves both UV LEDs in curing position"""
-        
-        response.success = self.move_uv_in_curing_position(request)
-        response.message = "UV LEDs moved in curing position!" if response.success else "Failed to move UV LEDs in curing position!"
+    def vaccum_gripper_callback(self, request:pm_skill_srv.VacuumGripper.Request, response:pm_skill_srv.VacuumGripper.Response):
+        """Mimics the vacuum gripper funtionality by activating/deactivating the vacuum and changing the parent frame"""
 
-        return response
+        sim_time = self.is_gazebo_running()
+        self.logger.info(f"Gazebo Simulation: {sim_time}")
 
-    def grip_vaccum_gripper_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
-        """TO DO: Add docstring"""
+        assembly_and_target_frames = self.get_assembly_and_target_frames()      
 
         try:
-            if not self.check_object_exists(request.component_name):
-                response.success = False
-                response.message = f"Object '{request.component_name}' does not exist!"
-                self.logger.error(response.message)
-                return response
-            
-            if not self.is_gripper_empthy():
-                response.success = False
-                response.message = "Gripper is not empty! Can not grip new component!"
-                self.logger.error(response.message)
-                return response
-            
+            if request.activate_vacuum:
+                if not self.is_gripper_empthy():
+                    response.success = False
+                    response.message = "Gripper is not empty! Can not grip new component!"
+                    self.logger.error(response.message)
+                    return response
+                
+                # get gripping component
+                for component_frame in assembly_and_target_frames:
+                    if self.ASSEMBLY_FRAME_INDICATOR in component_frame[1]:
+                        target_component = component_frame[0]
+                        self.logger.info(f"moving component: '{target_component}'")
+                        break
+                
+                # activate the vacuum at head_nozzle 363
+                if not sim_time:
+                    response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_on_client.call(EmptyWithSuccess.Request())
+                    if not response_vacuum.success:
+                        response.success = False
+                        response.message = "Failed to activate vacuum!"
+                        self.logger.error(response.message)
+                        return response
+
+                response_attachment = self.attach_component_to_gripper(target_component)
+                if not response_attachment:
+                    response.success = False
+                    response.message = "Failed change parent frame!"
+                    self.logger.error(response.message)
+                    return response
+
+                response.success = True
+                response.message = "Component gripped and attached to the gripper!" 
+
+            else:
+                # if self.is_gripper_empthy():
+                    # response.success = False
+                    # response.message = "Gripper is empty! Can not release component!"
+                    # self.logger.error(response.message)
+                    # return response
+
+                if not sim_time:
+                    response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_off_client.call(EmptyWithSuccess.Request())
+                    if not response_vacuum.success:
+                        response.success = False
+                        response.message = "Failed to deactivate vacuum!"
+                        self.logger.error(response.message)
+                        return response
+                
+                # get target component
+                for component_frame in assembly_and_target_frames:
+                    if self.TARGET_FRAME_INDICATOR in component_frame[1]:
+                        target_component = component_frame[0]
+                        self.logger.info(f"target component: '{target_component}'")
+                        break
+
+                response_attachment = self.attach_component_to_component(self.get_gripped_component(), target_component)
+                if not response_attachment:
+                    response.success = False
+                    response.message = "Failed change parent frame!"
+                    self.logger.error(response.message)
+                    return response
+                
+                response.success = True
+                response.message = "Component released and attached to the target component!"               
+                
         except ValueError as e:
             response.success = False
             response.message = str(e)
             self.logger.error(response.message)
             return response
-        
-        response.success = self.attach_component_to_gripper(request.component_name)
-        response.message = f"Component '{request.component_name}' gripped!" if response.success else f"Failed to grip component '{request.component_name}'!"
+                
         
         return response
-    
+
     def dispenser_callback(self, request, response):
         """TO DO: Add docstring"""
 
@@ -386,29 +434,6 @@ class PmSkills(Node):
 
         return response
             
-    def move_uv_in_curing_position(self, request:SetBool.Request)->bool:
-        
-        if not self.set_UV_Front_Joint.wait_for_service(timeout_sec=2.0) and not self.set_UV_Back_Joint.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error("Services not available!")
-            return False
-
-        req_front: SetBool.Request = copy.deepcopy(request)
-        req_back: SetBool.Request = copy.deepcopy(request)
-
-        # inverse movement direction for front module
-        req_front.data = not req_front.data
-
-        response_front:SetBool.Response = self.set_UV_Front_Joint.call(req_front)
-        response_back:SetBool.Response = self.set_UV_Back_Joint.call(req_back)
-        
-        self.get_logger().info(f"Service call result: success={response_front.success}, msg='{response_front.message}'")
-        self.get_logger().info(f"Service call result: success={response_back.success}, msg='{response_back.message}'")
-
-        if response_front.success and response_back.success:
-            return True
-        else:
-            return False
-
     def assembly_loop(self, list_of_components:list[str]):
         
         for component in list_of_components:
@@ -434,8 +459,10 @@ class PmSkills(Node):
     def simtime_callback(self, msg:std_msg.Bool):
         if msg.data:
             self.logger.info("Simulation time is active!")
+            self.sim_time = True
         else:
             self.logger.info("Simulation time is inactive!")
+            self.sim_time = False
 
     def lift_gripper_relative(self, distance:float)-> bool:
         call_async = False
@@ -757,8 +784,6 @@ class PmSkills(Node):
                     return obj.obj_name
         return None
 
-
-
     def get_list_of_components(self)-> list[str]:
         self.wait_for_initial_scene_update()
         components = []
@@ -862,7 +887,11 @@ class PmSkills(Node):
         while self.object_scene is None:
             self.logger.warn("Waiting for object scene to be updated...")
             time.sleep(0.1)
-            
+
+    def is_gazebo_running(self):
+        """Check if the Gazebo node is active."""
+        node_names = self.get_node_names()
+        return '/gazebo' in node_names
 
 def main(args=None):
     rclpy.init(args=args)
