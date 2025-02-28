@@ -68,6 +68,7 @@ class PmSkills(Node):
         self.object_scene:ami_msg.ObjectScene = None
 
         self.logger = self.get_logger()
+        self.logger.info(f"PM Skills node started! Gazabo running: {self.is_gazebo_running()}")
     
     def grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
@@ -320,7 +321,7 @@ class PmSkills(Node):
                         self.logger.info(f"moving component: '{target_component}'")
                         break
                 
-                # activate the vacuum at head_nozzle 363
+                # activate the vacuum at head_nozzle
                 if not sim_time:
                     response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_on_client.call(EmptyWithSuccess.Request())
                     if not response_vacuum.success:
@@ -891,7 +892,9 @@ class PmSkills(Node):
     def is_gazebo_running(self):
         """Check if the Gazebo node is active."""
         node_names = self.get_node_names()
-        return '/gazebo' in node_names
+        if 'gazebo' in node_names:
+            return True
+        return False
 
 def main(args=None):
     rclpy.init(args=args)
