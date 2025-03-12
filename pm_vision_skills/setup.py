@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'measure_frame = pm_vision_skills.measure_frame:main'
+            'pm_vision_skills = pm_vision_skills.pm_vision_skills:main'
         ],
     },
 )
