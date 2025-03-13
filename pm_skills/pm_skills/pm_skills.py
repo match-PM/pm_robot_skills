@@ -7,6 +7,8 @@ from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 
+from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion
+
 import pm_skills_interfaces.srv as pm_skill_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, MoveRelative
 from example_interfaces.srv import SetBool, Trigger
@@ -14,12 +16,15 @@ import std_msgs.msg as std_msg
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 import pm_moveit_interfaces.srv as pm_moveit_srv
+from pm_msgs.srv import LaserGetMeasurement
+from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 
 from pm_msgs.srv import EmptyWithSuccess
 from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerScene
 
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 
+from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
 
 
 class PmSkills(Node):
@@ -51,6 +56,9 @@ class PmSkills(Node):
         self.confocal_laser_service = self.create_service(pm_skill_srv.ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
         self.vision_service = self.create_service(pm_skill_srv.ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
 
+        self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
+        self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
+        
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.move_robot_tool_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
         self.move_robot_tool_relative = self.create_client(MoveRelative, '/pm_moveit_server/move_tool_relative')
@@ -58,16 +66,25 @@ class PmSkills(Node):
         self.align_gonio_right_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.align_gonio_left_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_left')
 
+        self.move_robot_laser_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
+        
         self.vacuum_gripper_on_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
-
+        self.get_laser_mes_client = self.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
+        
         self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10, callback_group=self.callback_group_re)
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
+
+        self.adapt_frame_client = self.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
 
         self.object_scene:ami_msg.ObjectScene = None
 
         self.logger = self.get_logger()
+        
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        
         self.logger.info(f"PM Skills node started! Gazabo running: {self.is_gazebo_running()}")
     
     def grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
@@ -456,7 +473,7 @@ class PmSkills(Node):
             self.assembly_loop(list_of_component)
 
         return True
-
+    
     def simtime_callback(self, msg:std_msg.Bool):
         if msg.data:
             self.logger.info("Simulation time is active!")
@@ -516,6 +533,158 @@ class PmSkills(Node):
             response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(req)
             return response.success
 
+    def move_laser_to_frame(self, frame_name:str, z_offset=None)-> bool:
+        call_async = False
+
+        if not self.move_robot_laser_client.wait_for_service(timeout_sec=1.0):
+            self.logger.error("Service '/pm_moveit_server/move_laser_to_frame' not available")
+            return False
+        
+        req = pm_moveit_srv.MoveToFrame.Request()
+        req.target_frame = frame_name
+        req.execute_movement = True
+
+        if z_offset is not None:
+            req.translation.z = z_offset
+
+        if call_async:
+            future = self.move_robot_laser_client.call_async(req)
+            rclpy.spin_until_future_complete(self, future)
+            if future.result() is None:
+                self.logger.error('Service call failed %r' % (future.exception(),))
+                return False
+            return future.result().success
+        else:
+            response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_laser_client.call(req)
+            return response.success
+    
+    def get_laser_measurement(self, unit:str = "m")-> float:
+        """
+        Method to get the laser measurement from the laser sensor
+        
+
+        Returns:
+            float: _description_
+        """
+        call_async = False
+
+        if not self.get_laser_mes_client.wait_for_service(timeout_sec=1.0):
+            self.logger.error("Service '/pm_laser_controller/get_measurement' not available")
+            return None
+        
+        req = LaserGetMeasurement.Request()
+
+        if call_async:
+            future = self.get_laser_mes_client.call_async(req)
+            rclpy.spin_until_future_complete(self, future)
+            if future.result() is None:
+                self.logger.error('Service call failed %r' % (future.exception(),))
+                return None
+            response= future.result()
+            
+        else:
+            response:LaserGetMeasurement.Response = self.get_laser_mes_client.call(req)
+        
+        if response.measurement>300 or response.measurement<-300:
+            self.logger.error("Laser measurement out of range!")
+            return None
+        
+        multiplier = 1.0
+        
+        if unit == "mm":
+            multiplier = 1e-3
+        elif unit == "cm":
+            multiplier = 1e-2
+        elif unit == "m":
+            multiplier = 1e-6
+        elif unit == "um":
+            multiplier = 1.0
+            
+            
+        return response.measurement * multiplier
+      
+    def measure_with_laser_callback(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+        
+        move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name)
+        
+        if not move_laser_to_frame_success:
+            response.success = False
+            response.message = f"Failed to move laser to frame '{request.frame_name}'"
+            self.logger.error(response.message)
+            return response
+        
+        laser_measurement = self.get_laser_measurement(unit="m")
+        
+        if laser_measurement is None:
+            response.success = False
+            response.message = "Failed to get laser measurement!"
+            self.logger.error(response.message)
+            return response
+        
+        response.correction_values.z = laser_measurement
+        response.success = True
+        response.message = f"Measurement: {laser_measurement}"
+        return response
+        
+    def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+        
+        self.wait_for_initial_scene_update()
+        _obj_name, _frame_name =  is_frame_from_scene(self.object_scene, request.frame_name)
+
+        self._logger.warn(f"Correcting frame: {request.frame_name}...")
+        self._logger.warn(f"Object name: {_obj_name}")
+        self._logger.warn(f"Frame name: {_frame_name}")
+
+        if _frame_name is not None:
+            frame_from_scene = True
+        else:
+            frame_from_scene = False
+
+        measure_frame_request = pm_skill_srv.CorrectFrame.Request()
+        measure_frame_response = pm_skill_srv.CorrectFrame.Response()
+        
+        measure_frame_request.frame_name = request.frame_name
+        
+        response:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
+        
+        self._logger.warn(f"Check1")
+        
+        if not response.success:
+            response.success = False
+            return response
+        
+        self._logger.warn(f"Check2")
+        
+        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+
+        world_pose.transform.translation.z += response.correction_values.z
+
+        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+        adapt_frame_request.frame_name = request.frame_name
+        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+        adapt_frame_request.pose.orientation = world_pose.transform.rotation
+
+        self._logger.warn(f"Check3")
+        
+        if frame_from_scene:
+            while not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                self._logger.error("Service 'ModifyPoseAbsolut' not available. Assembly manager started?...")
+                response.success= False
+                return response
+            
+            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
+        else:
+            result_adapt = ami_srv.ModifyPoseAbsolut.Response()
+
+        self._logger.warn(f"Check4")
+        
+        response.success = result_adapt.success
+        
+        return response
+    
+      
     def move_gripper_to_relative(self, frame_name:str)-> bool:
         call_async = False
 

@@ -29,11 +29,11 @@ class VisionSkillsNode(Node):
 
         self._logger.info(f"Node '{self.get_name()}' started...")
 
-        self.srv = self.create_service(MeasureFrame, self.get_name()+'/measure_frame', self.measure_frame, callback_group=self.callback_group)
-        self.srv = self.create_service(CorrectFrame, self.get_name()+'/correct_frame', self.correct_frame, callback_group=self.callback_group)
+        self.srv = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
+        self.srv = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
         
         self.tf_buffer = Buffer()
-
+        
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.client_execute_vision = self.create_client(ExecuteVision, '/pm_vision_manager/ExecuteVision')
@@ -69,9 +69,6 @@ class VisionSkillsNode(Node):
         move_request = MoveToFrame.Request()
         move_request.execute_movement = True
         move_request.target_frame = request.frame_name
-
-        #vision_request.camera_config_filename = 'webcam.yaml'
-
 
         if not self.is_unity_running():
             vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
@@ -244,7 +241,8 @@ class VisionSkillsNode(Node):
             result_adapt = ami_srv.ModifyPoseAbsolut.Response()
 
         response.success = result_adapt.success
-
+        response.correction_values = result.result_vector
+        
         return response
     
     def object_scene_callback(self, msg: ami_msg.ObjectScene):

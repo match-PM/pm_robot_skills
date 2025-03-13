@@ -27,27 +27,30 @@ def generate_launch_description():
     # Configure the node
     launch_vision_skills = Node(
         package='pm_vision_skills',
-        executable='measure_frame',
+        executable='pm_vision_skills',
         name="pm_vision_skills",
         output='both',
         parameters=[
-            {'use_sim_time': sim_time}],
+            #{'use_sim_time': sim_time}
+            ],
         emulate_tty=True,
         arguments=[('__log_level:=debug')]
     )
 
-    launch_vision_ = Node(
-        package='pm_vision_skills',
-        executable='measure_frame',
-        name="pm_vision_skills",
+    # Configure the node
+    launch_pm_skills = Node(
+        package='pm_skills',
+        executable='pm_skills',
+        name="pm_skills",
         output='both',
         parameters=[
-            {'use_sim_time': sim_time}],
+            #{'use_sim_time': sim_time}
+            ],
         emulate_tty=True,
         arguments=[('__log_level:=debug')]
     )
 
-    launch_vision = IncludeLaunchDescription(PythonLaunchDescriptionSource([
+    launch_vision_manager = IncludeLaunchDescription(PythonLaunchDescriptionSource([
         PathJoinSubstitution([
             FindPackageShare('pm_vision_manager'),
             'launch',
@@ -76,12 +79,14 @@ def generate_launch_description():
         arguments=[('__log_level:=debug')]
     )
 
+
     ld = LaunchDescription()
 
     #ld.add_action(declare_world)
     ld.add_action(launch_vision_skills)
-    ld.add_action(launch_vision)
-    ld.add_action(launch_assembly_manager)
-    ld.add_action(pm_robot_calibration)
+    ld.add_action(launch_pm_skills)
+    #ld.add_action(launch_vision_manager)
+    #ld.add_action(launch_assembly_manager)
+    #ld.add_action(pm_robot_calibration)
 
     return ld
