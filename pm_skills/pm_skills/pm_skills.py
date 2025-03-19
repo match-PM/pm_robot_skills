@@ -26,6 +26,7 @@ from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_f
 
 from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
 
+from pm_msgs.srv import UVCuringSkill
 
 class PmSkills(Node):
     
@@ -58,6 +59,8 @@ class PmSkills(Node):
 
         self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
         self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
+        self.dummy_uv_cure_service = self.create_service(EmptyWithSuccess, "pm_skills/uv_cure_dummy", self.activate_uv_dummy, callback_group=self.callback_group_me)
+
         
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.move_robot_tool_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
@@ -72,7 +75,7 @@ class PmSkills(Node):
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
         self.get_laser_mes_client = self.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
-        
+        self.uv_cure_clinet = self.create_client(UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
         self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10, callback_group=self.callback_group_re)
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
 
@@ -569,7 +572,7 @@ class PmSkills(Node):
         call_async = False
 
         if not self.get_laser_mes_client.wait_for_service(timeout_sec=1.0):
-            self.logger.error("Service '/pm_laser_controller/get_measurement' not available")
+            self.logger.error("Service '/pm_sensor_controller/Laser/GetMeasurement' not available")
             return None
         
         req = LaserGetMeasurement.Request()
@@ -797,10 +800,41 @@ class PmSkills(Node):
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.align_gonio_left_client.call(req)
             return response.success
-        
+    
+    def activate_uv(self,request: UVCuringSkill.Request)->bool:
+        call_async = False
+
+        if not self.uv_cure_clinet.wait_for_service(timeout_sec=1.0):
+            self.logger.error("Service '/pm_moveit_server/align_gonio_left' not available")
+            return False
+    
+        if call_async:
+            future = self.uv_cure_clinet.call_async(request)
+            rclpy.spin_until_future_complete(self, future)
+            if future.result() is None:
+                self.logger.error('Service call failed %r' % (future.exception(),))
+                return False
+            return future.result().success
+        else:
+            response:pm_moveit_srv.AlignGonio.Response = self.uv_cure_clinet.call(request)
+            return response.success
+    
+    def activate_uv_dummy(self,request:EmptyWithSuccess.Request,response: EmptyWithSuccess.Response):
+
+        req = UVCuringSkill.Request()
+        req.duration = [2.0, 2.0, 2.0, 2.0]
+        req.intensity_percent = [50, 50, 50, 50]
+
+        activate_success = self.activate_uv(request=req)
+
+        response.success = activate_success
+
+        return response 
+    
+
     def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
         self.object_scene = msg
-                    
+    
     def get_gripping_frame(self, object_name:str)-> str:
         grip_frames = []
         for obj in self.object_scene.objects_in_scene:

@@ -28,7 +28,7 @@ def generate_launch_description():
     launch_vision_skills = Node(
         package='pm_vision_skills',
         executable='pm_vision_skills',
-        name="pm_vision_skills",
+        name="pm_skills",
         output='both',
         parameters=[
             #{'use_sim_time': sim_time}
