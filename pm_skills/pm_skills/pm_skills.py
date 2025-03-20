@@ -28,6 +28,19 @@ from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_sc
 
 from pm_msgs.srv import UVCuringSkill
 
+from assembly_scene_publisher.py_modules.scene_functions import (get_parent_of_component,
+                                                                 has_component_parent_of_name,
+                                                                 find_matches_for_component,
+                                                                 get_components_to_assemble,
+                                                                 get_component_for_frame_name,
+                                                                 check_object_exists,
+                                                                 get_assembly_and_target_frames,
+                                                                 get_list_of_components,
+                                                                 is_component_stationary,
+                                                                 is_component_assembled,
+                                                                 get_global_statonary_component)
+
+
 class PmSkills(Node):
     
     PM_ROBOT_GRIPPER_FRAME = 'PM_Robot_Tool_TCP'
@@ -856,7 +869,8 @@ class PmSkills(Node):
             return None
         else:
             return grip_frames[0]
-        
+    
+    # delete
     def get_parent_of_object(self, object_name:str):
         self.wait_for_initial_scene_update()
         for obj in self.object_scene.objects_in_scene:
@@ -925,6 +939,8 @@ class PmSkills(Node):
                 return False
         return True
 
+
+    # delete
     def check_object_exists(self, object_name:str)-> bool:
         self.wait_for_initial_scene_update()
         if self.object_scene is None:
@@ -944,6 +960,7 @@ class PmSkills(Node):
                 return obj.obj_name
         return None
 
+    # delete
     def get_assembly_and_target_frames(self)-> list[tuple[str,str]]:
         frames = []
         self.wait_for_initial_scene_update()
@@ -978,6 +995,7 @@ class PmSkills(Node):
         
         return frames
 
+    # delete
     def get_component_for_frame_name(self, frame_name:str)-> str:
         self.wait_for_initial_scene_update()
         for obj in self.object_scene.objects_in_scene:
@@ -988,6 +1006,7 @@ class PmSkills(Node):
                     return obj.obj_name
         return None
 
+    # delete
     def get_list_of_components(self)-> list[str]:
         self.wait_for_initial_scene_update()
         components = []
@@ -996,6 +1015,7 @@ class PmSkills(Node):
             components.append(obj.obj_name)
         return components
 
+    # delete
     def get_global_statonary_component(self)-> str:
         """
         Returns the name of the component that is not moved among all of the components.
@@ -1009,6 +1029,7 @@ class PmSkills(Node):
             if self.is_component_stationary(component):
                 return component
 
+    # delete
     def is_component_stationary(self, component_name:str)-> bool:
 
         self.wait_for_initial_scene_update()
@@ -1024,6 +1045,7 @@ class PmSkills(Node):
 
         return is_stationary
 
+    # delete
     def is_component_assembled(self, component_name:str)-> bool:
         self.wait_for_initial_scene_update()
 
@@ -1039,6 +1061,7 @@ class PmSkills(Node):
         
         return False
 
+    # delete
     def get_components_to_assemble(self)-> list[str]:
         components_to_assembly = []
 
@@ -1058,6 +1081,7 @@ class PmSkills(Node):
         
         return components_to_assembly
 
+    # delete
     def find_matches_for_component(self, component_name:str, only_unassembled = True)-> list[str]:
         """
         The component to find the matches for should be the stationary component.
