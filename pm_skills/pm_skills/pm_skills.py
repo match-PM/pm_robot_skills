@@ -158,7 +158,7 @@ class PmSkills(Node):
 
         if not move_tool_to_part_offset_success:
             response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}'"
+            response.message = f"Failed to move gripper to part '{request.component_name}' at offset distance!"
             self.logger.error(response.message)
             return response
         
@@ -166,7 +166,7 @@ class PmSkills(Node):
 
         if not move_tool_to_part_success:
             response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}'"
+            response.message = f"Failed to move gripper to part '{request.component_name}'!"
             self.logger.error(response.message)
             return response
         
@@ -601,10 +601,6 @@ class PmSkills(Node):
         else:
             response:LaserGetMeasurement.Response = self.get_laser_mes_client.call(req)
         
-        if response.measurement>300 or response.measurement<-300:
-            self.logger.error("Laser measurement out of range!")
-            return None
-        
         multiplier = 1.0
         
         if unit == "mm":
@@ -629,19 +625,39 @@ class PmSkills(Node):
             self.logger.error(response.message)
             return response
         
-        laser_measurement = self.get_laser_measurement(unit="m")
-        
-        if laser_measurement is None:
-            response.success = False
-            response.message = "Failed to get laser measurement!"
-            self.logger.error(response.message)
-            return response
-        
-        response.correction_values.z = laser_measurement
+        max_iterations = 5
+        correction_distance = 0.0003
+        z_offset = 0.0
+        for iteration in range(max_iterations):
+            laser_measurement = self.get_laser_measurement(unit="m")
+            sign = self.check_laser_measurement_out_of_range(laser_measurement)
+
+            # if valid laser measurement
+            if sign == 0:
+                break   # exit loop
+            
+            # if this is executed the laser has not yet a valid measurement
+            z_offset = iteration * sign * correction_distance
+            move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name, z_offset = z_offset)
+
+            if not move_laser_to_frame_success:
+                response.success = False
+                response.message = f"Failed to move laser to frame '{request.frame_name}'"
+                self.logger.error(response.message)
+                return response
+            
+        response.correction_values.z = laser_measurement - z_offset
         response.success = True
         response.message = f"Measurement: {laser_measurement}"
         return response
-        
+    
+    def check_laser_measurement_out_of_range(self, value:float):
+        if value * 1e6 > 300.0:
+            return -1
+        elif value * 1e6 < 0.0:
+            return 1
+        return 0
+    
     def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
         self.wait_for_initial_scene_update()
@@ -662,18 +678,14 @@ class PmSkills(Node):
         measure_frame_request.frame_name = request.frame_name
         
         response:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
-        
-        self._logger.warn(f"Check1")
-        
+                
         if not response.success:
             response.success = False
             return response
-        
-        self._logger.warn(f"Check2")
-        
+                
         world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
-        world_pose.transform.translation.z += response.correction_values.z
+        world_pose.transform.translation.z -= response.correction_values.z
 
         adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
         adapt_frame_request.frame_name = request.frame_name
@@ -682,7 +694,7 @@ class PmSkills(Node):
         adapt_frame_request.pose.position.z = world_pose.transform.translation.z
         adapt_frame_request.pose.orientation = world_pose.transform.rotation
 
-        self._logger.warn(f"Check3")
+        #self._logger.warn(f"Check3")
         
         if frame_from_scene:
             while not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
@@ -694,7 +706,7 @@ class PmSkills(Node):
         else:
             result_adapt = ami_srv.ModifyPoseAbsolut.Response()
 
-        self._logger.warn(f"Check4")
+        #self._logger.warn(f"Check4")
         
         response.success = result_adapt.success
         

@@ -31,7 +31,10 @@ class VisionSkillsNode(Node):
 
         self.srv = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
         self.srv = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
-        
+
+        #self.srv = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
+        #self.srv = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
+
         self.tf_buffer = Buffer()
         
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -66,37 +69,46 @@ class VisionSkillsNode(Node):
         
         self._logger.info("Service 'ExecuteVision' is available...")
 
+        # try to move the frame to the bottom camera
         move_request = MoveToFrame.Request()
         move_request.execute_movement = True
-        move_request.target_frame = request.frame_name
+        move_request.endeffector_frame_override = request.frame_name
+        move_request.target_frame = 'Camera_Station_TCP'
 
+        self._logger.error(f"Moving tool to frame: {request.frame_name}... executing movement: {move_request.execute_movement} edgeffector frame override: {move_request.endeffector_frame_override} target frame: {move_request.target_frame}")
+        
+        # select the bottom camera
         if not self.is_unity_running():
-            vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
+            vision_request.camera_config_filename = 'pm_robot_basler_bottom_cam_2.yaml'
         else:
             self._logger.info("Unity is running. Using simulated camera...")
-            vision_request.camera_config_filename = 'pm_robot_top_cam_1_Unity.yaml'
-
-        
-        result_move_cam:MoveToFrame.Response = self.move_robot_cam_skill.call(move_request)
+            vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
 
         while not self.move_robot_cam_skill.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'MoveCamToFrame' not available...")
             response.success= False
             return response
         
-        if not result_move_cam.success:
-            self._logger.warn("Can not move top camera to frame. Trying to reach frame with the bottom camera...")
-            move_request.endeffector_frame_override = request.frame_name
-            move_request.target_frame = 'Camera_Station_TCP'
+        result_tool_to_bottom_cam:MoveToFrame.Response = self.move_robot_cam_skill.call(move_request)
+        
+        self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
 
+        if not result_tool_to_bottom_cam.success:
+            self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
+
+            # selct the top camera
             if not self.is_unity_running():
-                vision_request.camera_config_filename = 'pm_robot_basler_bottom_cam_2.yaml'
+                vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
             else:
                 self._logger.info("Unity is running. Using simulated camera...")
-                vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
+                vision_request.camera_config_filename = 'pm_robot_top_cam_1_Unity.yaml'
+
+            move_request = MoveToFrame.Request()
+            move_request.execute_movement = True
+            move_request.target_frame = request.frame_name
 
             while not self.move_robot_cam_skill.wait_for_service(timeout_sec=1.0):
-                self._logger.error("Service 'MoveToolToFrame' not available...")
+                self._logger.error("Service 'MoveCamToFrame' not available...")
                 response.success= False
                 return response
             
@@ -149,7 +161,7 @@ class VisionSkillsNode(Node):
                 self._logger.warn(f"Detected points: {detected_points}")
                 detected_point:vision_msg.VisionPoint = detected_points[0]
                 result_vector = Vector3()
-                multiplier = 0.000001
+                multiplier = 0.000001 # Convert to m  
                 if detected_point.axis_suffix_1 == 'x' or detected_point.axis_suffix_1 == 'X':
                     result_vector.x = detected_point.axis_value_1*multiplier
                 
@@ -168,8 +180,11 @@ class VisionSkillsNode(Node):
                 if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
                     result_vector.z = detected_point.axis_value_2*multiplier
             
-            response.result_vector = result_vector     # Convert to mm    
-            response.success= result.success
+            result_vector.x = -result_vector.x
+            result_vector.y = -result_vector.y
+            result_vector.z = -result_vector.z
+            response.result_vector = result_vector     
+            response.success = result.success
 
             self._logger.info(f"Vision process executed...{result}")
         else:
@@ -263,6 +278,8 @@ class VisionSkillsNode(Node):
             obj: ami_msg.Object
             for frame in obj.ref_frames:
                 frame: ami_msg.RefFrame
+                if not ('Vision' in frame.frame_name or 'vision' in frame.frame_name):
+                    continue
                 VisionProcessClass.create_process_file(
                     f"Assembly_Manager/{obj.obj_name}", frame.frame_name, logger=self._logger
                 )
@@ -272,6 +289,8 @@ class VisionSkillsNode(Node):
 
         # Process reference frames in the scene
         for frame in msg.ref_frames_in_scene:
+            if not ('Vision' in frame.frame_name or 'vision' in frame.frame_name):
+                continue
             VisionProcessClass.create_process_file(
                 "Assembly_Manager/Frames", frame.frame_name, logger=self._logger
             )
