@@ -14,7 +14,9 @@ from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision
 import pm_vision_interfaces.msg as vision_msg
-from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion
+from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
+
+from scipy.spatial.transform import Rotation as R
 
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
@@ -27,6 +29,7 @@ from pm_msgs.srv import EmptyWithSuccess
 from ament_index_python.packages import get_package_share_directory
 
 from ros_sequential_action_programmer.submodules.pm_robot_modules.widget_pm_robot_config import VacuumGripperConfig, ParallelGripperConfig
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 
 TOOL_VACUUM_IDENT = 'pm_robot_vacuum_tools'
 TOOL_GRIPPER_1_JAW_IDENT = 'pm_robot_tool_parallel_gripper_1_jaw'
@@ -42,6 +45,8 @@ class PmRobotCalibrationNode(Node):
         self._logger.info(" Pm Robot Calibration Node started...")
         
         self.callback_group = MutuallyExclusiveCallbackGroup()
+        self.pm_robot_utils = PmRobotUtils(self)    
+        
         self.pm_robot_config = {}
         self.gripper_frames_spawned = False
         # clients
@@ -58,6 +63,13 @@ class PmRobotCalibrationNode(Node):
         self.pm_robot_config_path = self.bringup_share_path + '/config/pm_robot_bringup_config.yaml'
 
         self.update_pm_robot_config()
+
+        test_transform = Transform()
+        test_transform.translation.x = -0.1
+        test_transform.translation.y = 0.3
+        test_transform.translation.z = 0.1
+        test_transform.rotation.x = 1.0
+        self.save_joint_config('PM_Robot_Tool_TCP_Joint', test_transform)
         
     def update_pm_robot_config(self):
         with open(self.pm_robot_config_path, 'r') as file:
@@ -137,6 +149,52 @@ class PmRobotCalibrationNode(Node):
         
         return response.success, response.result_vector
     
+    def save_joint_config(self, joint_name:str, rel_transformation:Transform)->bool:
+        print("Saving joint config for joint: " + joint_name)
+        package_name = 'pm_robot_description'
+        file_name = 'calibration_config/pm_robot_joint_calibration.yaml'
+        file_path = get_package_share_directory(package_name) + '/' + file_name
+
+        calibration_config = {}
+        # check if the file exists
+        try:
+            with open(file_path, 'r') as file:
+                calibration_config = yaml.load(file, Loader=yaml.FullLoader)
+
+            calibration_config[joint_name]['x_offset'] = rel_transformation.translation.x /1e6
+            calibration_config[joint_name]['y_offset'] = rel_transformation.translation.y /1e6
+            calibration_config[joint_name]['z_offset'] = rel_transformation.translation.z /1e6
+
+            q = [rel_transformation.rotation.x,
+                 rel_transformation.rotation.y,
+                 rel_transformation.rotation.z,
+                 rel_transformation.rotation.w]
+
+            # Convert to Euler angles (roll, pitch, yaw) in radians
+            r = R.from_quat(q)
+            roll, pitch, yaw = r.as_euler('xyz', degrees=True)
+            
+            calibration_config[joint_name]['rx_offset'] = float(roll)
+            calibration_config[joint_name]['ry_offset'] = float(pitch)
+            calibration_config[joint_name]['rz_offset'] = float(yaw)
+            print(roll, pitch, yaw)
+        except FileNotFoundError:
+            calibration_config = {}
+        except Exception as e:
+            self._logger.error("Error: " + str(e))
+            return False
+        # write the file
+        try:
+            with open(file_path, 'w') as file:
+                yaml.dump(calibration_config, file)
+                pass
+            print("Calibration config saved to: " + file_path)
+            return True
+        except Exception as e:
+            self._logger.error("Error: " + str(e))
+            return False
+        return False
+        
 def main(args=None):
     rclpy.init(args=args)
 

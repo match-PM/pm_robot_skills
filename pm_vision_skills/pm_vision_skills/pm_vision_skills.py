@@ -19,6 +19,9 @@ from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_sc
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 import time
 
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+
+
 class VisionSkillsNode(Node):
 
     def __init__(self):
@@ -39,16 +42,18 @@ class VisionSkillsNode(Node):
         
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.client_execute_vision = self.create_client(ExecuteVision, '/pm_vision_manager/ExecuteVision')
-        self.move_robot_cam_skill = self.create_client(MoveToFrame, '/pm_moveit_server/move_cam1_to_frame')
-        self.move_robot_tool_skill = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
-        self.adapt_frame_skill = self.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
+        self.pm_robot_utils = PmRobotUtils(self)
+
+        # self.client_execute_vision = self.create_client(ExecuteVision, '/pm_vision_manager/ExecuteVision')
+        # self.move_robot_cam_skill = self.create_client(MoveToFrame, '/pm_moveit_server/move_cam1_to_frame')
+        # self.move_robot_tool_skill = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
+        # self.adapt_frame_skill = self.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
 
         self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10)
         self.object_scene:ami_msg.ObjectScene = None
 
-        self._logger.info(f"Gazebo running: {self.is_gazebo_running()}")
-        self._logger.info(f"Unity running: {self.is_unity_running()}")
+        self._logger.info(f"Gazebo running: {self.pm_robot_utils.is_gazebo_running()}")
+        self._logger.info(f"Unity running: {self.pm_robot_utils.is_unity_running()}")
 
     def measure_frame(self, request:MeasureFrame.Request, response:MeasureFrame.Response):
 
@@ -62,7 +67,7 @@ class VisionSkillsNode(Node):
             response.success= False
             return response
         
-        while not self.client_execute_vision.wait_for_service(timeout_sec=1.0):
+        while not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'ExecuteVision' not available...")
             response.success= False
             return response
@@ -75,29 +80,29 @@ class VisionSkillsNode(Node):
         move_request.endeffector_frame_override = request.frame_name
         move_request.target_frame = 'Camera_Station_TCP'
 
-        self._logger.error(f"Moving tool to frame: {request.frame_name}... executing movement: {move_request.execute_movement} edgeffector frame override: {move_request.endeffector_frame_override} target frame: {move_request.target_frame}")
+        #self._logger.error(f"Moving tool to frame: {request.frame_name}... executing movement: {move_request.execute_movement} edgeffector frame override: {move_request.endeffector_frame_override} target frame: {move_request.target_frame}")
         
         # select the bottom camera
-        if not self.is_unity_running():
+        if not self.pm_robot_utils.is_unity_running():
             vision_request.camera_config_filename = 'pm_robot_basler_bottom_cam_2.yaml'
         else:
             self._logger.info("Unity is running. Using simulated camera...")
             vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
 
-        while not self.move_robot_cam_skill.wait_for_service(timeout_sec=1.0):
+        while not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'MoveCamToFrame' not available...")
             response.success= False
             return response
         
-        result_tool_to_bottom_cam:MoveToFrame.Response = self.move_robot_cam_skill.call(move_request)
+        result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
         
-        self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
+        #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
 
         if not result_tool_to_bottom_cam.success:
             self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
 
             # selct the top camera
-            if not self.is_unity_running():
+            if not self.pm_robot_utils.is_unity_running():
                 vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
             else:
                 self._logger.info("Unity is running. Using simulated camera...")
@@ -107,12 +112,12 @@ class VisionSkillsNode(Node):
             move_request.execute_movement = True
             move_request.target_frame = request.frame_name
 
-            while not self.move_robot_cam_skill.wait_for_service(timeout_sec=1.0):
+            while not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
                 self._logger.error("Service 'MoveCamToFrame' not available...")
                 response.success= False
                 return response
             
-            result_move_tool:MoveToFrame.Response = self.move_robot_cam_skill.call(move_request)
+            result_move_tool:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
 
             # Cannot move to the frame
             if not result_move_tool.success:
@@ -120,8 +125,8 @@ class VisionSkillsNode(Node):
                 response.success= False
                 return response
 
-        if not self.is_gazebo_running():
-            result:ExecuteVision.Response = self.client_execute_vision.call(vision_request)
+        if not self.pm_robot_utils.is_gazebo_running():
+            result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
 
             detected_circles = result.vision_response.results.circles
 
@@ -210,7 +215,7 @@ class VisionSkillsNode(Node):
         measure_frame_request = MeasureFrame.Request()
         measure_frame_request.frame_name =request.frame_name
 
-        if self.is_unity_running():
+        if self.pm_robot_utils.is_unity_running():
             extention = '_sim'
         else:
             extention = ''
@@ -246,12 +251,12 @@ class VisionSkillsNode(Node):
         adapt_frame_request.pose.orientation = world_pose.transform.rotation
 
         if frame_from_scene:
-            while not self.adapt_frame_skill.wait_for_service(timeout_sec=1.0):
+            while not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
                 self._logger.error("Service 'ModifyPoseAbsolut' not available. Assembly manager started?...")
                 response.success= False
                 return response
             
-            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_skill.call(adapt_frame_request)
+            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
         else:
             result_adapt = ami_srv.ModifyPoseAbsolut.Response()
 
@@ -301,19 +306,19 @@ class VisionSkillsNode(Node):
         # Update the stored object scene
         self.object_scene = msg
                            
-    def is_gazebo_running(self)->bool:
-        """Check if the Gazebo node is active."""
-        node_names = self.get_node_names()
-        if 'gazebo' in node_names:
-            return True
-        return False
+    # def is_gazebo_running(self)->bool:
+    #     """Check if the Gazebo node is active."""
+    #     node_names = self.get_node_names()
+    #     if 'gazebo' in node_names:
+    #         return True
+    #     return False
     
-    def is_unity_running(self)->bool:
-        """Check if the Unity node is active."""
-        node_names = self.get_node_names()
-        if 'ROS2UnityCam1Publisher' in node_names:
-            return True
-        return False
+    # def is_unity_running(self)->bool:
+    #     """Check if the Unity node is active."""
+    #     node_names = self.get_node_names()
+    #     if 'ROS2UnityCam1Publisher' in node_names:
+    #         return True
+    #     return False
     
     def wait_for_initial_scene_update(self):
         while self.object_scene is None:

@@ -87,6 +87,6 @@ def generate_launch_description():
     ld.add_action(launch_pm_skills)
     #ld.add_action(launch_vision_manager)
     #ld.add_action(launch_assembly_manager)
-    #ld.add_action(pm_robot_calibration)
+    ld.add_action(pm_robot_calibration)
 
     return ld
