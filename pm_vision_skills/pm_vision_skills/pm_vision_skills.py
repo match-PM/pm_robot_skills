@@ -243,7 +243,7 @@ class VisionSkillsNode(Node):
             extention = ''
 
         if _obj_name is None:
-            measure_frame_request.vision_process_file_name = f"Assembly_Manager/Frames/{_frame_name}"
+            measure_frame_request.vision_process_file_name = f"Assembly_Manager/Frames/{_frame_name}{extention}.json"
         else:
             measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{_frame_name}{extention}.json"
 

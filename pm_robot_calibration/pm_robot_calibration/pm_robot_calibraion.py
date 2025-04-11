@@ -30,12 +30,31 @@ from ament_index_python.packages import get_package_share_directory
 
 from ros_sequential_action_programmer.submodules.pm_robot_modules.widget_pm_robot_config import VacuumGripperConfig, ParallelGripperConfig
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+import time
+import os
+import datetime
 
 TOOL_VACUUM_IDENT = 'pm_robot_vacuum_tools'
 TOOL_GRIPPER_1_JAW_IDENT = 'pm_robot_tool_parallel_gripper_1_jaw'
 TOOL_GRIPPER_2_JAW_IDENT = 'pm_robot_tool_parallel_gripper_2_jaws'
 
 class PmRobotCalibrationNode(Node):
+    INFO_TEXT = """
+    PM Robot Calibration Node
+    This node is responsible for calibrating the PM robot.
+    It provides services to calibrate the gripper, dispenser, cameras, and laser.
+    Note Calibration_Order:
+    --> 1. /pm_robot_calibration/calibrate_cameras
+    --> 2. /pm_robot_calibration/calibrate_calibration_cube_to_cam_top
+    --> 3. /pm_robot_calibration/calibrate_laser_on_calibration_cube
+    --> 4. /pm_robot_calibration/calibrate_confocal_top
+    --> 5. /pm_robot_calibration/calibrate_calibration_target_to_cam_bottom
+    --> 5. /pm_robot_calibration/calibrate_confocal_bottom
+    --> 6. /pm_robot_calibration/calibrate_gonio_left_chuck
+    --> 7. /pm_robot_calibration/calibrate_gonio_right_chuck
+    --> 8. /pm_robot_calibration/calibrate_gripper
+    --> 9. /pm_robot_calibration/calibrate_1K_dispenser
+    """
 
     def __init__(self):
         
@@ -57,9 +76,16 @@ class PmRobotCalibrationNode(Node):
         self.client_move_calibration_target_backward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveBackward')
         
         # services
+        self.calibrate_cameras_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_cameras', self.calibrate_cameras_callback, callback_group=self.callback_group)
+        self.calibrate_calibration_cube_to_cam_top_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_calibration_cube_to_cam_top', self.calibrate_calibration_cube_to_cam_top_callback, callback_group=self.callback_group)
+        self.calibrate_laser_on_calibration_cube_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_laser_on_calibration_cube', self.calibrate_laser_on_calibration_cube_callback, callback_group=self.callback_group)
+        self.calbirate_confocal_top_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_confocal_top', self.calibrate_confocal_top_callback, callback_group=self.callback_group)
+        self.calbirate_calibration_target_to_cam_bottom_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_calibration_target_to_cam_bottom', self.calibrate_calibration_target_to_cam_bottom_callback, callback_group=self.callback_group)
+        self.calbirate_confocal_bottom_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_confocal_bottom', self.calibrate_confocal_bottom_callback, callback_group=self.callback_group)
+        self.calbibrate_gonio_left_chuck_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gonio_left_chuck', self.calibrate_gonio_left_chuck_callback, callback_group=self.callback_group)
+        self.calbibrate_gonio_right_chuck_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gonio_right_chuck', self.calibrate_gonio_right_chuck_callback, callback_group=self.callback_group)
         self.calibrate_gripper_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gripper', self.calibrate_gripper_callback, callback_group=self.callback_group)
         self.calibrate_dispenser_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_1K_dispenser', self.calibrate_1K_dispenser_callback, callback_group=self.callback_group)
-        self.calibrate_cameras_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_cameras', self.calibrate_cameras_callback, callback_group=self.callback_group)
         
         # paths
         self.bringup_share_path = get_package_share_directory('pm_robot_bringup')
@@ -74,6 +100,8 @@ class PmRobotCalibrationNode(Node):
         # test_transform.translation.z = 0.1
         # test_transform.rotation.x = 1.0
         # self.save_joint_config('PM_Robot_Tool_TCP_Joint', test_transform)
+        self.get_logger().info(self.INFO_TEXT)
+        self.last_calibrations_data = {}
         
     def update_pm_robot_config(self):
         with open(self.pm_robot_config_path, 'r') as file:
@@ -134,6 +162,7 @@ class PmRobotCalibrationNode(Node):
             return False    
     
     def calibrate_cameras_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
         forward_request = EmptyWithSuccess.Request()
         forward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_forward.call(forward_request)
 
@@ -206,22 +235,166 @@ class PmRobotCalibrationNode(Node):
             return response
         
         response.success = True
+        self.last_calibrations_data['cameras'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
         return response
-        
-
 
     def calibrate_1K_dispenser_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
         frame = '1K_Dispenser_TCP'
         
         measure_success, result_vector = self.measure_frame(frame)
         
         response.success = measure_success
+        
+        self.last_calibrations_data['1K_dispenser'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
         return response
      
     def calibrate_gripper_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
         spawn_success = self.spawn_frames_for_current_gripper()
         response.success = spawn_success
+        
+        self.last_calibrations_data['gripper'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
         return response        
+    
+    def calibrate_calibration_cube_to_cam_top_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+        # To be implemented...
+        self.get_logger().error("Calibration cube to cam top not fully implemented yet...")
+
+        frames_dict_file_name = 'CF_Calibration_Qube_Cam_Top.json'
+        frames_dict_file_path = self.calibration_frame_dict_path + '/' + frames_dict_file_name
+        request = SpawnFramesFromDescription.Request()
+        request.dict_or_path = frames_dict_file_path
+
+        if not self.client_spawn_frames.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error('Assembly manager not available...')
+            response.success = False
+            return response
+        
+        spawn_response:SpawnFramesFromDescription.Response = self.client_spawn_frames.call(request)        
+        if not spawn_response.success:
+            self.get_logger().error("Failed to spawn frames for calibration cube to cam top")
+            response.success = False
+            return response
+    
+        frame_name = 'Calibration_Qube_Vision_CALIBRATION'
+
+        measure_success, result_vector = self.measure_frame(frame_name)
+        if not measure_success:
+            self.get_logger().error("Failed to measure frame")
+            response.success = False
+            return response
+        self.last_calibrations_data['calibration_cube_to_cam_top'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
+    
+    def calibrate_laser_on_calibration_cube_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+
+        # To be implemented...
+        self.get_logger().warn("Laser on calibration cube not fully implemented yet...")
+        # Move laser to calibration cube
+        move_request = MoveToFrame.Request()
+        move_request.target_frame = 'Calibration_Qube'
+        move_request.execute_movement = True
+        move_request.translation.x = -3*1e-3
+        move_request.translation.y = -3*1e-3
+        move_request.translation.z = -100e-6
+
+        while not self.pm_robot_utils.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error('Laser move service not available, waiting again...')
+            response.success = False
+            return response
+        
+        # move to intial position
+        response_move:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(move_request)
+
+        if not response_move.success:
+            self.get_logger().error("Failed to move laser to calibration cube")
+            response.success = False
+            return response
+        
+        self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, -0.002, 0.0, 0.5)
+
+        # move back to initial state
+        response_move:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(move_request)
+
+        if not response_move.success:
+            self.get_logger().error("Failed to move laser to calibration cube")
+            response.success = False
+            return response     
+
+        length = 0.002
+        total_time = 8
+        step_inc = 20e-6
+        total_steps = int(length / step_inc)
+        step_time = total_time / total_steps
+        self.get_logger().info("Total steps: " + str(total_steps))
+        self.get_logger().info("Step time: " + str(step_time))
+
+        # for i in range(total_steps):
+        #     move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(-step_inc, 0.0, 0.0, step_time)
+            
+        #     if not move_success:
+        #         self.get_logger().error("Failed to move laser ROUTINE 2")
+        #         response.success = False
+        #         return response 
+            
+        #     time.sleep(0.1)
+
+        #     laser_measurement = self.pm_robot_utils.get_laser_measurement(unit='um')
+
+        #     if laser_measurement > 300.0 or laser_measurement < -300.0:
+        #         self.get_logger().warn("Laser measurement: " + str(laser_measurement))
+
+        #response.success = True
+        self.last_calibrations_data['laser_on_calibration_cube'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
+    
+    def calibrate_confocal_top_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+        # To be implemented...
+        self.get_logger().error("Confocal top not implemented yet...")
+        self.last_calibrations_data['confocal_top'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
+    
+    def calibrate_calibration_target_to_cam_bottom_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        # To be implemented...
+        self.load_last_calibrations_data()
+        self.get_logger().error("Calibration target to cam bottom not implemented yet...")
+        self.last_calibrations_data['calibration_target_to_cam_bottom'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
+    
+    def calibrate_confocal_bottom_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+        # To be implemented...
+        self.get_logger().error("Confocal bottom not implemented yet...")
+        self.last_calibrations_data['confocal_bottom'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
+    
+    def calibrate_gonio_left_chuck_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+        # To be implemented...
+        self.get_logger().error("Gonio left chuck not implemented yet...")
+        self.last_calibrations_data['gonio_left_chuck'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
+    
+    def calibrate_gonio_right_chuck_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+        # To be implemented...
+        self.get_logger().error("Gonio right chuck not implemented yet...")
+        self.last_calibrations_data['gonio_right_chuck'] = f'{datetime.datetime.now()}'
+        self.save_last_calibrations_data()
+        return response
     
     def measure_frame(self, frame_id:str)->tuple[bool, Vector3]:
         request = MeasureFrame.Request()
@@ -275,6 +448,24 @@ class PmRobotCalibrationNode(Node):
             self._logger.error("Error: " + str(e))
             return False
         return False
+    
+    def load_last_calibrations_data(self):
+        path = get_package_share_directory('pm_robot_calibration')
+        file_name = 'last_calibrations.yaml'
+
+        if os.path.exists(path + '/' + file_name):
+            with open(path + '/' + file_name, 'r') as file:
+                self.last_calibrations_data = yaml.load(file, Loader=yaml.FullLoader)
+        else:
+            pass
+
+    def save_last_calibrations_data(self):
+        path = get_package_share_directory('pm_robot_calibration')
+        file_name = 'last_calibrations.yaml'
+
+        with open(path + '/' + file_name, 'w') as file:
+            yaml.dump(self.last_calibrations_data, file)
+            pass
         
 def main(args=None):
     rclpy.init(args=args)

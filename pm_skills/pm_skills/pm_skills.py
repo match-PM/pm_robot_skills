@@ -16,7 +16,6 @@ import std_msgs.msg as std_msg
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 import pm_moveit_interfaces.srv as pm_moveit_srv
-from pm_msgs.srv import LaserGetMeasurement
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 
 from pm_msgs.srv import EmptyWithSuccess
@@ -40,6 +39,7 @@ from assembly_scene_publisher.py_modules.scene_functions import (get_parent_of_c
                                                                  is_component_assembled,
                                                                  get_global_statonary_component)
 
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 
 class PmSkills(Node):
     
@@ -58,6 +58,8 @@ class PmSkills(Node):
 
         self.callback_group_me = MutuallyExclusiveCallbackGroup()
         self.callback_group_re = ReentrantCallbackGroup()
+        self.pm_robot_utils = PmRobotUtils(self)
+        self.pm_robot_utils.start_object_scene_subscribtion()
 
         self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.place_component_callback,callback_group=self.callback_group_me)
@@ -80,13 +82,10 @@ class PmSkills(Node):
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.align_gonio_right_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.align_gonio_left_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_left')
-
-        self.move_robot_laser_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
         
         self.vacuum_gripper_on_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
-        self.get_laser_mes_client = self.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.uv_cure_clinet = self.create_client(UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
         self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10, callback_group=self.callback_group_re)
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
@@ -99,9 +98,7 @@ class PmSkills(Node):
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        
-        self.logger.info(f"PM Skills node started! Gazabo running: {self.is_gazebo_running()}")
-    
+            
     def grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
        
@@ -333,7 +330,7 @@ class PmSkills(Node):
     def vaccum_gripper_callback(self, request:pm_skill_srv.VacuumGripper.Request, response:pm_skill_srv.VacuumGripper.Response):
         """Mimics the vacuum gripper funtionality by activating/deactivating the vacuum and changing the parent frame"""
 
-        sim_time = self.is_gazebo_running()
+        sim_time = self.pm_robot_utils.is_gazebo_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
 
         assembly_and_target_frames = self.get_assembly_and_target_frames()      
@@ -551,7 +548,7 @@ class PmSkills(Node):
     def move_laser_to_frame(self, frame_name:str, z_offset=None)-> bool:
         call_async = False
 
-        if not self.move_robot_laser_client.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/move_laser_to_frame' not available")
             return False
         
@@ -563,56 +560,16 @@ class PmSkills(Node):
             req.translation.z = z_offset
 
         if call_async:
-            future = self.move_robot_laser_client.call_async(req)
+            future = self.pm_robot_utils.client_move_robot_laser_to_frame.call_async(req)
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
                 return False
             return future.result().success
         else:
-            response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_laser_client.call(req)
+            response:pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(req)
             return response.success
     
-    def get_laser_measurement(self, unit:str = "m")-> float:
-        """
-        Method to get the laser measurement from the laser sensor
-        
-
-        Returns:
-            float: _description_
-        """
-        call_async = False
-
-        if not self.get_laser_mes_client.wait_for_service(timeout_sec=1.0):
-            self.logger.error("Service '/pm_sensor_controller/Laser/GetMeasurement' not available")
-            return None
-        
-        req = LaserGetMeasurement.Request()
-
-        if call_async:
-            future = self.get_laser_mes_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-            if future.result() is None:
-                self.logger.error('Service call failed %r' % (future.exception(),))
-                return None
-            response= future.result()
-            
-        else:
-            response:LaserGetMeasurement.Response = self.get_laser_mes_client.call(req)
-        
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
-            
-            
-        return response.measurement * multiplier
       
     def measure_with_laser_callback(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
@@ -628,7 +585,7 @@ class PmSkills(Node):
         correction_distance = 0.0003
         z_offset = 0.0
         for iteration in range(max_iterations):
-            laser_measurement = self.get_laser_measurement(unit="m")
+            laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m")
             sign = self.check_laser_measurement_out_of_range(laser_measurement)
 
             # if valid laser measurement
@@ -659,7 +616,7 @@ class PmSkills(Node):
     
     def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         _obj_name, _frame_name =  is_frame_from_scene(self.object_scene, request.frame_name)
 
         self._logger.warn(f"Correcting frame: {request.frame_name}...")
@@ -711,29 +668,28 @@ class PmSkills(Node):
         
         return response
     
-      
-    def move_gripper_to_relative(self, frame_name:str)-> bool:
-        call_async = False
+    # def move_gripper_to_relative(self, frame_name:str)-> bool:
+    #     call_async = False
 
-        if not self.move_robot_tool_client.wait_for_service(timeout_sec=1.0):
-            self.logger.error("Service '/pm_moveit_server/move_tool_to_frame' not available")
-            return False
+    #     if not self.move_robot_tool_client.wait_for_service(timeout_sec=1.0):
+    #         self.logger.error("Service '/pm_moveit_server/move_tool_to_frame' not available")
+    #         return False
         
-        req = pm_moveit_srv.MoveToFrame.Request()
-        req.target_frame = frame_name
-        req.execute_movement = True
-        req.translation.z = 0.0000001
+    #     req = pm_moveit_srv.MoveToFrame.Request()
+    #     req.target_frame = frame_name
+    #     req.execute_movement = True
+    #     req.translation.z = 0.0000001
 
-        if call_async:
-            future = self.move_robot_tool_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-            if future.result() is None:
-                self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
-        else:
-            response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(req)
-            return response.success
+    #     if call_async:
+    #         future = self.move_robot_tool_client.call_async(req)
+    #         rclpy.spin_until_future_complete(self, future)
+    #         if future.result() is None:
+    #             self.logger.error('Service call failed %r' % (future.exception(),))
+    #             return False
+    #         return future.result().success
+    #     else:
+    #         response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(req)
+    #         return response.success
         
     def attach_component_to_gripper(self, component_name:str)-> bool:
         call_async = False
@@ -855,7 +811,6 @@ class PmSkills(Node):
 
         return response 
     
-
     def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
         self.object_scene = msg
     
@@ -883,7 +838,7 @@ class PmSkills(Node):
     
     # delete
     def get_parent_of_object(self, object_name:str):
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         for obj in self.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.obj_name == object_name:
@@ -938,7 +893,7 @@ class PmSkills(Node):
         return False
 
     def is_gripper_empthy(self)-> bool:
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         if self.object_scene is None:
             raise ValueError("Object scene not available!")
@@ -953,7 +908,7 @@ class PmSkills(Node):
 
     # delete
     def check_object_exists(self, object_name:str)-> bool:
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         if self.object_scene is None:
             return False
         
@@ -964,7 +919,7 @@ class PmSkills(Node):
         return False
 
     def get_gripped_component(self)-> str:
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         for obj in self.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.parent_frame == self.PM_ROBOT_GRIPPER_FRAME:
@@ -974,7 +929,7 @@ class PmSkills(Node):
     # delete
     def get_assembly_and_target_frames(self)-> list[tuple[str,str]]:
         frames = []
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         for obj in self.object_scene.objects_in_scene:
             obj:ami_msg.Object
             for frame in obj.ref_frames:
@@ -1008,7 +963,7 @@ class PmSkills(Node):
 
     # delete
     def get_component_for_frame_name(self, frame_name:str)-> str:
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         for obj in self.object_scene.objects_in_scene:
             obj:ami_msg.Object
             for frame in obj.ref_frames:
@@ -1019,7 +974,7 @@ class PmSkills(Node):
 
     # delete
     def get_list_of_components(self)-> list[str]:
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
         components = []
         for obj in self.object_scene.objects_in_scene:
             obj:ami_msg.Object
@@ -1032,7 +987,7 @@ class PmSkills(Node):
         Returns the name of the component that is not moved among all of the components.
         """
 
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         components = self.get_list_of_components()
         
@@ -1043,7 +998,7 @@ class PmSkills(Node):
     # delete
     def is_component_stationary(self, component_name:str)-> bool:
 
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         is_stationary = True
         for instruction in self.object_scene.assembly_instructions:
@@ -1058,7 +1013,7 @@ class PmSkills(Node):
 
     # delete
     def is_component_assembled(self, component_name:str)-> bool:
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         is_assembled = False
 
@@ -1076,7 +1031,7 @@ class PmSkills(Node):
     def get_components_to_assemble(self)-> list[str]:
         components_to_assembly = []
 
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         for instruction in self.object_scene.assembly_instructions:
             instruction:ami_msg.AssemblyInstruction
@@ -1097,7 +1052,7 @@ class PmSkills(Node):
         """
         The component to find the matches for should be the stationary component.
         """
-        self.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         matches = []
         for instruction in self.object_scene.assembly_instructions:
@@ -1122,17 +1077,6 @@ class PmSkills(Node):
                     matches.append(instruction.component_1)
         return matches
 
-    def wait_for_initial_scene_update(self):
-        while self.object_scene is None:
-            self.logger.warn("Waiting for object scene to be updated...")
-            time.sleep(0.1)
-
-    def is_gazebo_running(self):
-        """Check if the Gazebo node is active."""
-        node_names = self.get_node_names()
-        if 'gazebo' in node_names:
-            return True
-        return False
 
 def main(args=None):
     rclpy.init(args=args)
