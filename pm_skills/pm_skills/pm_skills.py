@@ -62,7 +62,6 @@ class PmSkills(Node):
         self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.place_component_callback,callback_group=self.callback_group_me)
         self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
-        #self.vision_service = self.create_service(ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
         
         self.vacuum_gripper_service = self.create_service(pm_skill_srv.VacuumGripper, "pm_skills/vacuum_gripper", self.vaccum_gripper_callback, callback_group=self.callback_group_me)
     
