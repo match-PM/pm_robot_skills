@@ -36,6 +36,11 @@ class PmRobotUtils():
     REAL_MODE = 0
     UNITY_MODE = 1
     GAZEBO_MODE = 2
+    
+    X_Axis_JOINT_NAME = 'X_Axis_Joint'
+    Y_Axis_JOINT_NAME = 'Y_Axis_Joint'
+    Z_Axis_JOINT_NAME = 'Z_Axis_Joint'
+    T_Acis_JOINT_NAME = 'T_Axis_Joint'
 
     def __init__(self, node:Node):
         self._node = node
@@ -47,8 +52,9 @@ class PmRobotUtils():
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
 
         self.object_scene:ami_msg.ObjectScene = None
-        self.xyt_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
-
+        self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
+        self.t_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_t_axis_controller/follow_joint_trajectory')
+        
         self.joint_state_sub = self._node.create_subscription(
                                 JointState,
                                 '/joint_states',
@@ -57,6 +63,9 @@ class PmRobotUtils():
                                 )
         
         self._current_joint_state_positions = {}
+        
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self._node)
 
     def start_object_scene_subscribtion(self):
         self.objcet_scene_subscriber = self._node.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10)
@@ -143,6 +152,19 @@ class PmRobotUtils():
         success = self._send_goal(goal)
         return success
 
+    def send_t_trajectory_goal_absolut(self, t_joint:float, time:float = 5)->bool:
+        """Send a goal to the robot."""
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory.joint_names = [self.T_Acis_JOINT_NAME]
+        point = JointTrajectoryPoint()
+
+        point.positions = [float(t_joint)]
+        point.time_from_start =self.float_to_ros_duration(time)
+        goal.trajectory.points.append(point)
+        
+        success = self._send_goal(goal)
+        return success
+    
     def send_xyz_trajectory_goal_relative(self, x_joint_rel:float, 
                                         y_joint_rel:float, 
                                         z_joint_rel:float,
@@ -166,8 +188,8 @@ class PmRobotUtils():
         return success
     
     def _send_goal(self, goal:FollowJointTrajectory.Goal)->bool:
-            self.xyt_joint_client.wait_for_server()
-            result= self.xyt_joint_client.send_goal(goal)
+            self.xyz_joint_client.wait_for_server()
+            result= self.xyz_joint_client.send_goal(goal)
             result:FollowJointTrajectory.Result = result.result
 
             if result is None:

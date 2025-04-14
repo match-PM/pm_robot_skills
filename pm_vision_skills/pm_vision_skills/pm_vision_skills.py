@@ -137,7 +137,7 @@ class VisionSkillsNode(Node):
         if (self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE or 
             self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE):
 
-            while not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+            if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
                 self._logger.error("Service 'ExecuteVision' not available...")
                 response.success= False
                 return response
@@ -147,48 +147,58 @@ class VisionSkillsNode(Node):
             #     self._logger.error("Vision client not available...")
             #     response.success= False
             #     return response
+            #self._logger.warn(f"Executing vision process for frame: {request.frame_name}...")
+            #self._logger.warn(f"Using process file: {vision_request.process_filename}...")
+            #self._logger.warn(f"Using camera config file: {vision_request.camera_config_filename}...")
             
             result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
 
+            if not result.success:
+                self._logger.error("Vision process failed...")
+                response.success= False
+                return response
+            
             detected_circles = result.vision_response.results.circles
 
             #self._logger.warn(f"Result: {str(result.vision_response.results)}")
 
+            multiplier = 0.000001 # Convert to m  
+            
             if len(detected_circles) == 0:
                 self._logger.warn("No circles detected...")
             
             else:
                 result_vector = Vector3()
-                detected_point:vision_msg.VisionCircle = detected_circles[0]
-                if detected_point.axis_suffix_1 == 'x' or detected_point.axis_suffix_1 == 'X':
-                    result_vector.x = detected_point.axis_value_1
+                detected_cricle:vision_msg.VisionCircle = detected_circles[0]
+                
+                if detected_cricle.center_point.axis_suffix_1 == 'x' or detected_cricle.center_point.axis_suffix_1 == 'X':
+                    result_vector.x = detected_cricle.center_point.axis_value_1*multiplier
                     
-                if detected_point.axis_suffix_1 == 'y' or detected_point.axis_suffix_1 == 'Y':
-                    result_vector.y = detected_point.axis_value_1
+                if detected_cricle.center_point.axis_suffix_1 == 'y' or detected_cricle.center_point.axis_suffix_1 == 'Y':
+                    result_vector.y = detected_cricle.center_point.axis_value_1*multiplier
 
-                if detected_point.axis_suffix_1 == 'z' or detected_point.axis_suffix_1 == 'Z':
-                    result_vector.z = detected_point.axis_value_1
+                if detected_cricle.center_point.axis_suffix_1 == 'z' or detected_cricle.center_point.axis_suffix_1 == 'Z':
+                    result_vector.z = detected_cricle.center_point.axis_value_1*multiplier
 
-                if detected_point.axis_suffix_2 == 'x' or detected_point.axis_suffix_2 == 'X':
-                    result_vector.x = detected_point.axis_value_2
+                if detected_cricle.center_point.axis_suffix_2 == 'x' or detected_cricle.center_point.axis_suffix_2 == 'X':
+                    result_vector.x = detected_cricle.center_point.axis_value_2*multiplier
 
-                if detected_point.axis_suffix_2 == 'y' or detected_point.axis_suffix_2 == 'Y':
-                    result_vector.y = detected_point.axis_value_2
+                if detected_cricle.center_point.axis_suffix_2 == 'y' or detected_cricle.center_point.axis_suffix_2 == 'Y':
+                    result_vector.y = detected_cricle.center_point.axis_value_2*multiplier
 
-                if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
-                    result_vector.z = detected_point.axis_value_2
+                if detected_cricle.center_point.axis_suffix_2 == 'z' or detected_cricle.center_point.axis_suffix_2 == 'Z':
+                    result_vector.z = detected_cricle.center_point.axis_value_2*multiplier
 
             detected_points = result.vision_response.results.points
 
             if len(detected_points) == 0:
                 self._logger.warn("No points detected...")
-                response.success= False
-                return response
+
             else:
                 self._logger.warn(f"Detected points: {detected_points}")
                 detected_point:vision_msg.VisionPoint = detected_points[0]
                 result_vector = Vector3()
-                multiplier = 0.000001 # Convert to m  
+                
                 if detected_point.axis_suffix_1 == 'x' or detected_point.axis_suffix_1 == 'X':
                     result_vector.x = detected_point.axis_value_1*multiplier
                 
@@ -206,6 +216,11 @@ class VisionSkillsNode(Node):
 
                 if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
                     result_vector.z = detected_point.axis_value_2*multiplier
+            
+            if len(detected_points) == 0 and len(detected_circles) == 0:
+                self._logger.error("No points and circles detected...")
+                response.success= False
+                return response
             
             result_vector.x = -result_vector.x
             result_vector.y = -result_vector.y
