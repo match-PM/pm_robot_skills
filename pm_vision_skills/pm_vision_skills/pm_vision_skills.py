@@ -64,7 +64,7 @@ class VisionSkillsNode(Node):
             response.success= False
             return response
         
-        while not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'ExecuteVision' not available...")
             response.success= False
             return response
@@ -91,15 +91,18 @@ class VisionSkillsNode(Node):
             self._logger.error("Gazebo mode is not supported for this operation...")
             return response
 
-        while not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
+        #if not self.pm_robot_utils.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'MoveCamToFrame' not available...")
             response.success= False
             return response
         
+        #result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_tool_to_frame.call(move_request)
         result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
-        
-        #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
 
+        #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
+        
+        # If the tool cannot be moved to the bottom camera, try to move it to the top camera
         if not result_tool_to_bottom_cam.success:
             self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
 
@@ -120,7 +123,7 @@ class VisionSkillsNode(Node):
             move_request.execute_movement = True
             move_request.target_frame = request.frame_name
 
-            while not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
+            if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
                 self._logger.error("Service 'MoveCamToFrame' not available...")
                 response.success= False
                 return response
@@ -227,8 +230,8 @@ class VisionSkillsNode(Node):
             result_vector.z = -result_vector.z
             response.result_vector = result_vector     
             response.success = result.success
-
-            self._logger.info(f"Vision process executed...{result}")
+            
+            #self._logger.info(f"Vision process executed...{result}")
         else:
             # Gazebo is running
             response.success = True
@@ -287,14 +290,15 @@ class VisionSkillsNode(Node):
         adapt_frame_request.pose.position.z = world_pose.transform.translation.z
         adapt_frame_request.pose.orientation = world_pose.transform.rotation
 
-        while not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'ModifyPoseAbsolut' not available...")
             response.success= False
             return response
         
         result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
-
         response.success = result_adapt.success
+        
+        #response.success = True
 
         return response
     

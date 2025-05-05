@@ -149,7 +149,7 @@ class PmRobotUtils():
         point.time_from_start =self.float_to_ros_duration(time)
         goal.trajectory.points.append(point)
         
-        success = self._send_goal(goal)
+        success = self._send_goal_xyz(goal)
         return success
 
     def send_t_trajectory_goal_absolut(self, t_joint:float, time:float = 5)->bool:
@@ -162,7 +162,7 @@ class PmRobotUtils():
         point.time_from_start =self.float_to_ros_duration(time)
         goal.trajectory.points.append(point)
         
-        success = self._send_goal(goal)
+        success = self._send_goal_t(goal)
         return success
     
     def send_xyz_trajectory_goal_relative(self, x_joint_rel:float, 
@@ -184,10 +184,10 @@ class PmRobotUtils():
         
         point.time_from_start = self.float_to_ros_duration(time)
         goal.trajectory.points.append(point)
-        success = self._send_goal(goal)
+        success = self._send_goal_xyz(goal)
         return success
     
-    def _send_goal(self, goal:FollowJointTrajectory.Goal)->bool:
+    def _send_goal_xyz(self, goal:FollowJointTrajectory.Goal)->bool:
             self.xyz_joint_client.wait_for_server()
             result= self.xyz_joint_client.send_goal(goal)
             result:FollowJointTrajectory.Result = result.result
@@ -195,16 +195,90 @@ class PmRobotUtils():
             if result is None:
                 self._node.get_logger().info('Goal rejected.')
                 return False
-            if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
-                #self._node.get_logger().info('Goal accepted.')
-                return True 
             if result.error_code == FollowJointTrajectory.Result.INVALID_GOAL:
                 self._node.get_logger().info('Goal rejected.')
                 return False
             if result.error_code == FollowJointTrajectory.Result.INVALID_JOINTS:
                 self._node.get_logger().info('Goal rejected. Invalid joints.')
                 return False
+            
+            if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
+                wait_success = self.wait_for_joints_reached(
+                    joint_names=[self.X_Axis_JOINT_NAME, self.Y_Axis_JOINT_NAME, self.Z_Axis_JOINT_NAME],
+                    target_joint_values=[goal.trajectory.points[0].positions[0],
+                                        goal.trajectory.points[0].positions[1],
+                                        goal.trajectory.points[0].positions[2]],
+                    tolerance=[0.000001],
+                    timeout=5.0)
+                return wait_success
+    
+    def _send_goal_t(self, goal:FollowJointTrajectory.Goal)->bool:
+            self.t_joint_client.wait_for_server()
+            result= self.t_joint_client.send_goal(goal)
+            result:FollowJointTrajectory.Result = result.result
+
+            if result is None:
+                self._node.get_logger().info('Goal rejected.')
+                return False
+            if result.error_code == FollowJointTrajectory.Result.INVALID_GOAL:
+                self._node.get_logger().info('Goal rejected.')
+                return False
+            if result.error_code == FollowJointTrajectory.Result.INVALID_JOINTS:
+                self._node.get_logger().info('Goal rejected. Invalid joints.')
+                return False
+            
+            
+            if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
+                #self._node.get_logger().info('Goal accepted.')
                 
+                target_joint_value = goal.trajectory.points[0].positions[0]
+                self._node._logger.warn(f"Waiting for joints to be reached...{target_joint_value}")
+                wait_success = self.wait_for_joints_reached(
+                    joint_names=[self.T_Acis_JOINT_NAME],
+                    target_joint_values=[target_joint_value],
+                    tolerance=[0.0001],
+                    timeout=5.0)
+                
+                return wait_success 
+    
+    def wait_for_joints_reached(self, 
+                                joint_names:list[str], 
+                                target_joint_values:list[float], 
+                                tolerance:list[float],
+                                timeout:float = 5.0)->bool:
+        
+        """
+        Wait for the robot to reach the desired joint positions.
+        Args:
+            joint_names (list[str]): List of joint names.   
+            joint_values (list[float]): List of joint values.
+            tolerance (list[float]): List of tolerances for each joint.
+            timeout (float): Timeout in seconds.
+        Returns:
+
+            bool: True if the robot reached the desired joint positions, False otherwise.
+        """
+        start_time = time.time()
+        while True:
+            current_joint_positions = [self.get_current_joint_state(name) for name in joint_names]
+            if None in current_joint_positions:
+                self._node.get_logger().error("Joint state not available.")
+                return False
+            
+            reached = True
+            for i, (current_position, target_position, tol) in enumerate(zip(current_joint_positions, target_joint_values, tolerance)):
+                if abs(current_position - target_position) > tol:
+                    reached = False
+                    break
+            
+            if reached:
+                self._node.get_logger().info("Robot reached the desired joint positions.")
+                return True
+            
+            if time.time() - start_time > timeout:
+                self._node.get_logger().error("Timeout waiting for joint positions.")
+                return False
+        
     def joint_state_callback(self, msg: JointState):
         for name, position in zip(msg.name, msg.position):
             self._current_joint_state_positions[name] = position

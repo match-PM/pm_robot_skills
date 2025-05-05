@@ -25,6 +25,8 @@ from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerSce
 from assembly_manager_interfaces.srv import SpawnFramesFromDescription
 from pm_msgs.srv import EmptyWithSuccess
 import numpy as np
+from circle_fit import circle_fit
+import matplotlib.pyplot as plt
 
 # import get_package_share_directory
 from ament_index_python.packages import get_package_share_directory
@@ -306,45 +308,109 @@ class PmRobotCalibrationNode(Node):
     
     def calibrate_gripper_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         self.load_last_calibrations_data()
+        
         spawn_success, frames = self.spawn_frames_for_current_gripper()
-        response.success = spawn_success
         
-        frame_poses_list = []
+        if not spawn_success:
+            self.get_logger().error("Failed to spawn gripper frames...")
+            response.success = False
+            return response
+                
+        #rotations = [0.0, 20, 30, 40, 50, 60, 80]
+        rotations = [90, 65, 55, 45, 35, 25, 0]
         
-        #self._logger.info("Gripper frames spawned: " + str(frames))
-        
-        rotations = [0.0, 20, 40, 60]
-        
+        #rotations = [60, 40, 20, 0]
+
         # convert to rad
         rotations = [r * np.pi / 180.0 for r in rotations]
         
-        for rotation in rotations:
+        distance_list: list[float] = []  
+        frame_poses_list:list[Pose] = []      
+        for index, rotation in enumerate(rotations):
             move_success = self.pm_robot_utils.send_t_trajectory_goal_absolut(rotation, 1.0)
             self.get_logger().error("Gripper rotation: " + str(rotation))
             if not move_success:
                 self.get_logger().error("Failed to move gripper to rotation: " + str(rotation))
                 response.success = False
                 return response
-            
+                        
             for frame in frames:
+                                
                 if 'Vision' in frame or 'vision' in frame:
                     correct_frame_success = self.correct_frame(frame)
+                    #correct_frame_success = self.measure_frame(frame)
                     
                     if not correct_frame_success:
                         self.get_logger().error("Failed to correct frame: " + frame)
                         response.success = False
                         return response
-                    
-                    ref_frame = get_ref_frame_by_name(self.pm_robot_utils.object_scene, 'CALIBRATION_PM_Robot_Tool_TCP')
-                    
-                    if ref_frame is None:
-                        self.get_logger().error("Failed to get reference frame...")
-                        response.success = False
-                        return response
-                    
-                    frame_poses_list.append(copy.deepcopy(ref_frame.pose))
+              
+            ref_frame = get_ref_frame_by_name(self.pm_robot_utils.object_scene, 'CALIBRATION_PM_Robot_Tool_TCP')
+            
+            if ref_frame is None:
+                self.get_logger().error("Failed to get reference frame...")
+                response.success = False
+                return response
+            
+            if index !=0:
+                pose_1 = frame_poses_list[index-1]
+                pose_2 = ref_frame.pose
+                distance = np.sqrt((pose_1.position.x - pose_2.position.x)**2 + (pose_1.position.y - pose_2.position.y)**2)
+                distance_list.append(distance)
+
+
+            frame_poses_list.append(copy.deepcopy(ref_frame.pose))
         
-        self._logger.info("Gripper frame poses: " + str(frame_poses_list))
+        relative_transform:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+                                    from_frame="CALIBRATION_PM_Robot_Tool_TCP",
+                                    to_frame="CALIBRATION_PM_Robot_Tool_TCP_initial",
+                                    tf_buffer=self.pm_robot_utils.tf_buffer,
+                                    logger=self._logger)
+        
+        min_distance = min(distance_list)
+        # fit a circle to the points to find the center
+                
+        #2.3656241026821336e-07
+        self._logger.info("Min distance: " + str(min_distance * 1e6) + " um")
+        self._logger.info(f" length of frame_poses_list: {len(frame_poses_list)}")
+        
+        # check if the fit is good
+        if distance > 20 * 1e-6:
+            x,y,r,s = self.find_circle_coordinates(copy.copy(frame_poses_list))
+            self._logger.info("Circle center: " + str(x) + ", " + str(y) + ", radius (um): " + str(r* 1e6) + ", s: " + str(s))
+            
+            rel_t_joint = Transform()
+            rel_t_joint.translation.x = -1*(relative_transform.translation.x - x)
+            rel_t_joint.translation.y = -1*(relative_transform.translation.y - y)
+            
+            relative_transform.translation.x = x
+            relative_transform.translation.y = y
+            
+            self._logger.warn(f"T-Axis has offset: {x* 1e6}, {y* 1e6} um")
+            
+            self._logger.error(f"Translation of the rotation point")
+            self._logger.error(f"x offset: {rel_t_joint.translation.x * 1e6} um")
+            self._logger.error(f"y offset: {rel_t_joint.translation.y * 1e6} um")
+            
+            self.save_joint_config('T_Axis_Joint', rel_t_joint)
+            
+            self.plot_gripper_calibration_poses(copy.copy(frame_poses_list),
+                                                radius=r,
+                                                circle_x=x,
+                                                circle_y=y)
+            
+        # assuming the gripper is at the center of the circle
+        else:
+            self._logger.warn("T-Axis has no offset...")
+
+        # log relavite pose
+        #self._logger.error("Relative pose: " + str(relative_transform))
+        self._logger.error("Translation of the gripper tip")
+        self._logger.error(f"x offset: {relative_transform.translation.x * 1e6} um")
+        self._logger.error(f"y offset: {relative_transform.translation.y * 1e6} um")
+        
+        self.save_joint_config('PM_Robot_Tool_TCP_Joint', relative_transform)
+        
         self.last_calibrations_data['gripper'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         return response        
@@ -352,6 +418,42 @@ class PmRobotCalibrationNode(Node):
     ###########################################
     ### calibration_cube_to_cam_top ###########
     ###########################################
+
+    def find_circle_coordinates(self, poses:list[Pose]):
+        points = []
+        for pose in poses:
+            points.append([pose.position.x*1e6, pose.position.y*1e6])    
+        # Fit a circle to the points
+        x, y, r, s = circle_fit.hyperLSQ(points)
+        x = x * 1e-6
+        y = y * 1e-6
+        r = r * 1e-6
+        return x,y,r,s
+    
+    def plot_gripper_calibration_poses(self, frame_poses_list: list[Pose], 
+                                    radius: float, 
+                                    circle_x: float, 
+                                    circle_y: float):
+
+        fig, ax = plt.subplots()
+        ax.set_title('Gripper Calibration Poses')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+
+        for pose in frame_poses_list:
+            x = pose.position.x * 1e6
+            y = pose.position.y * 1e6
+            ax.scatter(x, y, c='r', marker='o')
+
+        # Create and add the circle to the axes
+        circle = plt.Circle((circle_x * 1e6, circle_y * 1e6), radius * 1e6, color='b', fill=False)
+        ax.add_patch(circle)  # ← This is what was missing
+
+        ax.grid(True)
+        ax.set_aspect('equal')  # Ensures circle is not distorted
+        #plt.show()
+        #save the figure
+        fig.savefig(f'{self.calibration_frame_dict_path}/gripper_calibration_poses.png')
     
     def calibrate_calibration_cube_to_cam_top_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         self.load_last_calibrations_data()
@@ -667,7 +769,7 @@ class PmRobotCalibrationNode(Node):
             calibration_config[joint_name]['rx_offset'] = float(roll)
             calibration_config[joint_name]['ry_offset'] = float(pitch)
             calibration_config[joint_name]['rz_offset'] = float(yaw)
-            print(roll, pitch, yaw)
+            
         except FileNotFoundError:
             calibration_config = {}
         except Exception as e:
@@ -678,7 +780,7 @@ class PmRobotCalibrationNode(Node):
             with open(file_path, 'w') as file:
                 yaml.dump(calibration_config, file)
                 pass
-            print("Calibration config saved to: " + file_path)
+            #print("Calibration config saved to: " + file_path)
             return True
         except Exception as e:
             self._logger.error("Error: " + str(e))
