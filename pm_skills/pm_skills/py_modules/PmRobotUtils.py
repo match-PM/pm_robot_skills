@@ -30,7 +30,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 from sensor_msgs.msg import JointState
 from pm_msgs.srv import LaserGetMeasurement
 
-
+from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
 class PmRobotUtils():
 
     REAL_MODE = 0
@@ -63,6 +63,8 @@ class PmRobotUtils():
                                 )
         
         self._current_joint_state_positions = {}
+        
+        self.pm_robot_config = PmRobotConfig()
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self._node)

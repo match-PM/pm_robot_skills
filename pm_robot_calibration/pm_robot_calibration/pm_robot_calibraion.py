@@ -107,36 +107,39 @@ class PmRobotCalibrationNode(Node):
         self.calibration_frame_dict_path = get_package_share_directory('pm_robot_description') + '/urdf/urdf_configs/calibration_frame_dictionaries'
         self.pm_robot_config_path = self.bringup_share_path + '/config/pm_robot_bringup_config.yaml'
 
-        self.update_pm_robot_config()
+        #self.update_pm_robot_config()
 
         self.get_logger().info(self.INFO_TEXT)
         self.last_calibrations_data = {}
         
     def update_pm_robot_config(self):
-        with open(self.pm_robot_config_path, 'r') as file:
-            self.pm_robot_config = yaml.load(file, Loader=yaml.FullLoader)
-        self.vacuum_gripper_config = VacuumGripperConfig(TOOL_VACUUM_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_VACUUM_IDENT])
-        self.parallel_gripper_1_jaw_config = ParallelGripperConfig(TOOL_GRIPPER_1_JAW_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_GRIPPER_1_JAW_IDENT])
-        self.parallel_gripper_2_jaw_config = ParallelGripperConfig(TOOL_GRIPPER_2_JAW_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_GRIPPER_2_JAW_IDENT])
+        self.pm_robot_utils.pm_robot_config.reload_config()
+        # with open(self.pm_robot_config_path, 'r') as file:
+        #     self.pm_robot_config = yaml.load(file, Loader=yaml.FullLoader)
+        # self.vacuum_gripper_config = VacuumGripperConfig(TOOL_VACUUM_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_VACUUM_IDENT])
+        # self.parallel_gripper_1_jaw_config = ParallelGripperConfig(TOOL_GRIPPER_1_JAW_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_GRIPPER_1_JAW_IDENT])
+        # self.parallel_gripper_2_jaw_config = ParallelGripperConfig(TOOL_GRIPPER_2_JAW_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_GRIPPER_2_JAW_IDENT])
         
     def get_gripper_calibration_frame_dictionary(self)->dict:
         calibration_frame_dict = {}
         file_path = None
         
-        if self.vacuum_gripper_config.get_activate_status():
-            print("Vacuum gripper calibration frame dictionary")
-            file_name = self.vacuum_gripper_config.get_calibration_frame_dict_file_name()
-            file_path = self.calibration_frame_dict_path + '/' + file_name 
+        file_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_calibration_frame_dict_file_name()
+        file_path = self.calibration_frame_dict_path + '/' + file_name 
+
+        # if self.vacuum_gripper_config.get_activate_status():
+        #     print("Vacuum gripper calibration frame dictionary")
+        #     file_name = self.vacuum_gripper_config.get_calibration_frame_dict_file_name()
         
-        elif self.parallel_gripper_1_jaw_config.get_activate_status():
-            print("Parallel gripper 1 jaw calibration frame dictionary")
-            file_name = self.parallel_gripper_1_jaw_config.get_calibration_frame_dict_file_name()
-            file_path = self.calibration_frame_dict_path + '/' + file_name
+        # elif self.parallel_gripper_1_jaw_config.get_activate_status():
+        #     print("Parallel gripper 1 jaw calibration frame dictionary")
+        #     file_name = self.parallel_gripper_1_jaw_config.get_calibration_frame_dict_file_name()
+        #     file_path = self.calibration_frame_dict_path + '/' + file_name
             
-        elif self.parallel_gripper_2_jaw_config.get_activate_status():
-            print("Parallel gripper 2 jaws calibration frame dictionary")
-            file_name = self.parallel_gripper_2_jaw_config.get_calibration_frame_dict_file_name()
-            file_path = self.calibration_frame_dict_path + '/' + file_name
+        # elif self.parallel_gripper_2_jaw_config.get_activate_status():
+        #     print("Parallel gripper 2 jaws calibration frame dictionary")
+        #     file_name = self.parallel_gripper_2_jaw_config.get_calibration_frame_dict_file_name()
+        #     file_path = self.calibration_frame_dict_path + '/' + file_name
             
         # open the file and load the calibration frame dictionary
         try:
