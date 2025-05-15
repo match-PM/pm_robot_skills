@@ -108,6 +108,7 @@ class PmRobotCalibrationNode(Node):
         self.pm_robot_config_path = self.bringup_share_path + '/config/pm_robot_bringup_config.yaml'
 
         #self.update_pm_robot_config()
+        self.get_logger().warn(f"Check!")
 
         self.get_logger().info(self.INFO_TEXT)
         self.last_calibrations_data = {}
@@ -204,6 +205,7 @@ class PmRobotCalibrationNode(Node):
     ###########################################
     
     def calibrate_cameras_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self._logger.warn("Starting Camera calibration!")
         self.load_last_calibrations_data()
         forward_request = EmptyWithSuccess.Request()
         backward_request = EmptyWithSuccess.Request()
@@ -235,7 +237,7 @@ class PmRobotCalibrationNode(Node):
         # measure frame with bottom cam
         request_execute_vision_bottom = ExecuteVision.Request()
         request_execute_vision_bottom.camera_config_filename = self.pm_robot_utils.get_cam_file_name_bottom()
-        request_execute_vision_bottom.image_display_time = 5
+        request_execute_vision_bottom.image_display_time = 10
         request_execute_vision_bottom.process_filename = "PM_Robot_Calibration/Camera_Calibration_Bottom_Process.json"
 
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
@@ -255,7 +257,7 @@ class PmRobotCalibrationNode(Node):
         # measure frame with bottom cam
         request_execute_vision_top = ExecuteVision.Request()
         request_execute_vision_top.camera_config_filename = self.pm_robot_utils.get_cam_file_name_top()
-        request_execute_vision_top.image_display_time = 5
+        request_execute_vision_top.image_display_time = 10
         request_execute_vision_top.process_filename = "PM_Robot_Calibration/Camera_Calibration_Top_Process.json"
 
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
@@ -294,15 +296,19 @@ class PmRobotCalibrationNode(Node):
     ###########################################
     
     def calibrate_1K_dispenser_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
-        self.load_last_calibrations_data()
-        frame = '1K_Dispenser_TCP'
+        #self.load_last_calibrations_data()
+        #frame = '1K_Dispenser_TCP'
         
-        measure_success, result_vector = self.measure_frame(frame)
+        data1 = self.pm_robot_utils.get_confocal_bottom_measurement()
+        data2 = self.pm_robot_utils.get_confocal_top_measurement()
+        self.get_logger().warn(f"Data {str(data1)}, {str(data2)}")
+
+        #measure_success, result_vector = self.measure_frame(frame)
         
-        response.success = measure_success
+        #response.success = measure_success
         
-        self.last_calibrations_data['1K_dispenser'] = f'{datetime.datetime.now()}'
-        self.save_last_calibrations_data()
+        #self.last_calibrations_data['1K_dispenser'] = f'{datetime.datetime.now()}'
+        #self.save_last_calibrations_data()
         return response
      
     ###############################################

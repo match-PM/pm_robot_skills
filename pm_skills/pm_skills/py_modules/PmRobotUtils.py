@@ -29,6 +29,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 
 from sensor_msgs.msg import JointState
 from pm_msgs.srv import LaserGetMeasurement
+from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
 class PmRobotUtils():
@@ -50,6 +51,8 @@ class PmRobotUtils():
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
+        self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv')
+        self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/uepsilon_two_channel_controller/IFC2422/ch2/distance/srv')
 
         self.object_scene:ami_msg.ObjectScene = None
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
@@ -334,5 +337,81 @@ class PmRobotUtils():
         elif unit == "um":
             multiplier = 1.0
             
-            
         return response.measurement * multiplier
+    
+    def get_confocal_top_measurement(self, unit:str = "m")->float:
+        self._node.get_logger().warn("Test1")
+        req = GetValue.Request()
+
+        if self.get_mode() == self.REAL_MODE:
+            if not self.client_get_confocal_top_measurement.wait_for_service(timeout_sec=1.0):
+                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
+                return None
+            
+            response:GetValue.Response = self.client_get_confocal_top_measurement.call(req)
+        
+        elif self.get_mode() == self.UNITY_MODE:
+            pass
+
+        else:
+            return None
+    
+        multiplier = 1.0
+        
+        if unit == "mm":
+            multiplier = 1e-3
+        elif unit == "cm":
+            multiplier = 1e-2
+        elif unit == "m":
+            multiplier = 1e-6
+        elif unit == "um":
+            multiplier = 1.0
+        self._node.get_logger().warn("Test2")
+
+        return response.data * multiplier
+
+    def get_confocal_bottom_measurement(self, unit:str = "m")->float:
+        self._node.get_logger().warn("Test1")
+        req = GetValue.Request()
+
+        call_async = False
+
+
+        if self.get_mode() == self.REAL_MODE:
+            self._node.get_logger().warn("Test22")
+
+            if not self.client_get_confocal_bottom_measurement.wait_for_service(timeout_sec=1.0):
+                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
+                return None
+            
+            if call_async:
+                future = self.client_get_confocal_bottom_measurement.call_async(req)
+                rclpy.spin_until_future_complete(self, future)
+                if future.result() is None:
+                    self._node.get_logger().error('Service call failed %r' % (future.exception(),))
+                    return None
+                response= future.result()
+
+            else:
+                response:GetValue.Response = self.client_get_confocal_bottom_measurement.call(req)
+        
+        elif self.get_mode() == self.UNITY_MODE:
+            pass
+
+        else:
+            return None
+        
+        self._node.get_logger().warn("Test2")
+        multiplier = 1.0
+        
+        if unit == "mm":
+            multiplier = 1e-3
+        elif unit == "cm":
+            multiplier = 1e-2
+        elif unit == "m":
+            multiplier = 1e-6
+        elif unit == "um":
+            multiplier = 1.0
+        self._node.get_logger().warn("Test3")
+
+        return response.data * multiplier
