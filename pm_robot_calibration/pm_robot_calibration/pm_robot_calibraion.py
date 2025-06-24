@@ -12,7 +12,7 @@ from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
-from pm_vision_interfaces.srv import ExecuteVision
+from pm_vision_interfaces.srv import ExecuteVision, CalibrateAngle, CalibratePixelPerUm
 import pm_vision_interfaces.msg as vision_msg
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
 
@@ -87,7 +87,9 @@ class PmRobotCalibrationNode(Node):
         self.client_measure_frame_cam = self.create_client(MeasureFrame, '/pm_skills/vision_measure_frame')
         self.client_correct_frame = self.create_client(CorrectFrame, '/pm_skills/vision_correct_frame')
         self.client_modify_pose_from_frame = self.create_client(ami_srv.ModifyPoseFromFrame, '/assembly_manager/modify_frame_from_frame')
-        
+        self.client_calibrate_camera_pixel = self.create_client(CalibratePixelPerUm, '/pm_vision_manager/SetCameraPixelPerUm')
+        self.client_calibrate_camera_angle = self.create_client(CalibrateAngle, '/pm_vision_manager/SetCameraAngle')
+
         self.client_move_calibration_target_forward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveForward')
         self.client_move_calibration_target_backward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveBackward')
         
@@ -209,10 +211,6 @@ class PmRobotCalibrationNode(Node):
         self._logger.warn("Starting Camera calibration!")
         self.load_last_calibrations_data()
 
-        # disable lights
-        self.pm_robot_utils.set_cam1_coax_light(False)
-        self.pm_robot_utils.set_cam2_coax_light(0)
-
         forward_request = EmptyWithSuccess.Request()
         backward_request = EmptyWithSuccess.Request()
         forward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_forward.call(forward_request)
@@ -226,7 +224,7 @@ class PmRobotCalibrationNode(Node):
         request_move_to_frame.target_frame = 'Camera_Station_TCP'
         request_move_to_frame.execute_movement = True
         request_move_to_frame.translation.z = 0.003
-        request_move_to_frame.translation.x = 0.001
+        request_move_to_frame.translation.x = 0.00
 
         if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
             self._logger.error('Camera move service not available...')
@@ -242,13 +240,19 @@ class PmRobotCalibrationNode(Node):
             backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
             return response
 
-        # set the lights manually as it is broken in vision assistant
-        self.pm_robot_utils.set_cam2_coax_light(100)
+        move_success = self.pm_robot_utils.send_xyz_trajectory_goal_absolut(   x_joint= -0.266460,
+                                                                y_joint= -0.045949,
+                                                                z_joint= 0.002535,
+                                                                time=1)
+        
+        if not move_success:
+            response.success = False
+            return response
 
         # measure frame with bottom cam
         request_execute_vision_bottom = ExecuteVision.Request()
         request_execute_vision_bottom.camera_config_filename = self.pm_robot_utils.get_cam_file_name_bottom()
-        request_execute_vision_bottom.image_display_time = 20
+        request_execute_vision_bottom.image_display_time = -1
         request_execute_vision_bottom.process_filename = "PM_Robot_Calibration/Camera_Calibration_Bottom_Process.json"
 
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
@@ -265,14 +269,10 @@ class PmRobotCalibrationNode(Node):
             backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
             return response
         
-        # Turn off light
-        self.pm_robot_utils.set_cam2_coax_light(0)
-
-        self.pm_robot_utils.set_cam1_coax_light(True)
         # measure frame with top cam
         request_execute_vision_top = ExecuteVision.Request()
         request_execute_vision_top.camera_config_filename = self.pm_robot_utils.get_cam_file_name_top()
-        request_execute_vision_top.image_display_time = 20
+        request_execute_vision_top.image_display_time = -1
         request_execute_vision_top.process_filename = "PM_Robot_Calibration/Camera_Calibration_Top_Process.json"
 
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
@@ -287,12 +287,7 @@ class PmRobotCalibrationNode(Node):
             self._logger.error("Failed to execute vision for top camera")
             response.success = False
             backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
-            return response
-        
-        self.pm_robot_utils.set_cam1_coax_light(False)
-        # measure_request = MeasureFrame.Request()
-        # measure_request.frame_name = self.pm_robot_utils.get_cam_file_name_bottom()
-        # measure_request.   
+            return response 
         
         backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
 
@@ -303,62 +298,130 @@ class PmRobotCalibrationNode(Node):
         
         response.success = True
 
+        process_success = self._process_calibrate_cameras(vision_result_top=response_execute_vision_top.vision_response.results,
+                                        vision_result_bottom=response_execute_vision_bottom.vision_response.results)
 
-        ######## At this point, we can start with the calculations for the calibraiton
-
-        # Top image
-        average_radius_top = 0
-
-        for index, circle in enumerate(response_execute_vision_top.vision_response.results.circles):
-            circle: vision_msg.VisionCircle
-            average_radius_top += circle.radius
-        
-        average_radius_top = average_radius_top/len(response_execute_vision_top.vision_response.results.circles)
-
-        circle_ind_1 = 2
-        circle_ind_2 = 3
-
-        circle_1: vision_msg.VisionCircle= response_execute_vision_top.vision_response.results.circles[circle_ind_1]
-        circle_2: vision_msg.VisionCircle = response_execute_vision_top.vision_response.results.circles[circle_ind_2]
-
-        x_diff = circle_2.center_point.axis_value_1-circle_1.center_point.axis_value_1
-        y_diff = circle_2.center_point.axis_value_2-circle_1.center_point.axis_value_2
-        distance = math.sqrt((x_diff*x_diff) + (y_diff*y_diff))
-
-        angle = math.atan(y_diff/x_diff) * 180 / np.pi
-
-        self._logger.warn(f"Results TOP - distance {distance}; angle {angle}")
-
-        # Bottom image
-        average_radius_bottom = 0
-
-        for index, circle in enumerate(response_execute_vision_bottom.vision_response.results.circles):
-            circle: vision_msg.VisionCircle
-            average_radius_bottom += circle.radius
-        
-        average_radius_bottom = average_radius_bottom/len(response_execute_vision_bottom.vision_response.results.circles)
-
-        circle_ind_1 = 2
-        circle_ind_2 = 3
-
-        circle_1: vision_msg.VisionCircle= response_execute_vision_bottom.vision_response.results.circles[circle_ind_1]
-        circle_2: vision_msg.VisionCircle = response_execute_vision_bottom.vision_response.results.circles[circle_ind_2]
-
-        x_diff = circle_2.center_point.axis_value_1-circle_1.center_point.axis_value_1
-        y_diff = circle_2.center_point.axis_value_2-circle_1.center_point.axis_value_2
-        distance = math.sqrt((x_diff*x_diff) + (y_diff*y_diff))
-
-        angle = math.atan2(y=y_diff,x= x_diff) * 180 / np.pi
-
-        self._logger.warn(f"Results Bottom - distance {distance}; angle {angle}")
-
-        self._logger.warn(f"Results: average radius top {average_radius_top} um; average radius bottom {average_radius_bottom} um")
 
         self.last_calibrations_data['cameras'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         
+        response.success = process_success
+
+        
         return response
 
+    def _process_calibrate_cameras(self, vision_result_top: vision_msg.VisionResults,
+                                   vision_result_bottom: vision_msg.VisionResults)->bool:
+
+        ######## At this point, we can start with the calculations for the calibraiton
+        # Top image
+        self._logger.error(f"Processing Top Vision Circles")
+        top_angle, top_dist = self._process_four_circles(vision_result_top.circles)
+
+        self._logger.error(f"Processing Bottom Vision Circles")
+        bottom_angle, bottom_dist = self._process_four_circles(vision_result_bottom.circles)
+
+        if (not self.client_calibrate_camera_angle.wait_for_service(1)):
+            self._logger.error(f"Service not available {self.client_calibrate_camera_angle.srv_name}")
+            return False
+        
+        if not self.client_calibrate_camera_pixel.wait_for_service(1):
+            self._logger.error(f"Service not available {self.client_calibrate_camera_pixel.srv_name}")
+            return False
+        
+        FIDUCIAL_DISTANCE = 1000
+        # Set the results for the bottom cam
+        angle = 0
+        pixel_multiplicator = FIDUCIAL_DISTANCE/bottom_dist
+
+        request_pixel = CalibratePixelPerUm.Request()
+        request_pixel.multiplicator = float(pixel_multiplicator)
+        request_pixel.camera_config_file_name = self.pm_robot_utils.get_cam_file_name_bottom()
+
+        request_angle = CalibrateAngle.Request()
+        request_angle.angle_diff = float(angle)
+        request_angle.camera_config_file_name = self.pm_robot_utils.get_cam_file_name_bottom()
+
+        response_pixel: CalibratePixelPerUm.Response = self.client_calibrate_camera_pixel.call(request_pixel)
+        response_angle: CalibrateAngle.Response = self.client_calibrate_camera_angle.call(request_angle)
+
+        if (not response_angle.success and response_pixel.success):
+            return False
+
+        # Set the results for the top cam
+        pixel_multiplicator = FIDUCIAL_DISTANCE/top_dist
+
+        request_pixel = CalibratePixelPerUm.Request()
+        request_pixel.multiplicator = float(pixel_multiplicator)
+        request_pixel.camera_config_file_name = self.pm_robot_utils.get_cam_file_name_top()
+
+        request_angle = CalibrateAngle.Request()
+        request_angle.angle_diff = float(top_angle)
+        #request_angle.angle_diff = 0.0
+
+        request_angle.camera_config_file_name = self.pm_robot_utils.get_cam_file_name_top()
+
+        response_pixel: CalibratePixelPerUm.Response = self.client_calibrate_camera_pixel.call(request_pixel)
+        response_angle: CalibrateAngle.Response = self.client_calibrate_camera_angle.call(request_angle)
+
+        return (response_pixel.success and response_angle.success)
+
+    def _process_four_circles(self, circle_list: list[vision_msg.VisionCircle])-> tuple[float, float]:
+        circle_ind_0 = 0
+        circle_ind_1 = 1
+        circle_ind_2 = 2
+        circle_ind_3 = 3
+
+        circle_0 = circle_list[0]
+        circle_1 = circle_list[1]
+        circle_2 = circle_list[2]
+        circle_3 = circle_list[3]
+
+        average_radius = (circle_0.radius + circle_1.radius + circle_2.radius + circle_3.radius)/len(circle_list) 
+
+        max_radius = max([circle_0.radius, circle_1.radius, circle_2.radius, circle_3.radius])
+        min_radius = min([circle_0.radius, circle_1.radius, circle_2.radius, circle_3.radius])
+
+        def distance_between_centers(circle_a:vision_msg.VisionCircle, circle_b:vision_msg.VisionCircle):
+            dx = circle_a.center_point.axis_value_1 - circle_b.center_point.axis_value_1
+            dy = circle_a.center_point.axis_value_2 - circle_b.center_point.axis_value_2
+            return np.sqrt(dx**2 + dy**2)
+
+        length_01 = distance_between_centers(circle_0, circle_1)
+        length_13 = distance_between_centers(circle_1, circle_3)
+        length_32 = distance_between_centers(circle_3, circle_2)
+        length_20 = distance_between_centers(circle_2, circle_0)
+
+        def angle_between(a:vision_msg.VisionCircle, b:vision_msg.VisionCircle):
+            dx = b.center_point.axis_value_1 - a.center_point.axis_value_1
+            dy = b.center_point.axis_value_2 - a.center_point.axis_value_2
+            return np.degrees(np.arctan2(dy, dx))
+
+        angle_01 = angle_between(circle_0, circle_1)-180
+        angle_13 = angle_between(circle_1, circle_3)-90
+        angle_32 = angle_between(circle_3, circle_2)-0
+        angle_20 = angle_between(circle_2, circle_0)+90
+
+        if abs(angle_01)>90:
+            angle_01 = -(angle_01+360) 
+
+        self.get_logger().warn(f"Average radius: {average_radius} um")
+        self.get_logger().warn(f"max radius: {max_radius} um")
+        self.get_logger().warn(f"min radius: {min_radius} um")
+        self.get_logger().warn(f"Radius: {average_radius} um")
+        self.get_logger().warn(f"Radius: [{circle_0.radius}, {circle_1.radius}, {circle_2.radius}, {circle_3.radius}] um")
+        self.get_logger().warn(f"Distances: [{length_01}, {length_13}, {length_32}, {length_20}] um")
+        self.get_logger().warn(f"Angles: [{angle_01}, {angle_13}, {angle_32}, {angle_20}] um")
+
+        average_angle = (angle_01 + angle_13 + angle_20 + angle_32)/4
+
+        average_length = (length_01 + length_13 + length_32 + length_20)/4
+
+        self.get_logger().warn(f"Avg angle: {average_angle} um")
+        self.get_logger().warn(f"Avg length: {average_length} um")
+
+        return (average_angle, average_length)
+        
     ###########################################
     ### Calibrate 1K_dispenser ################
     ###########################################
@@ -394,7 +457,9 @@ class PmRobotCalibrationNode(Node):
             return response
                 
         #rotations = [0.0, 20, 30, 40, 50, 60, 80]
-        rotations = [90, 65, 55, 45, 35, 25, 0]
+        #rotations = [90, 65, 55, 45, 35, 25, 0]
+        rotations = [90, 60, 30, 0]
+
         
         #rotations = [60, 40, 20, 0]
 
@@ -404,7 +469,7 @@ class PmRobotCalibrationNode(Node):
         distance_list: list[float] = []  
         frame_poses_list:list[Pose] = []      
         for index, rotation in enumerate(rotations):
-            move_success = self.pm_robot_utils.send_t_trajectory_goal_absolut(rotation, 1.0)
+            move_success = self.pm_robot_utils.send_t_trajectory_goal_absolut(rotation, 2.0)
             self.get_logger().error("Gripper rotation: " + str(rotation))
             if not move_success:
                 self.get_logger().error("Failed to move gripper to rotation: " + str(rotation))
@@ -843,6 +908,11 @@ class PmRobotCalibrationNode(Node):
         self.load_last_calibrations_data()
         # To be implemented...
         self.get_logger().error("Confocal top not implemented yet...")
+
+        success = self.pm_robot_utils.interative_sensing_laser()
+
+        self.get_logger().error(f"Exited with {success}")
+
         self.last_calibrations_data['confocal_top'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         return response

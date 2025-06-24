@@ -248,6 +248,55 @@ class PmRobotUtils():
                 
                 return wait_success 
     
+    def interative_sensing_laser(self)->True:
+        # THIS METHOD IS NOT COLLISION SAVE
+        # it will move max 1 mm
+        iterations = 20
+        increments = 0.0001 # 100 um
+
+
+        self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
+                                                y_joint_rel=0,
+                                                z_joint_rel = -iterations*increments,
+                                                time=0.5)
+        
+        for iterator in range((iterations)*2):
+
+            if self.get_mode() == self.REAL_MODE:
+                # move up
+                if not self._check_for_valid_laser_measurement():
+                    self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
+                                                           y_joint_rel=0,
+                                                           z_joint_rel=increments,
+                                                           time=0.5)
+                else:
+                    return True
+
+                self._node.get_logger().warn(f"{iterator}")
+        
+        return False
+                # move to default
+                
+
+
+    def _check_for_valid_laser_measurement(self):
+        # down movement
+        value_1 = self.get_laser_measurement(unit='um')
+        time.sleep(0.5)
+        value_2 = self.get_laser_measurement(unit='um')
+        time.sleep(0.5)
+        value_3 = self.get_laser_measurement(unit='um')
+        self._node.get_logger().warn(f"{value_1}")
+        self._node.get_logger().warn(f"{value_2}")
+        self._node.get_logger().warn(f"{value_3}")
+
+        if ((value_1 == value_2) and (value_2 == value_3) and (value_1 == value_3)):
+            self._node.get_logger().warn(f"False")
+            return False
+        else:
+            self._node.get_logger().warn(f"True")
+            return True
+
     def wait_for_joints_reached(self, 
                                 joint_names:list[str], 
                                 target_joint_values:list[float], 
