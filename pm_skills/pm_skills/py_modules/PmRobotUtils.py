@@ -250,14 +250,12 @@ class PmRobotUtils():
     
     def interative_sensing_laser(self)->True:
         # THIS METHOD IS NOT COLLISION SAVE
-        # it will move max 1 mm
-        iterations = 20
+        iterations = 40
         increments = 0.0001 # 100 um
-
 
         self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
                                                 y_joint_rel=0,
-                                                z_joint_rel = -iterations*increments,
+                                                z_joint_rel = -0.003, # 3 mm up
                                                 time=0.5)
         
         for iterator in range((iterations)*2):
@@ -277,7 +275,6 @@ class PmRobotUtils():
         return False
                 # move to default
                 
-
 
     def _check_for_valid_laser_measurement(self):
         # down movement
@@ -404,16 +401,7 @@ class PmRobotUtils():
         else:
             response:LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
         
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
+        multiplier = self._get_multiplier(unit)
             
         return response.measurement * multiplier
     
@@ -434,16 +422,7 @@ class PmRobotUtils():
         else:
             return None
     
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
+        multiplier =  self._get_multiplier(unit)
         self._node.get_logger().warn("Test2")
 
         return response.data * multiplier
@@ -480,16 +459,28 @@ class PmRobotUtils():
             return None
         
         self._node.get_logger().warn("Test2")
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
+        multiplier = self._get_multiplier(unit)
         self._node.get_logger().warn("Test3")
 
         return response.data * multiplier
+
+    def _get_multiplier(self, unit:str)->float:
+        """
+        Get the multiplier for the unit.
+        
+        Args:
+            unit (str): Unit of measurement.
+        
+        Returns:
+            float: Multiplier for the unit.
+        """
+        if unit == "mm":
+            return 1e-3
+        elif unit == "cm":
+            return 1e-2
+        elif unit == "m":
+            return 1.0
+        elif unit == "um":
+            return 1e6
+        else:
+            return 1.0

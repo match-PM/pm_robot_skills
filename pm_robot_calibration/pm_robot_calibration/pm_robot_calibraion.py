@@ -162,13 +162,14 @@ class PmRobotCalibrationNode(Node):
         
         calibration_frame_dict, file_path = self.get_gripper_calibration_frame_dictionary()
         frames_list = []
+        unique_identifier = calibration_frame_dict.get('unique_identifier', '')
         
         if calibration_frame_dict is None or file_path is None:
             self._logger.error("No calibration frame dictionary found...")
             return False, None
         
         for frame in calibration_frame_dict['frames']:
-            frames_list.append(frame['name'])
+            frames_list.append(f"{unique_identifier}{frame['name']}")
             
         #if self.gripper_frames_spawned:
         #    return True, frames_list
@@ -183,7 +184,7 @@ class PmRobotCalibrationNode(Node):
         
         response:SpawnFramesFromDescription.Response = self.client_spawn_frames.call(request=request)
         self.gripper_frames_spawned = True
-        return response.success, frames_list
+        return response.success, frames_list, unique_identifier
 
     
     def spawn_calibration_frames(self, calibration_file_name:str):
@@ -201,6 +202,21 @@ class PmRobotCalibrationNode(Node):
             return False
         
         return True
+
+    def get_unique_identifier(self, calibration_file_name:str)->str:
+        # get the unique identifier from the calibration file
+        calibration_frame_dict = {}
+        file_path = self.calibration_frame_dict_path + '/' + calibration_file_name
+        
+        try:
+            with open(file_path, 'r') as file:
+                calibration_frame_dict = yaml.load(file, Loader=yaml.FullLoader)
+        
+        except Exception as e:
+            self._logger.error("Error: " + str(e))
+            return ''
+        
+        return calibration_frame_dict.get('unique_identifier', '')
     
     
     ###########################################
@@ -449,7 +465,7 @@ class PmRobotCalibrationNode(Node):
     def calibrate_gripper_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         self.load_last_calibrations_data()
         
-        spawn_success, frames = self.spawn_frames_for_current_gripper()
+        spawn_success, frames, unique_identifier = self.spawn_frames_for_current_gripper()
         
         if not spawn_success:
             self.get_logger().error("Failed to spawn gripper frames...")
@@ -487,7 +503,7 @@ class PmRobotCalibrationNode(Node):
                         response.success = False
                         return response
               
-            ref_frame = get_ref_frame_by_name(self.pm_robot_utils.object_scene, 'CALIBRATION_PM_Robot_Tool_TCP')
+            ref_frame = get_ref_frame_by_name(self.pm_robot_utils.object_scene, f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP')
             
             if ref_frame is None:
                 self.get_logger().error("Failed to get reference frame...")
@@ -504,8 +520,8 @@ class PmRobotCalibrationNode(Node):
             frame_poses_list.append(copy.deepcopy(ref_frame.pose))
         
         relative_transform:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-                                    from_frame="CALIBRATION_PM_Robot_Tool_TCP",
-                                    to_frame="CALIBRATION_PM_Robot_Tool_TCP_initial",
+                                    from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
+                                    to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
                                     tf_buffer=self.pm_robot_utils.tf_buffer,
                                     logger=self._logger)
         
@@ -557,10 +573,6 @@ class PmRobotCalibrationNode(Node):
         self.save_last_calibrations_data()
         return response        
     
-    ###########################################
-    ### calibration_cube_to_cam_top ###########
-    ###########################################
-
     def find_circle_coordinates(self, poses:list[Pose]):
         points = []
         for pose in poses:
@@ -595,7 +607,13 @@ class PmRobotCalibrationNode(Node):
         ax.set_aspect('equal')  # Ensures circle is not distorted
         #plt.show()
         #save the figure
-        fig.savefig(f'{self.calibration_frame_dict_path}/gripper_calibration_poses.png')
+        fig.savefig(f'{self.calibration_frame_dict_path}/gripper_calibration_poses.png')    
+
+
+    ###########################################
+    ### calibration_cube_to_cam_top ###########
+    ###########################################
+
     
     def calibrate_calibration_cube_to_cam_top_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         self.load_last_calibrations_data()
@@ -603,11 +621,13 @@ class PmRobotCalibrationNode(Node):
         # Spawn the frames
         self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
         
+        unique_identifier = self.get_unique_identifier('CF_Calibration_Qube_Cam_Top.json')
+
         # To be implemented...
         self.get_logger().error("Calibration cube to cam top not fully implemented yet...")
 
         vision_request = ExecuteVision.Request()
-        vision_request.process_filename = "Assembly_Manager/Frames/CALIBRATION_Calibration_Qube.json"
+        vision_request.process_filename = f"Assembly_Manager/Frames/CAL_Calibration_Qube_Cam_Top_Vision_Dynamic.json"
         vision_request.process_uid = "Calibrate Cube"
         vision_request.image_display_time = 20
 
@@ -619,7 +639,7 @@ class PmRobotCalibrationNode(Node):
         # try to move the frame to the bottom camera
         move_request = MoveToFrame.Request()
         move_request.execute_movement = True
-        move_request.target_frame = 'CALIBRATION_Calibration_Qube'
+        move_request.target_frame = 'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'
 
         
         # selct the top camera
@@ -796,13 +816,16 @@ class PmRobotCalibrationNode(Node):
         self.get_logger().warn("Laser on calibration cube not fully implemented yet...")
         
         if not is_frame_from_scene(self.pm_robot_utils.object_scene, 
-                                   'CALIBRATION_Calibration_Qube'):
+                                   'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'):
+            
             self.get_logger().error("Missing calibration frame. Exeucte 'calibrate_calibration_cube_to_cam_top' first...")
         
         self.load_last_calibrations_data()
 
         spawn_success = self.spawn_calibration_frames('CF_Laser_to_Calibration_Qube.json')
         
+        unique_identifier = self.get_unique_identifier('CF_Laser_to_Calibration_Qube.json')
+
         if not spawn_success:
             self.get_logger().error("Failed to spawn calibration frames...")
             response.success = False
@@ -875,8 +898,8 @@ class PmRobotCalibrationNode(Node):
         time.sleep(1.0)
         
         relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-                                                from_frame='CALIBRATION_Calibration_Qube',
-                                                to_frame='CALIBRATION_Laser_Toolhead_TCP',
+                                                from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
+                                                to_frame=f'{unique_identifier}CALIBRATION_Laser_Toolhead_TCP',
                                                 tf_buffer=self.pm_robot_utils.tf_buffer,
                                                 logger=self._logger)
         
@@ -1141,7 +1164,7 @@ class PmRobotCalibrationNode(Node):
         with open(path + '/' + file_name, 'w') as file:
             yaml.dump(self.last_calibrations_data, file)
             pass
-        
+    
 def main(args=None):
     rclpy.init(args=args)
 
