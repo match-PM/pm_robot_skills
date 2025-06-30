@@ -4,6 +4,7 @@ import sys
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
@@ -27,6 +28,7 @@ from rclpy.action import ActionClient
 from builtin_interfaces.msg import Duration
 from builtin_interfaces.msg import Duration as MsgDuration
 
+from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
 from pm_msgs.srv import LaserGetMeasurement
 from pm_uepsilon_confocal_msgs.srv import GetValue
@@ -65,12 +67,26 @@ class PmRobotUtils():
                                 10
                                 )
         
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=10
+        )
+
+        self.tf_static_sub = self._node.create_subscription(TFMessage, '/tf_static', self.tf_static_callback, qos_profile)
+
         self._current_joint_state_positions = {}
+
+        self._tf_static_msgs = []
         
         self.pm_robot_config = PmRobotConfig()
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self._node)
+
+
+    def tf_static_callback(self, msg: TFMessage):
+        self._tf_static_msgs.extend(msg.transforms)
 
     def start_object_scene_subscribtion(self):
         self.objcet_scene_subscriber = self._node.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10)
@@ -415,3 +431,33 @@ class PmRobotUtils():
         self._node.get_logger().warn("Test3")
 
         return response.data * multiplier
+
+
+    @staticmethod
+    def _transform_to_dict(transform):
+        ''' 
+        Converts a TransformStamped message to a dictionary format.
+        '''
+        return {
+            'header': {
+                'stamp': {
+                    'sec': transform.header.stamp.sec,
+                    'nanosec': transform.header.stamp.nanosec
+                },
+                'frame_id': transform.header.frame_id
+            },
+            'child_frame_id': transform.child_frame_id,
+            'transform': {
+                'translation': {
+                    'x': transform.transform.translation.x,
+                    'y': transform.transform.translation.y,
+                    'z': transform.transform.translation.z
+                },
+                'rotation': {
+                    'x': transform.transform.rotation.x,
+                    'y': transform.transform.rotation.y,
+                    'z': transform.transform.rotation.z,
+                    'w': transform.transform.rotation.w
+                }
+            }
+        }
