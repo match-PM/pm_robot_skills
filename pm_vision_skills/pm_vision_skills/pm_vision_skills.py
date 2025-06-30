@@ -57,7 +57,7 @@ class VisionSkillsNode(Node):
         vision_request = ExecuteVision.Request()
         vision_request.process_filename = request.vision_process_file_name
         vision_request.process_uid = request.frame_name
-        vision_request.image_display_time = 5
+        vision_request.image_display_time = 15
 
         if request.frame_name == '':
             self._logger.error("Frame name is empty...")

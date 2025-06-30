@@ -30,7 +30,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
-from pm_msgs.srv import LaserGetMeasurement
+from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState
 from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
@@ -55,6 +55,8 @@ class PmRobotUtils():
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
         self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv')
         self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/uepsilon_two_channel_controller/IFC2422/ch2/distance/srv')
+        self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
+        self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
 
         self.object_scene:ami_msg.ObjectScene = None
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
@@ -262,6 +264,52 @@ class PmRobotUtils():
                 
                 return wait_success 
     
+    def interative_sensing_laser(self)->True:
+        # THIS METHOD IS NOT COLLISION SAVE
+        iterations = 40
+        increments = 0.0001 # 100 um
+
+        self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
+                                                y_joint_rel=0,
+                                                z_joint_rel = -0.003, # 3 mm up
+                                                time=0.5)
+        
+        for iterator in range((iterations)*2):
+
+            if self.get_mode() == self.REAL_MODE:
+                # move up
+                if not self._check_for_valid_laser_measurement():
+                    self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
+                                                           y_joint_rel=0,
+                                                           z_joint_rel=increments,
+                                                           time=0.5)
+                else:
+                    return True
+
+                self._node.get_logger().warn(f"{iterator}")
+        
+        return False
+                # move to default
+                
+
+    def _check_for_valid_laser_measurement(self):
+        # down movement
+        value_1 = self.get_laser_measurement(unit='um')
+        time.sleep(0.5)
+        value_2 = self.get_laser_measurement(unit='um')
+        time.sleep(0.5)
+        value_3 = self.get_laser_measurement(unit='um')
+        self._node.get_logger().warn(f"{value_1}")
+        self._node.get_logger().warn(f"{value_2}")
+        self._node.get_logger().warn(f"{value_3}")
+
+        if ((value_1 == value_2) and (value_2 == value_3) and (value_1 == value_3)):
+            self._node.get_logger().warn(f"False")
+            return False
+        else:
+            self._node.get_logger().warn(f"True")
+            return True
+
     def wait_for_joints_reached(self, 
                                 joint_names:list[str], 
                                 target_joint_values:list[float], 
@@ -299,7 +347,34 @@ class PmRobotUtils():
             if time.time() - start_time > timeout:
                 self._node.get_logger().error("Timeout waiting for joint positions.")
                 return False
+    
+    def set_cam2_coax_light(self, intensity_value_pct: float)-> bool:
+
+        if not self.client_set_cam2_coax_light.wait_for_service(timeout_sec=1.0):
+            self._node.get_logger().error("Service '/pm_lights_controller/CoaxLight/SetState' not available")
+            return False
         
+        req = Cam2LightSetState.Request()
+        req.intensity = intensity_value_pct
+
+        response = self.client_set_cam2_coax_light.call(req)
+
+        return True
+    
+    def set_cam1_coax_light(self, enable_state: bool)-> bool:
+
+        if not self.client_set_cam1_coax_light.wait_for_service(timeout_sec=1.0):
+            self._node.get_logger().error("Service '/pm_lights_controller/CoaxLight/SetState' not available")
+            return False
+        
+        req = CoaxLightSetState.Request()
+        req.turn_on = enable_state
+
+        response = self.client_set_cam1_coax_light.call(req)
+
+        return True
+
+
     def joint_state_callback(self, msg: JointState):
         for name, position in zip(msg.name, msg.position):
             self._current_joint_state_positions[name] = position
@@ -342,16 +417,7 @@ class PmRobotUtils():
         else:
             response:LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
         
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
+        multiplier = self._get_multiplier(unit)
             
         return response.measurement * multiplier
     
@@ -372,16 +438,7 @@ class PmRobotUtils():
         else:
             return None
     
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
+        multiplier =  self._get_multiplier(unit)
         self._node.get_logger().warn("Test2")
 
         return response.data * multiplier
@@ -418,16 +475,7 @@ class PmRobotUtils():
             return None
         
         self._node.get_logger().warn("Test2")
-        multiplier = 1.0
-        
-        if unit == "mm":
-            multiplier = 1e-3
-        elif unit == "cm":
-            multiplier = 1e-2
-        elif unit == "m":
-            multiplier = 1e-6
-        elif unit == "um":
-            multiplier = 1.0
+        multiplier = self._get_multiplier(unit)
         self._node.get_logger().warn("Test3")
 
         return response.data * multiplier
@@ -461,3 +509,24 @@ class PmRobotUtils():
                 }
             }
         }
+    
+    def _get_multiplier(self, unit:str)->float:
+        """
+        Get the multiplier for the unit.
+        
+        Args:
+            unit (str): Unit of measurement.
+        
+        Returns:
+            float: Multiplier for the unit.
+        """
+        if unit == "mm":
+            return 1e-3
+        elif unit == "cm":
+            return 1e-2
+        elif unit == "m":
+            return 1.0
+        elif unit == "um":
+            return 1e6
+        else:
+            return 1.0
