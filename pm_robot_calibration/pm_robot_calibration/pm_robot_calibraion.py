@@ -265,46 +265,70 @@ class PmRobotCalibrationNode(Node):
             response.success = False
             return response
 
-        # measure frame with bottom cam
-        request_execute_vision_bottom = ExecuteVision.Request()
-        request_execute_vision_bottom.camera_config_filename = self.pm_robot_utils.get_cam_file_name_bottom()
-        request_execute_vision_bottom.image_display_time = -1
-        request_execute_vision_bottom.process_filename = "PM_Robot_Calibration/Camera_Calibration_Bottom_Process.json"
+        # this loop is run twice.
+        # the first loop calibrates the pixel size and the angle
+        # the second loop the displacement of the cooridnate systems
+        for iter in range(2):
+            # measure frame with bottom cam
+            request_execute_vision_bottom = ExecuteVision.Request()
+            request_execute_vision_bottom.camera_config_filename = self.pm_robot_utils.get_cam_file_name_bottom()
+            request_execute_vision_bottom.image_display_time = -1
+            request_execute_vision_bottom.process_filename = "PM_Robot_Calibration/Camera_Calibration_Bottom_Process.json"
+            request_execute_vision_bottom.process_uid = f"Cam_Cal_B_{iter}"
 
-        if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
-            self._logger.error('Vision service not available...')
-            response.success = False
-            backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
-            return response
-        
-        response_execute_vision_bottom:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(request_execute_vision_bottom)
-        
-        if not response_execute_vision_bottom.success:
-            self._logger.error("Failed to execute vision for bottom camera")
-            response.success = False
-            backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
-            return response
-        
-        # measure frame with top cam
-        request_execute_vision_top = ExecuteVision.Request()
-        request_execute_vision_top.camera_config_filename = self.pm_robot_utils.get_cam_file_name_top()
-        request_execute_vision_top.image_display_time = -1
-        request_execute_vision_top.process_filename = "PM_Robot_Calibration/Camera_Calibration_Top_Process.json"
+            if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+                self._logger.error('Vision service not available...')
+                response.success = False
+                backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
+                return response
+            
+            response_execute_vision_bottom:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(request_execute_vision_bottom)
+            
+            if not response_execute_vision_bottom.success:
+                self._logger.error("Failed to execute vision for bottom camera")
+                response.success = False
+                backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
+                return response
+            
+            # measure frame with top cam
+            request_execute_vision_top = ExecuteVision.Request()
+            request_execute_vision_top.camera_config_filename = self.pm_robot_utils.get_cam_file_name_top()
+            request_execute_vision_top.image_display_time = -1
+            request_execute_vision_top.process_filename = "PM_Robot_Calibration/Camera_Calibration_Top_Process.json"
+            request_execute_vision_top.process_uid = f"Cam_Cal_T_{iter}"
 
-        if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
-            self._logger.error('Vision service not available...')
-            response.success = False
-            backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
-            return response
-        
-        response_execute_vision_top:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(request_execute_vision_top)
 
-        if not response_execute_vision_top.success:
-            self._logger.error("Failed to execute vision for top camera")
-            response.success = False
-            backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
-            return response 
+            if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+                self._logger.error('Vision service not available...')
+                response.success = False
+                backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
+                return response
+            
+            response_execute_vision_top:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(request_execute_vision_top)
+
+            if not response_execute_vision_top.success:
+                self._logger.error("Failed to execute vision for top camera")
+                response.success = False
+                backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
+                return response 
+            
+            # Only for the first iteration
+            if iter == 0:
+                process_success = self._process_calibrate_cameras(vision_result_top=response_execute_vision_top.vision_response.results,
+                                        vision_result_bottom=response_execute_vision_bottom.vision_response.results)
+                
+                if not process_success:
+                    response.success = False
+                    return response
+            
+        calibrate_cs_success = self._process_calibrate_coordinate_systems(vision_result_top=response_execute_vision_top.vision_response.results,
+                                                                          vision_result_bottom=response_execute_vision_bottom.vision_response.results)
         
+        if not calibrate_cs_success:
+            response.success = False
+            return response
+
+
         backward_response:EmptyWithSuccess.Response = self.client_move_calibration_target_backward.call(backward_request)
 
         if not backward_response.success:
@@ -314,10 +338,6 @@ class PmRobotCalibrationNode(Node):
         
         response.success = True
 
-        process_success = self._process_calibrate_cameras(vision_result_top=response_execute_vision_top.vision_response.results,
-                                        vision_result_bottom=response_execute_vision_bottom.vision_response.results)
-
-
         self.last_calibrations_data['cameras'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         
@@ -325,6 +345,66 @@ class PmRobotCalibrationNode(Node):
 
         
         return response
+
+    def _process_calibrate_coordinate_systems(self, vision_result_top: vision_msg.VisionResults,
+                                vision_result_bottom: vision_msg.VisionResults)->bool:
+        
+        circle_0_top:vision_msg.VisionCircle = vision_result_top.circles[0]
+        circle_1_top:vision_msg.VisionCircle = vision_result_top.circles[1]
+        circle_2_top:vision_msg.VisionCircle = vision_result_top.circles[2]
+        circle_3_top:vision_msg.VisionCircle = vision_result_top.circles[3]
+
+        circle_0_bottom:vision_msg.VisionCircle = vision_result_bottom.circles[0]
+        circle_1_bottom:vision_msg.VisionCircle = vision_result_bottom.circles[1]
+        circle_2_bottom:vision_msg.VisionCircle = vision_result_bottom.circles[2]
+        circle_3_bottom:vision_msg.VisionCircle = vision_result_bottom.circles[3]
+
+        d_x_0 = circle_0_top.center_point.axis_value_1 - circle_0_bottom.center_point.axis_value_1
+        d_y_0 = circle_0_top.center_point.axis_value_2 - circle_0_bottom.center_point.axis_value_2
+
+        d_x_1 = circle_1_top.center_point.axis_value_1 - circle_1_bottom.center_point.axis_value_1
+        d_y_1 = circle_1_top.center_point.axis_value_2 - circle_1_bottom.center_point.axis_value_2
+
+        d_x_2 = circle_2_top.center_point.axis_value_1 - circle_2_bottom.center_point.axis_value_1
+        d_y_2 = circle_2_top.center_point.axis_value_2 - circle_2_bottom.center_point.axis_value_2
+
+        d_x_3 = circle_3_top.center_point.axis_value_1 - circle_3_bottom.center_point.axis_value_1
+        d_y_3 = circle_3_top.center_point.axis_value_2 - circle_3_bottom.center_point.axis_value_2
+
+        d_x = (d_x_0 + d_x_1 + d_x_2 + d_x_3)/4
+        d_y = (d_y_0 + d_y_1 + d_y_2 + d_y_3)/4
+
+
+        self._logger.error(f"Results x: {d_x_0}, {d_x_1}, {d_x_2}, {d_x_3}")
+        self._logger.error(f"Results y: {d_y_0}, {d_y_1}, {d_y_2}, {d_y_3}")
+
+        self._logger.error(f"Result x: {d_x}")
+        self._logger.error(f"Result y: {d_y}")
+
+        rel_trans = Transform()
+
+        rel_trans.translation.x = d_x * 1e-6
+        rel_trans.translation.y = d_y * 1e-6
+
+        trans = self.pm_robot_utils.get_transform_for_frame(frame_name='Cam1_Toolhead_TCP',
+                                                            parent_frame='Camera_Station_TCP')
+        
+        rel_trans.translation.x += trans.translation.x
+        rel_trans.translation.y += trans.translation.y
+
+        self._logger.error(f"Result trans x: {rel_trans.translation.x}")
+        self._logger.error(f"Result trans y: {rel_trans.translation.y}")
+
+
+        save_success = self.save_joint_config ( joint_name='Cam1_Toolhead_TCP_Joint',
+                                                rel_transformation=rel_trans,
+                                                overwrite=True)
+
+
+        save_success = True
+
+        return save_success
+        
 
     def _process_calibrate_cameras(self, vision_result_top: vision_msg.VisionResults,
                                    vision_result_bottom: vision_msg.VisionResults)->bool:
@@ -619,17 +699,24 @@ class PmRobotCalibrationNode(Node):
         self.load_last_calibrations_data()
         
         # Spawn the frames
-        self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
+        spawn_success = self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
         
+        if not spawn_success:
+            self.get_logger().error(f"Spawning of frames failed!")
+
+            response.success = False
+            return response
         unique_identifier = self.get_unique_identifier('CF_Calibration_Qube_Cam_Top.json')
 
         # To be implemented...
         self.get_logger().error("Calibration cube to cam top not fully implemented yet...")
 
         vision_request = ExecuteVision.Request()
-        vision_request.process_filename = f"Assembly_Manager/Frames/CAL_Calibration_Qube_Cam_Top_Vision_Dynamic.json"
-        vision_request.process_uid = "Calibrate Cube"
-        vision_request.image_display_time = 20
+        vision_request.process_filename = f"Assembly_Manager/Frames/{unique_identifier}Vision_Dynamic.json"
+        vision_request.process_uid = "Cal_Calibrate_Cube"
+        vision_request.image_display_time = -1
+        vision_request.camera_config_filename = self.pm_robot_utils.get_cam_file_name_top()
+
 
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'ExecuteVision' not available...")
@@ -639,21 +726,7 @@ class PmRobotCalibrationNode(Node):
         # try to move the frame to the bottom camera
         move_request = MoveToFrame.Request()
         move_request.execute_movement = True
-        move_request.target_frame = 'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'
-
-        
-        # selct the top camera
-        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-            vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
-
-        elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
-            self._logger.info("Unity is running. Using simulated camera...")
-            vision_request.camera_config_filename = 'pm_robot_top_cam_1_Unity.yaml'
-
-        else:
-            response.success= False
-            self._logger.error("Gazebo mode is not supported for this operation...")
-            return response
+        move_request.target_frame = f'{unique_identifier}Vision_Dynamic'
 
 
         #if not self.pm_robot_utils.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
@@ -669,139 +742,40 @@ class PmRobotCalibrationNode(Node):
             self._logger.error(f"Could not move the camera to frame {move_request.target_frame}...")
             response.success= False
             return response
-        #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
-        
-        # If the tool cannot be moved to the bottom camera, try to move it to the top camera
-       
 
         # Measure the frame
-        if (self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE or 
-            self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE):
 
-            result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
 
-            if not result.success:
-                self._logger.error("Vision process failed...")
-                response.success= False
-                return response
+        result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
+
+        if not result.success:
+            self._logger.error("Vision process failed...")
+            response.success= False
+            return response
             
-        self._logger.error(f"Result {str(result.vision_response)}")
-        #     detected_circles = result.vision_response.results.circles
+        detected_point:vision_msg.VisionPoint = result.vision_response.results.points[0]
 
-        #     #self._logger.warn(f"Result: {str(result.vision_response.results)}")
-
-        #     multiplier = 0.000001 # Convert to m  
-            
-        #     if len(detected_circles) == 0:
-        #         self._logger.warn("No circles detected...")
-            
-        #     else:
-        #         result_vector = Vector3()
-        #         detected_cricle:vision_msg.VisionCircle = detected_circles[0]
-                
-        #         if detected_cricle.center_point.axis_suffix_1 == 'x' or detected_cricle.center_point.axis_suffix_1 == 'X':
-        #             result_vector.x = detected_cricle.center_point.axis_value_1*multiplier
-                    
-        #         if detected_cricle.center_point.axis_suffix_1 == 'y' or detected_cricle.center_point.axis_suffix_1 == 'Y':
-        #             result_vector.y = detected_cricle.center_point.axis_value_1*multiplier
-
-        #         if detected_cricle.center_point.axis_suffix_1 == 'z' or detected_cricle.center_point.axis_suffix_1 == 'Z':
-        #             result_vector.z = detected_cricle.center_point.axis_value_1*multiplier
-
-        #         if detected_cricle.center_point.axis_suffix_2 == 'x' or detected_cricle.center_point.axis_suffix_2 == 'X':
-        #             result_vector.x = detected_cricle.center_point.axis_value_2*multiplier
-
-        #         if detected_cricle.center_point.axis_suffix_2 == 'y' or detected_cricle.center_point.axis_suffix_2 == 'Y':
-        #             result_vector.y = detected_cricle.center_point.axis_value_2*multiplier
-
-        #         if detected_cricle.center_point.axis_suffix_2 == 'z' or detected_cricle.center_point.axis_suffix_2 == 'Z':
-        #             result_vector.z = detected_cricle.center_point.axis_value_2*multiplier
-
-        #     detected_points = result.vision_response.results.points
-
-        #     if len(detected_points) == 0:
-        #         self._logger.warn("No points detected...")
-
-        #     else:
-        #         self._logger.warn(f"Detected points: {detected_points}")
-        #         detected_point:vision_msg.VisionPoint = detected_points[0]
-        #         result_vector = Vector3()
-                
-        #         if detected_point.axis_suffix_1 == 'x' or detected_point.axis_suffix_1 == 'X':
-        #             result_vector.x = detected_point.axis_value_1*multiplier
-                
-        #         if detected_point.axis_suffix_1 == 'y' or detected_point.axis_suffix_1 == 'Y':
-        #             result_vector.y = detected_point.axis_value_1*multiplier
-
-        #         if detected_point.axis_suffix_1 == 'z' or detected_point.axis_suffix_1 == 'Z':
-        #             result_vector.z = detected_point.axis_value_1*multiplier
-
-        #         if detected_point.axis_suffix_2 == 'x' or detected_point.axis_suffix_2 == 'X':
-        #             result_vector.x = detected_point.axis_value_2*multiplier
-
-        #         if detected_point.axis_suffix_2 == 'y' or detected_point.axis_suffix_2 == 'Y':
-        #             result_vector.y = detected_point.axis_value_2*multiplier
-
-        #         if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
-        #             result_vector.z = detected_point.axis_value_2*multiplier
-            
-        #     if len(detected_points) == 0 and len(detected_circles) == 0:
-        #         self._logger.error("No points and circles detected...")
-        #         response.success= False
-        #         return response
-            
-        #     result_vector.x = -result_vector.x
-        #     result_vector.y = -result_vector.y
-        #     result_vector.z = -result_vector.z
-        #     response.result_vector = result_vector     
-        #     response.success = result.success
-            
-        #     #self._logger.info(f"Vision process executed...{result}")
-        # else:
-        #     # Gazebo is running
-        #     response.success = True
-       
-    
-
-
-        # frame_name = 'CALIBRATION_Calibration_Qube'
-
-        # #measure_success = self.correct_frame(frame_name)
+        self.pm_robot_utils.send_xyz_trajectory_goal_relative(x_joint_rel=detected_point.axis_value_1*1e-6,
+                                                              y_joint_rel=detected_point.axis_value_2*1e-6,
+                                                              z_joint_rel=0,
+                                                              time=0.5)
         
+        rel_transform = Transform()
+        rel_transform.translation.x = detected_point.axis_value_1
+        rel_transform.translation.y = detected_point.axis_value_2
+
+        self._logger.warn(f"Result x {rel_transform.translation.x}...")
+        self._logger.warn(f"Result y {rel_transform.translation.y}...")
+
+
+        success = self.save_joint_config('Calibration_Qube_Joint', rel_transform, unit = 'um')
         
-        # # relative_pose:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-        # #                                             from_frame="CALIBRATION_Calibration_Qube_Initial",
-        # #                                             to_frame=frame_name,
-        # #                                             tf_buffer=self.pm_robot_utils.tf_buffer,
-        # #                                             logger=self._logger)
+        if not success:
+            self.get_logger().error("Failed to save joint config...")
+            response.success = False
         
-        # relative_pose:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-        #                                     from_frame=frame_name,
-        #                                     to_frame="CALIBRATION_Calibration_Qube_Initial",
-        #                                     tf_buffer=self.pm_robot_utils.tf_buffer,
-        #                                     logger=self._logger)
-        
-        # if relative_pose is None:
-        #     self.get_logger().error("Failed to get relative pose...")
-        #     response.success = False
-        #     return response
-        
-        # relative_transform = Transform()
-        # relative_transform.translation.x = relative_pose.translation.x
-        # relative_transform.translation.y = relative_pose.translation.y
-        # relative_transform.translation.z = relative_pose.translation.z
-        # relative_transform.rotation.x = relative_pose.rotation.x
-        # relative_transform.rotation.y = relative_pose.rotation.y
-        # relative_transform.rotation.z = relative_pose.rotation.z
-        # relative_transform.rotation.w = relative_pose.rotation.w
-        
-        # # save the joint config
-        # success = self.save_joint_config('Calibration_Qube_Joint', relative_transform)
-        
-        # if not success:
-        #     self.get_logger().error("Failed to save joint config...")
-        #     response.success = False
-        
+        response.success = True
+
         self.last_calibrations_data['calibration_cube_to_cam_top'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         
@@ -833,10 +807,10 @@ class PmRobotCalibrationNode(Node):
         
         # Move laser to calibration cube
         move_request = MoveToFrame.Request()
-        move_request.target_frame = 'Calibration_Qube'
+        move_request.target_frame = 'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'
         move_request.execute_movement = True
-        move_request.translation.x = -3.6*1e-3
-        move_request.translation.y = -3.6*1e-3
+        move_request.translation.x = 1*1e-3
+        move_request.translation.y = 1*1e-3
         move_request.translation.z = 0.0
 
         if not self.pm_robot_utils.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
@@ -854,16 +828,18 @@ class PmRobotCalibrationNode(Node):
                 
         # set the laser to the zero height
         initial_z_height = self.pm_robot_utils.get_laser_measurement(unit='m')
-           
+        
+        self.get_logger().error(f'Heigt {initial_z_height}')
+
         self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -initial_z_height, 0.5)
         
-        step_inc = 0.01
+        step_inc = 0.1
         # sense the y direction
         x, y_joint_result, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-                                                measurement_bounds = (-299.0, 299.0),
-                                                length = (0.0, -2.0, 0.0),
-                                                step_inc = step_inc,
-                                                total_time = 8.0)
+                                                 measurement_bounds = None,
+                                                 length = (0.0, -3.0, 0.0),
+                                                 step_inc = step_inc,
+                                                 total_time = 8.0)
 
         
         # move back to initial state
@@ -874,9 +850,9 @@ class PmRobotCalibrationNode(Node):
             response.success = False
             return response     
 
-        x_joint_result, y, z_value = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-                                                        measurement_bounds = (-299.0, 299.0),
-                                                        length = (-2.0, 0.0, 0.0),
+        x_joint_result, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+                                                        measurement_bounds = None,
+                                                        length = (-3.0, 0.0, 0.0),
                                                         step_inc = step_inc,
                                                         total_time = 8.0)
         
@@ -888,36 +864,91 @@ class PmRobotCalibrationNode(Node):
         self.get_logger().error("Current X joint: " + str(x_joint_result))
         self.get_logger().error("Current Y joint: " + str(y_joint_result))
 
-        # move to result position
+        # move to result position      
+        # self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
+        #                                                     y_joint_result,
+        #                                                     z,
+        #                                                     time=1.0)
         
-        self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
-                                                            y_joint_result,
-                                                            z_value,
-                                                            time=1.0)
+        # time.sleep(1.0)
         
-        time.sleep(1.0)
+        # relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+        #                                         from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
+        #                                         to_frame=f'{unique_identifier}CALIBRATION_Laser_Toolhead_TCP',
+        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
+        #                                         logger=self._logger)
         
-        relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-                                                from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
-                                                to_frame=f'{unique_identifier}CALIBRATION_Laser_Toolhead_TCP',
-                                                tf_buffer=self.pm_robot_utils.tf_buffer,
-                                                logger=self._logger)
+       #self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -initial_z_height, 0.5)
         
-        if relative_transform is None:
-            self.get_logger().error("Failed to get relative pose...")
-            response.success = False
-            return response
+        # step_inc = 0.01
+        # # sense the y direction
+        # x, y_joint_result, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        #                                         measurement_bounds = (-299.0, 299.0),
+        #                                         length = (0.0, -2.0, 0.0),
+        #                                         step_inc = step_inc,
+        #                                         total_time = 8.0)
+
         
-        success = self.save_joint_config('Laser_Toolhead_TCP_Joint', relative_transform)
+        # # move back to initial state
+        # response_move:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(move_request)
+
+        # if not response_move.success:
+        #     self.get_logger().error("Failed to move laser to calibration cube")
+        #     response.success = False
+        #     return response     
+
+        # x_joint_result, y, z_value = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        #                                                 measurement_bounds = (-299.0, 299.0),
+        #                                                 length = (-2.0, 0.0, 0.0),
+        #                                                 step_inc = step_inc,
+        #                                                 total_time = 8.0)
         
-        if not success:
-            self.get_logger().error("Failed to save joint config...")
-            response.success = False
-            return response
+        # if x_joint_result is None or y_joint_result is None:
+        #     self.get_logger().error("Failed to get laser measurement...")
+        #     response.success = False
+        #     return response
         
-        self._logger.error("Relative pose: " + str(relative_transform))
+        # self.get_logger().error("Current X joint: " + str(x_joint_result))
+        # self.get_logger().error("Current Y joint: " + str(y_joint_result))
+
+        # # move to result position
         
-        #response.success = True
+        # self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
+        #                                                     y_joint_result,
+        #                                                     z_value,
+        #                                                     time=1.0)
+        
+        # time.sleep(1.0)
+        
+        # relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+        #                                         from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
+        #                                         to_frame=f'{unique_identifier}CALIBRATION_Laser_Toolhead_TCP',
+        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
+        #                                         logger=self._logger)
+        
+        # if relative_transform is None:
+        #     self.get_logger().error("Failed to get relative pose...")
+        #     response.success = False
+        #     return response
+        
+        # success = self.save_joint_config('Laser_Toolhead_TCP_Joint', relative_transform)
+        
+        # if not success:
+        #     self.get_logger().error("Failed to save joint config...")
+        #     response.success = False
+        #     return response    #     return response
+        
+        # success = self.save_joint_config('Laser_Toolhead_TCP_Joint', relative_transform)
+        
+        # if not success:
+        #     self.get_logger().error("Failed to save joint config...")
+        #     response.success = False
+        #     return response
+        
+
+        #self._logger.error("Relative pose: " + str(relative_transform))
+        
+        response.success = True
         self.last_calibrations_data['laser_on_calibration_cube'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         return response
@@ -1023,8 +1054,25 @@ class PmRobotCalibrationNode(Node):
         
         return response.success
     
-    def save_joint_config(self, joint_name:str, rel_transformation:Transform)->bool:
-        print("Saving joint config for joint: " + joint_name)
+    def save_joint_config(self, joint_name:str, 
+                          rel_transformation:Transform,
+                          unit = 'm',
+                          overwrite = False)->bool:
+        
+        if unit == 'm':
+            pass
+        elif unit == 'mm':
+            rel_transformation.translation.x = rel_transformation.translation.x * 1e-3
+            rel_transformation.translation.y = rel_transformation.translation.y * 1e-3
+            rel_transformation.translation.z = rel_transformation.translation.z * 1e-3
+        elif unit == 'um':
+            rel_transformation.translation.x = rel_transformation.translation.x * 1e-6
+            rel_transformation.translation.y = rel_transformation.translation.y * 1e-6
+            rel_transformation.translation.z = rel_transformation.translation.z * 1e-6
+        else:
+            self._logger.fatal('Fatal error in calibration program. Invalid unit!')
+            return False
+        
         package_name = 'pm_robot_description'
         file_name = 'calibration_config/pm_robot_joint_calibration.yaml'
         file_path = get_package_share_directory(package_name) + '/' + file_name
@@ -1039,9 +1087,9 @@ class PmRobotCalibrationNode(Node):
             current_transformation = Transform()
             
             if joint_config is not None:
-                current_transformation.translation.x = joint_config['x_offset'] * 1e-6
-                current_transformation.translation.y = joint_config['y_offset'] * 1e-6
-                current_transformation.translation.z = joint_config['z_offset'] * 1e-6
+                current_transformation.translation.x = joint_config['x_offset'] * 1e-6 
+                current_transformation.translation.y = joint_config['y_offset'] * 1e-6 
+                current_transformation.translation.z = joint_config['z_offset'] * 1e-6 
                 rx_offset = joint_config['rx_offset']
                 ry_offset = joint_config['ry_offset']
                 rz_offset = joint_config['rz_offset']
@@ -1054,7 +1102,11 @@ class PmRobotCalibrationNode(Node):
             # calculate the relative transformation
             
             #new_transform = get_relative_transform_for_transforms(current_transformation, rel_transformation)
-            new_transform = get_relative_transform_for_transforms(rel_transformation, current_transformation)
+            if not overwrite:
+                new_transform = get_relative_transform_for_transforms(rel_transformation, current_transformation)
+            else:
+                new_transform = rel_transformation
+                self._logger.warn(f"Overwriting existing calibration data.")
 
             calibration_config[joint_name]['x_offset'] = new_transform.translation.x * 1e6
             calibration_config[joint_name]['y_offset'] = new_transform.translation.y * 1e6
@@ -1139,11 +1191,18 @@ class PmRobotCalibrationNode(Node):
 
             laser_measurement = measurement_method(unit='um')
 
-            if laser_measurement > measurement_bounds[1] or laser_measurement < measurement_bounds[0]:
-                current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
-                current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
-                current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
-                return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
+            if measurement_bounds is None:
+                if not self.pm_robot_utils._check_for_valid_laser_measurement():
+                    current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
+                    current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
+                    current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                    return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
+            else:
+                if laser_measurement > measurement_bounds[1] or laser_measurement < measurement_bounds[0]:
+                    current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
+                    current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
+                    current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                    return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
         
         return None, None, None
     

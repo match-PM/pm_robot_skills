@@ -67,11 +67,11 @@ def generate_launch_description():
             ])
         ])
         )
-
+    
     pm_robot_calibration = Node(
         package='pm_robot_calibration',
         executable='pm_robot_calibraion',
-        name="pm_robot_calibraion",
+        name="pm_robot_calibration",
         output='both',
         parameters=[
             {'use_sim_time': sim_time}],

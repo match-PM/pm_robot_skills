@@ -10,7 +10,7 @@ from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision
 import pm_vision_interfaces.msg as vision_msg
-from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion
+from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
 
 from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcessClass
 
@@ -294,20 +294,21 @@ class PmRobotUtils():
 
     def _check_for_valid_laser_measurement(self):
         # down movement
-        value_1 = self.get_laser_measurement(unit='um')
+        values =[]
+        values.append(self.get_laser_measurement(unit='um'))
         time.sleep(0.5)
-        value_2 = self.get_laser_measurement(unit='um')
+        values.append(self.get_laser_measurement(unit='um'))
         time.sleep(0.5)
-        value_3 = self.get_laser_measurement(unit='um')
-        self._node.get_logger().warn(f"{value_1}")
-        self._node.get_logger().warn(f"{value_2}")
-        self._node.get_logger().warn(f"{value_3}")
+        values.append(self.get_laser_measurement(unit='um'))
+        time.sleep(0.5)
+        values.append(self.get_laser_measurement(unit='um'))
 
-        if ((value_1 == value_2) and (value_2 == value_3) and (value_1 == value_3)):
-            self._node.get_logger().warn(f"False")
+
+        if all(v == values[0] for v in values):
+            self._node.get_logger().warn(f"Laser Measurement Valid - False")
             return False
         else:
-            self._node.get_logger().warn(f"True")
+            self._node.get_logger().warn(f"Laser Measurement Valid - True")
             return True
 
     def wait_for_joints_reached(self, 
@@ -418,7 +419,9 @@ class PmRobotUtils():
             response:LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
         
         multiplier = self._get_multiplier(unit)
-            
+
+        #self._node.get_logger().error(f"Multiplier is {multiplier}")
+
         return response.measurement * multiplier
     
     def get_confocal_top_measurement(self, unit:str = "m")->float:
@@ -480,6 +483,25 @@ class PmRobotUtils():
 
         return response.data * multiplier
 
+    def get_transform_for_frame(self, 
+                                frame_name: str, 
+                                parent_frame:str) -> Transform:
+        # this function adapts the tf for parent_frame changes
+        #transform:TransformStamped = tf_buffer.lookup_transform(frame_name, 'world',rclpy.time.Time())
+        try:
+            
+            transform_st:TransformStamped = self.tf_buffer.lookup_transform(parent_frame, frame_name, rclpy.time.Time(),rclpy.duration.Duration(seconds=1.0))
+            self._node.get_logger().debug(f"Frame '{frame_name}' found in TF!")
+
+        except Exception as e:
+            transform_st = None
+            raise ValueError(f"Frame '{frame_name}' does not exist in TF! {str(e)}")
+        
+        transform = Transform()
+        transform.translation.x = transform_st.transform.translation.x
+        transform.translation.y = transform_st.transform.translation.y
+
+        return transform
 
     @staticmethod
     def _transform_to_dict(transform):
@@ -522,11 +544,9 @@ class PmRobotUtils():
         """
         if unit == "mm":
             return 1e-3
-        elif unit == "cm":
-            return 1e-2
         elif unit == "m":
-            return 1.0
+            return 1e-6
         elif unit == "um":
-            return 1e6
-        else:
             return 1.0
+        else:
+            raise ValueError("Invalid unit used in method")
