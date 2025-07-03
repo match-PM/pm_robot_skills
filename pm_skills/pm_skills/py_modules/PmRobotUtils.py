@@ -53,10 +53,12 @@ class PmRobotUtils():
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
-        self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv')
-        self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/uepsilon_two_channel_controller/IFC2422/ch2/distance/srv')
+        self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_bottom_measurement')
+        self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_top_measurement')
         self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
         self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
+        self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
+
 
         self.object_scene:ami_msg.ObjectScene = None
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
@@ -192,7 +194,12 @@ class PmRobotUtils():
                                         y_joint_rel:float, 
                                         z_joint_rel:float,
                                         time:float = 5)->bool:
-        """Send a goal to the robot."""
+        """
+        Move the robot relative to its current position.
+        THIS IS NOT COLLISION SAVE!!! Be careful.
+        
+        """
+
         goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = ['X_Axis_Joint', 'Y_Axis_Joint', 'Z_Axis_Joint']
         point = JointTrajectoryPoint()
@@ -204,7 +211,7 @@ class PmRobotUtils():
         point.positions = [float(current_x + x_joint_rel),
                             float(current_y + y_joint_rel), 
                             float(current_z + z_joint_rel)]
-        
+                
         point.time_from_start = self.float_to_ros_duration(time)
         goal.trajectory.points.append(point)
         success = self._send_goal_xyz(goal)
@@ -233,6 +240,7 @@ class PmRobotUtils():
                                         goal.trajectory.points[0].positions[2]],
                     tolerance=[0.000001],
                     timeout=5.0)
+                time.sleep(1)
                 return wait_success
     
     def _send_goal_t(self, goal:FollowJointTrajectory.Goal)->bool:
@@ -295,14 +303,17 @@ class PmRobotUtils():
     def _check_for_valid_laser_measurement(self):
         # down movement
         values =[]
+        time.sleep(0.2)
+        time_sleep = 0.4
         values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(0.5)
+        time.sleep(time_sleep)
         values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(0.5)
+        time.sleep(time_sleep)
         values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(0.5)
+        time.sleep(time_sleep)
         values.append(self.get_laser_measurement(unit='um'))
-
+        time.sleep(time_sleep)
+        values.append(self.get_laser_measurement(unit='um'))
 
         if all(v == values[0] for v in values):
             self._node.get_logger().warn(f"Laser Measurement Valid - False")
@@ -420,8 +431,6 @@ class PmRobotUtils():
         
         multiplier = self._get_multiplier(unit)
 
-        #self._node.get_logger().error(f"Multiplier is {multiplier}")
-
         return response.measurement * multiplier
     
     def get_confocal_top_measurement(self, unit:str = "m")->float:
@@ -446,15 +455,31 @@ class PmRobotUtils():
 
         return response.data * multiplier
 
+    def check_confocal_top_measurement_in_range(self)->bool:
+        req = GetValue.Request()
+
+        if self.get_mode() == self.REAL_MODE:
+            if not self.client_get_confocal_top_measurement.wait_for_service(timeout_sec=1.0):
+                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
+                return None
+            
+            response:GetValue.Response = self.client_get_confocal_top_measurement.call(req)
+            self._node.get_logger().warn(f"{response.success}")
+
+            return response.success
+        
+        elif self.get_mode() == self.UNITY_MODE:
+            return False
+
+        else:
+            return False
+    
     def get_confocal_bottom_measurement(self, unit:str = "m")->float:
-        self._node.get_logger().warn("Test1")
         req = GetValue.Request()
 
         call_async = False
 
-
         if self.get_mode() == self.REAL_MODE:
-            self._node.get_logger().warn("Test22")
 
             if not self.client_get_confocal_bottom_measurement.wait_for_service(timeout_sec=1.0):
                 self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
@@ -477,12 +502,28 @@ class PmRobotUtils():
         else:
             return None
         
-        self._node.get_logger().warn("Test2")
         multiplier = self._get_multiplier(unit)
-        self._node.get_logger().warn("Test3")
 
         return response.data * multiplier
 
+    def check_confocal_bottom_measurement_in_range(self)->bool:
+        req = GetValue.Request()
+
+        if self.get_mode() == self.REAL_MODE:
+            if not self.client_get_confocal_bottom_measurement.wait_for_service(timeout_sec=1.0):
+                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
+                return None
+            
+            response:GetValue.Response = self.client_get_confocal_bottom_measurement.call(req)
+
+            return response.success
+        
+        elif self.get_mode() == self.UNITY_MODE:
+            return False
+
+        else:
+            return False
+        
     def get_transform_for_frame(self, 
                                 frame_name: str, 
                                 parent_frame:str) -> Transform:

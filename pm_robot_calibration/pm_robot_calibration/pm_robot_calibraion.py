@@ -791,8 +791,9 @@ class PmRobotCalibrationNode(Node):
         
         if not is_frame_from_scene(self.pm_robot_utils.object_scene, 
                                    'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'):
-            
+            response.success = False
             self.get_logger().error("Missing calibration frame. Exeucte 'calibrate_calibration_cube_to_cam_top' first...")
+            return response
         
         self.load_last_calibrations_data()
 
@@ -834,9 +835,11 @@ class PmRobotCalibrationNode(Node):
         self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -initial_z_height, 0.5)
         
         step_inc = 0.1
+        self.get_logger().error("STARTING Y DIRECTION ROUGTH")
+
         # sense the y direction
         x, y_joint_result, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-                                                 measurement_bounds = None,
+                                                 measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                  length = (0.0, -3.0, 0.0),
                                                  step_inc = step_inc,
                                                  total_time = 8.0)
@@ -850,8 +853,10 @@ class PmRobotCalibrationNode(Node):
             response.success = False
             return response     
 
+        self.get_logger().error("STARTING X DIRECTION ROUGTH")
+
         x_joint_result, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-                                                        measurement_bounds = None,
+                                                        measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                         length = (-3.0, 0.0, 0.0),
                                                         step_inc = step_inc,
                                                         total_time = 8.0)
@@ -864,93 +869,88 @@ class PmRobotCalibrationNode(Node):
         self.get_logger().error("Current X joint: " + str(x_joint_result))
         self.get_logger().error("Current Y joint: " + str(y_joint_result))
 
-        # move to result position      
-        # self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
-        #                                                     y_joint_result,
-        #                                                     z,
-        #                                                     time=1.0)
+    
+        #move to result position      
+        self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
+                                                            y_joint_result,
+                                                            z,
+                                                            time=1.0)
         
-        # time.sleep(1.0)
+        time.sleep(1.0)
         
-        # relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-        #                                         from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
-        #                                         to_frame=f'{unique_identifier}CALIBRATION_Laser_Toolhead_TCP',
-        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
-        #                                         logger=self._logger)
+        # second iteration
+        self.pm_robot_utils.send_xyz_trajectory_goal_relative(x_joint_rel=0.0002, 
+                                                              y_joint_rel=0.0003, 
+                                                              z_joint_rel=0, 
+                                                              time=0.5)
         
-       #self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -initial_z_height, 0.5)
+        step_inc = 0.01
+        self.get_logger().error("STARTING Y DIRECTION FINE")
+
+        x, y_joint_result_2, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+                                                    measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
+                                                 length = (0.0, -1.0, 0.0),
+                                                 step_inc = step_inc,
+                                                 total_time = 8.0)
         
-        # step_inc = 0.01
-        # # sense the y direction
-        # x, y_joint_result, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-        #                                         measurement_bounds = (-299.0, 299.0),
-        #                                         length = (0.0, -2.0, 0.0),
-        #                                         step_inc = step_inc,
-        #                                         total_time = 8.0)
+        self.pm_robot_utils.send_xyz_trajectory_goal_relative(  x_joint_rel=0, 
+                                                                y_joint_rel=0.0003, 
+                                                                z_joint_rel=0, 
+                                                                time=0.5)
+        
+        self.get_logger().error("STARTING X DIRECTION FINE")
+
+        time.sleep(1)
+
+        x_joint_result_2, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+                                                        measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
+                                                        length = (-1.0, 0.0, 0.0),
+                                                        step_inc = step_inc,
+                                                        total_time = 8.0)
 
         
-        # # move back to initial state
-        # response_move:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(move_request)
+        if x_joint_result_2 is None or y_joint_result_2 is None:
+            self.get_logger().error("Failed to get laser measurement...")
+            response.success = False
+            return response
+        
+        self.get_logger().error("Current X joint: " + str(x_joint_result_2))
+        self.get_logger().error("Current Y joint: " + str(y_joint_result_2))
 
-        # if not response_move.success:
-        #     self.get_logger().error("Failed to move laser to calibration cube")
-        #     response.success = False
-        #     return response     
+        # move to result position
+        self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result_2,
+                                                            y_joint_result_2,
+                                                            z_joint=z,
+                                                            time=1.0)
+        
+        time.sleep(1.0)
+        
+        relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+                                                from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
+                                                to_frame=f'CAL_Laser_Toolhead_TCP_to_Calibration_Qube',
+                                                tf_buffer=self.pm_robot_utils.tf_buffer,
+                                                logger=self._logger)
+        
+        self._logger.error("Relative pose: " + str(relative_transform))
 
-        # x_joint_result, y, z_value = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-        #                                                 measurement_bounds = (-299.0, 299.0),
-        #                                                 length = (-2.0, 0.0, 0.0),
-        #                                                 step_inc = step_inc,
-        #                                                 total_time = 8.0)
+        if relative_transform is None:
+            self.get_logger().error("Failed to get relative pose...")
+            response.success = False
+            return response
         
-        # if x_joint_result is None or y_joint_result is None:
-        #     self.get_logger().error("Failed to get laser measurement...")
-        #     response.success = False
-        #     return response
+        success = self.save_joint_config('Laser_Toolhead_TCP_Joint', 
+                                         relative_transform,
+                                         overwrite=False)
         
-        # self.get_logger().error("Current X joint: " + str(x_joint_result))
-        # self.get_logger().error("Current Y joint: " + str(y_joint_result))
-
-        # # move to result position
-        
-        # self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
-        #                                                     y_joint_result,
-        #                                                     z_value,
-        #                                                     time=1.0)
-        
-        # time.sleep(1.0)
-        
-        # relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-        #                                         from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
-        #                                         to_frame=f'{unique_identifier}CALIBRATION_Laser_Toolhead_TCP',
-        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
-        #                                         logger=self._logger)
-        
-        # if relative_transform is None:
-        #     self.get_logger().error("Failed to get relative pose...")
-        #     response.success = False
-        #     return response
-        
-        # success = self.save_joint_config('Laser_Toolhead_TCP_Joint', relative_transform)
-        
-        # if not success:
-        #     self.get_logger().error("Failed to save joint config...")
-        #     response.success = False
-        #     return response    #     return response
-        
-        # success = self.save_joint_config('Laser_Toolhead_TCP_Joint', relative_transform)
-        
-        # if not success:
-        #     self.get_logger().error("Failed to save joint config...")
-        #     response.success = False
-        #     return response
-        
-
-        #self._logger.error("Relative pose: " + str(relative_transform))
-        
+        if not success:
+            self.get_logger().error("Failed to save joint config...")
+            response.success = False
+            return response    
+                
         response.success = True
         self.last_calibrations_data['laser_on_calibration_cube'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
+
         return response
     
     
@@ -963,9 +963,168 @@ class PmRobotCalibrationNode(Node):
         # To be implemented...
         self.get_logger().error("Confocal top not implemented yet...")
 
-        success = self.pm_robot_utils.interative_sensing_laser()
+        if not is_frame_from_scene(self.pm_robot_utils.object_scene, 
+                                   'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'):
+            
+            self.get_logger().error("Missing calibration frame. Exeucte 'calibrate_calibration_cube_to_cam_top' first...")
+            response.success =False
+            return response
+        
+        self.load_last_calibrations_data()
 
-        self.get_logger().error(f"Exited with {success}")
+        spawn_success = self.spawn_calibration_frames('CF_Confocal_to_Calibration_Qube.json')
+        
+        unique_identifier = self.get_unique_identifier('CF_Confocal_to_Calibration_Qube.json')
+
+        if not spawn_success:
+            self.get_logger().error("Failed to spawn calibration frames...")
+            response.success = False
+            return response
+        
+        # Move laser to calibration cube
+        move_request = MoveToFrame.Request()
+        move_request.target_frame = 'CAL_Calibration_Qube_Cam_Top_Vision_Dynamic'
+        move_request.execute_movement = True
+        move_request.translation.x = 0.5*1e-3
+        move_request.translation.y = 0.5*1e-3
+
+        if not self.pm_robot_utils.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error('Laser move service not available...')
+            response.success = False
+            return response
+        
+        # move to intial position
+        response_move:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_confocal_top_to_frame.call(move_request)
+        
+        if not response_move.success:
+            self.get_logger().error("Failed to move laser to calibration cube")
+            response.success = False
+            return response
+                
+        # set the laser to the zero height
+        initial_z_height = self.pm_robot_utils.get_confocal_top_measurement(unit='m')
+        
+        self.get_logger().error(f'Heigt {initial_z_height}')
+
+        self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -initial_z_height, 0.5)
+
+        time.sleep(2)
+
+        step_inc = 0.1
+        self.get_logger().error("STARTING Y DIRECTION ROUGTH")
+
+        # sense the y direction
+        x, y_joint_result, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_confocal_top_measurement,
+                                                        measurement_valid_function = self.pm_robot_utils.check_confocal_top_measurement_in_range,
+                                                 length = (0.0, -3.0, 0.0),
+                                                 step_inc = step_inc,
+                                                 total_time = 8.0)
+
+        
+        # move back to initial state
+        response_move:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_confocal_top_to_frame.call(move_request)
+
+        if not response_move.success:
+            self.get_logger().error("Failed to move laser to calibration cube")
+            response.success = False
+            return response     
+
+        self.get_logger().error("STARTING X DIRECTION ROUGTH")
+
+        x_joint_result, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_confocal_top_measurement,
+                                                        measurement_valid_function = self.pm_robot_utils.check_confocal_top_measurement_in_range,
+                                                        length = (-3.0, 0.0, 0.0),
+                                                        step_inc = step_inc,
+                                                        total_time = 8.0)
+        
+        if x_joint_result is None or y_joint_result is None:
+            self.get_logger().error("Failed to get laser measurement...")
+            response.success = False
+            return response
+        
+        self.get_logger().error("Current X joint: " + str(x_joint_result))
+        self.get_logger().error("Current Y joint: " + str(y_joint_result))
+
+    
+        #move to result position      
+        self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result,
+                                                            y_joint_result,
+                                                            z,
+                                                            time=1.0)
+        
+        time.sleep(1.0)
+        
+        # # second iteration
+        # self.pm_robot_utils.send_xyz_trajectory_goal_relative(x_joint_rel=0.0003, 
+        #                                                       y_joint_rel=0.0003, 
+        #                                                       z_joint_rel=0, 
+        #                                                       time=0.5)
+        
+        # step_inc = 0.01
+        # self.get_logger().error("STARTING Y DIRECTION FINE")
+
+        # x, y_joint_result_2, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        #                                          measurement_bounds = None,
+        #                                          length = (0.0, -1.0, 0.0),
+        #                                          step_inc = step_inc,
+        #                                          total_time = 8.0)
+        
+        # self.pm_robot_utils.send_xyz_trajectory_goal_relative(  x_joint_rel=0, 
+        #                                                         y_joint_rel=0.0003, 
+        #                                                         z_joint_rel=0, 
+        #                                                         time=0.5)
+        
+        # self.get_logger().error("STARTING X DIRECTION FINE")
+
+        # x_joint_result_2, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        #                                                 measurement_bounds = None,
+        #                                                 length = (-1.0, 0.0, 0.0),
+        #                                                 step_inc = step_inc,
+        #                                                 total_time = 8.0)
+
+        
+        # if x_joint_result_2 is None or y_joint_result_2 is None:
+        #     self.get_logger().error("Failed to get laser measurement...")
+        #     response.success = False
+        #     return response
+        
+        # self.get_logger().error("Current X joint: " + str(x_joint_result_2))
+        # self.get_logger().error("Current Y joint: " + str(y_joint_result_2))
+
+        # # move to result position
+        # self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x_joint_result_2,
+        #                                                     y_joint_result_2,
+        #                                                     z_joint=z,
+        #                                                     time=1.0)
+        
+        # time.sleep(1.0)
+        
+        # relative_transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+        #                                         from_frame='CAL_Calibration_Qube_Cam_Top_Vision_Dynamic',
+        #                                         to_frame=f'CAL_Laser_Toolhead_TCP_to_Calibration_Qube',
+        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
+        #                                         logger=self._logger)
+        
+        # self._logger.error("Relative pose: " + str(relative_transform))
+
+        # if relative_transform is None:
+        #     self.get_logger().error("Failed to get relative pose...")
+        #     response.success = False
+        #     return response
+        
+        # # This is the config for both sensor positions
+        # success = self.save_joint_config('Confocal_Sensor_Top_TCP_Joint', 
+        #                                  relative_transform,
+        #                                  overwrite=True)
+        
+        # if not success:
+        #     self.get_logger().error("Failed to save joint config...")
+        #     response.success = False
+        #     return response    
+                
+        response.success = True
+
+        self.get_logger().error(f"Exited with {response.success }")
 
         self.last_calibrations_data['confocal_top'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
@@ -1098,9 +1257,6 @@ class PmRobotCalibrationNode(Node):
                 current_transformation.rotation.x = quat[0]
                 current_transformation.rotation.y = quat[1]
                 current_transformation.rotation.z = quat[2]
-                current_transformation.rotation.w = quat[3]
-            # calculate the relative transformation
-            
             #new_transform = get_relative_transform_for_transforms(current_transformation, rel_transformation)
             if not overwrite:
                 new_transform = get_relative_transform_for_transforms(rel_transformation, current_transformation)
@@ -1143,7 +1299,7 @@ class PmRobotCalibrationNode(Node):
     
     def interative_sensing(self,
                            measurement_method:any,
-                           measurement_bounds:tuple[float, float],
+                           measurement_valid_function:any,
                            length: tuple[float, float, float],
                            step_inc: float,
                            total_time: float):
@@ -1178,10 +1334,11 @@ class PmRobotCalibrationNode(Node):
         self.get_logger().warn("Length: " + str(length))
         
         for i in range(total_steps):
-            move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(x_step*1e-3,
-                                                                                 y_step*1e-3, 
-                                                                                 z_step*1e-3, 
-                                                                                 step_time)
+
+            move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(x_joint_rel = x_step*1e-3,
+                                                                                 y_joint_rel = y_step*1e-3, 
+                                                                                 z_joint_rel = z_step*1e-3, 
+                                                                                 time = step_time)
             
             if not move_success:
                 self.get_logger().error("Failed to move laser ROUTINE 2")
@@ -1189,21 +1346,14 @@ class PmRobotCalibrationNode(Node):
             
             time.sleep(0.1)
 
-            laser_measurement = measurement_method(unit='um')
+            #laser_measurement = measurement_method(unit='um')
 
-            if measurement_bounds is None:
-                if not self.pm_robot_utils._check_for_valid_laser_measurement():
-                    current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
-                    current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
-                    current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
-                    return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
-            else:
-                if laser_measurement > measurement_bounds[1] or laser_measurement < measurement_bounds[0]:
-                    current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
-                    current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
-                    current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
-                    return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
-        
+            if not measurement_valid_function():
+                current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
+                current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
+                current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
+
         return None, None, None
     
     def load_last_calibrations_data(self):
