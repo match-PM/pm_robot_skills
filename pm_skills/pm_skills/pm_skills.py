@@ -65,7 +65,8 @@ class PmSkills(Node):
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.place_component_callback,callback_group=self.callback_group_me)
         self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
         
-        self.vacuum_gripper_service = self.create_service(pm_skill_srv.VacuumGripper, "pm_skills/vacuum_gripper", self.vaccum_gripper_callback, callback_group=self.callback_group_me)
+        self.vacuum_gripper_on_service = self.create_service(EmptyWithSuccess, "pm_skills/vacuum_gripper/vacuum_on", self.vaccum_gripper_on_callback, callback_group=self.callback_group_me)
+        self.vacuum_gripper_off_service = self.create_service(EmptyWithSuccess, "pm_skills/vacuum_gripper/vacuum_off", self.vaccum_gripper_off_callback, callback_group=self.callback_group_me)
     
         self.dispenser_service = self.create_service(pm_skill_srv.DispenseAdhesive, "pm_skills/dispense_adhesive", self.dispenser_callback)
         self.confocal_laser_service = self.create_service(pm_skill_srv.ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
@@ -327,8 +328,8 @@ class PmSkills(Node):
 
         return response
 
-    def vaccum_gripper_callback(self, request:pm_skill_srv.VacuumGripper.Request, response:pm_skill_srv.VacuumGripper.Response):
-        """Mimics the vacuum gripper funtionality by activating/deactivating the vacuum and changing the parent frame"""
+    def vaccum_gripper_on_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        """Mimics the vacuum gripper funtionality by activating the vacuum and changing the parent frame"""
 
         sim_time = self.pm_robot_utils.is_gazebo_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
@@ -336,70 +337,37 @@ class PmSkills(Node):
         assembly_and_target_frames = self.get_assembly_and_target_frames()      
 
         try:
-            if request.activate_vacuum:
-                if not self.is_gripper_empthy():
+            if not self.is_gripper_empthy():
+                response.success = False
+                response.message = "Gripper is not empty! Can not grip new component!"
+                self.logger.error(response.message)
+                return response
+            
+            # get gripping component
+            for component_frame in assembly_and_target_frames:
+                if self.ASSEMBLY_FRAME_INDICATOR in component_frame[1]:
+                    target_component = component_frame[0]
+                    self.logger.info(f"moving component: '{target_component}'")
+                    break
+            
+            # activate the vacuum at head_nozzle
+            if not sim_time:
+                response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_on_client.call(EmptyWithSuccess.Request())
+                if not response_vacuum.success:
                     response.success = False
-                    response.message = "Gripper is not empty! Can not grip new component!"
-                    self.logger.error(response.message)
-                    return response
-                
-                # get gripping component
-                for component_frame in assembly_and_target_frames:
-                    if self.ASSEMBLY_FRAME_INDICATOR in component_frame[1]:
-                        target_component = component_frame[0]
-                        self.logger.info(f"moving component: '{target_component}'")
-                        break
-                
-                # activate the vacuum at head_nozzle
-                if not sim_time:
-                    response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_on_client.call(EmptyWithSuccess.Request())
-                    if not response_vacuum.success:
-                        response.success = False
-                        response.message = "Failed to activate vacuum!"
-                        self.logger.error(response.message)
-                        return response
-
-                response_attachment = self.attach_component_to_gripper(target_component)
-                if not response_attachment:
-                    response.success = False
-                    response.message = "Failed change parent frame!"
+                    response.message = "Failed to activate vacuum!"
                     self.logger.error(response.message)
                     return response
 
-                response.success = True
-                response.message = "Component gripped and attached to the gripper!" 
+            response_attachment = self.attach_component_to_gripper(target_component)
+            if not response_attachment:
+                response.success = False
+                response.message = "Failed change parent frame!"
+                self.logger.error(response.message)
+                return response
 
-            else:
-                # if self.is_gripper_empthy():
-                    # response.success = False
-                    # response.message = "Gripper is empty! Can not release component!"
-                    # self.logger.error(response.message)
-                    # return response
-
-                if not sim_time:
-                    response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_off_client.call(EmptyWithSuccess.Request())
-                    if not response_vacuum.success:
-                        response.success = False
-                        response.message = "Failed to deactivate vacuum!"
-                        self.logger.error(response.message)
-                        return response
-                
-                # get target component
-                for component_frame in assembly_and_target_frames:
-                    if self.TARGET_FRAME_INDICATOR in component_frame[1]:
-                        target_component = component_frame[0]
-                        self.logger.info(f"target component: '{target_component}'")
-                        break
-
-                response_attachment = self.attach_component_to_component(self.get_gripped_component(), target_component)
-                if not response_attachment:
-                    response.success = False
-                    response.message = "Failed change parent frame!"
-                    self.logger.error(response.message)
-                    return response
-                
-                response.success = True
-                response.message = "Component released and attached to the target component!"               
+            response.success = True
+            response.message = "Component gripped and attached to the gripper!" 
                 
         except ValueError as e:
             response.success = False
@@ -407,7 +375,48 @@ class PmSkills(Node):
             self.logger.error(response.message)
             return response
                 
-        
+        return response
+
+    def vaccum_gripper_off_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        """Mimics the vacuum gripper funtionality by deactivating the vacuum and changing the parent frame"""
+
+        sim_time = self.pm_robot_utils.is_gazebo_running()
+        self.logger.info(f"Gazebo Simulation: {sim_time}")
+
+        assembly_and_target_frames = self.get_assembly_and_target_frames()    
+
+        try:
+            if not sim_time:
+                response_vacuum:EmptyWithSuccess.Response = self.vacuum_gripper_off_client.call(EmptyWithSuccess.Request())
+                if not response_vacuum.success:
+                    response.success = False
+                    response.message = "Failed to deactivate vacuum!"
+                    self.logger.error(response.message)
+                    return response
+            
+            # get target component
+            for component_frame in assembly_and_target_frames:
+                if self.TARGET_FRAME_INDICATOR in component_frame[1]:
+                    target_component = component_frame[0]
+                    self.logger.info(f"target component: '{target_component}'")
+                    break
+
+            response_attachment = self.attach_component_to_component(self.get_gripped_component(), target_component)
+            if not response_attachment:
+                response.success = False
+                response.message = "Failed change parent frame!"
+                self.logger.error(response.message)
+                return response
+            
+            response.success = True
+            response.message = "Component released and attached to the target component!"   
+                
+        except ValueError as e:
+            response.success = False
+            response.message = str(e)
+            self.logger.error(response.message)
+            return response
+                
         return response
 
     def dispenser_callback(self, request, response):
