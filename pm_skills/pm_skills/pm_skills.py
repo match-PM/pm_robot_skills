@@ -88,12 +88,10 @@ class PmSkills(Node):
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
         self.uv_cure_clinet = self.create_client(UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
-        self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10, callback_group=self.callback_group_re)
+        
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
 
         self.adapt_frame_client = self.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
-
-        self.object_scene:ami_msg.ObjectScene = None
 
         self.logger = self.get_logger()
         
@@ -590,43 +588,24 @@ class PmSkills(Node):
             self.logger.error(response.message)
             return response
         
-        max_iterations = 5
-        correction_distance = 0.0003
-        z_offset = 0.0
-        for iteration in range(max_iterations):
-            laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m")
-            sign = self.check_laser_measurement_out_of_range(laser_measurement)
+        if not self.pm_robot_utils._check_for_valid_laser_measurement():
+            response.success = False
+            self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
 
-            # if valid laser measurement
-            if sign == 0:
-                break   # exit loop
-            
-            # if this is executed the laser has not yet a valid measurement
-            z_offset = iteration * sign * correction_distance
-            move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name, z_offset = z_offset)
+            return response
+        
+        laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m")
 
-            if not move_laser_to_frame_success:
-                response.success = False
-                response.message = f"Failed to move laser to frame '{request.frame_name}'"
-                self.logger.error(response.message)
-                return response
-            
-        response.correction_values.z = laser_measurement - z_offset
+        response.correction_values.z = laser_measurement
         response.success = True
         response.message = f"Measurement: {laser_measurement}"
         return response
     
-    def check_laser_measurement_out_of_range(self, value:float):
-        if value * 1e6 > 300.0:
-            return -1
-        elif value * 1e6 < 0.0:
-            return 1
-        return 0
-    
     def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
         self.pm_robot_utils.wait_for_initial_scene_update()
-        _obj_name, _frame_name =  is_frame_from_scene(self.object_scene, request.frame_name)
+        
+        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
 
         self._logger.warn(f"Correcting frame: {request.frame_name}...")
         self._logger.warn(f"Object name: {_obj_name}")
@@ -642,15 +621,17 @@ class PmSkills(Node):
         
         measure_frame_request.frame_name = request.frame_name
         
-        response:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
-                
-        if not response.success:
+        response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
+        
+        self._logger.warn(f"REs {str(response_mes)}")
+
+        if not response_mes.success:
             response.success = False
             return response
                 
         world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
-        world_pose.transform.translation.z -= response.correction_values.z
+        world_pose.transform.translation.z -= response_mes.correction_values.z
 
         adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
         adapt_frame_request.frame_name = request.frame_name
@@ -819,13 +800,10 @@ class PmSkills(Node):
         response.success = activate_success
 
         return response 
-    
-    def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
-        self.object_scene = msg
-    
+        
     def get_gripping_frame(self, object_name:str)-> str:
         grip_frames = []
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.obj_name == object_name:
                 for frame in obj.ref_frames:
@@ -848,7 +826,7 @@ class PmSkills(Node):
     # delete
     def get_parent_of_object(self, object_name:str):
         self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.obj_name == object_name:
                 return obj.parent_frame
@@ -903,12 +881,9 @@ class PmSkills(Node):
 
     def is_gripper_empthy(self)-> bool:
         self.pm_robot_utils.wait_for_initial_scene_update()
-
-        if self.object_scene is None:
-            raise ValueError("Object scene not available!")
         
 
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.parent_frame == self.PM_ROBOT_GRIPPER_FRAME:
                 return False
@@ -918,10 +893,8 @@ class PmSkills(Node):
     # delete
     def check_object_exists(self, object_name:str)-> bool:
         self.pm_robot_utils.wait_for_initial_scene_update()
-        if self.object_scene is None:
-            return False
         
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.obj_name == object_name:
                 return True
@@ -929,7 +902,7 @@ class PmSkills(Node):
 
     def get_gripped_component(self)-> str:
         self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             if obj.parent_frame == self.PM_ROBOT_GRIPPER_FRAME:
                 return obj.obj_name
@@ -939,7 +912,7 @@ class PmSkills(Node):
     def get_assembly_and_target_frames(self)-> list[tuple[str,str]]:
         frames = []
         self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             for frame in obj.ref_frames:
                 frame:ami_msg.RefFrame
@@ -973,7 +946,7 @@ class PmSkills(Node):
     # delete
     def get_component_for_frame_name(self, frame_name:str)-> str:
         self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             for frame in obj.ref_frames:
                 frame:ami_msg.RefFrame
@@ -985,7 +958,7 @@ class PmSkills(Node):
     def get_list_of_components(self)-> list[str]:
         self.pm_robot_utils.wait_for_initial_scene_update()
         components = []
-        for obj in self.object_scene.objects_in_scene:
+        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
             obj:ami_msg.Object
             components.append(obj.obj_name)
         return components
@@ -1010,7 +983,7 @@ class PmSkills(Node):
         self.pm_robot_utils.wait_for_initial_scene_update()
 
         is_stationary = True
-        for instruction in self.object_scene.assembly_instructions:
+        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
             instruction:ami_msg.AssemblyInstruction
             if component_name == instruction.component_1 and instruction.component_1_is_moving_part:
                 is_stationary = False
@@ -1026,7 +999,7 @@ class PmSkills(Node):
 
         is_assembled = False
 
-        for instruction in self.object_scene.assembly_instructions:
+        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
             instruction:ami_msg.AssemblyInstruction
             if component_name == instruction.component_1 and instruction.component_2 == self.get_parent_of_object(component_name):
                 return True
@@ -1042,7 +1015,7 @@ class PmSkills(Node):
 
         self.pm_robot_utils.wait_for_initial_scene_update()
 
-        for instruction in self.object_scene.assembly_instructions:
+        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
             instruction:ami_msg.AssemblyInstruction
             if instruction.component_1_is_moving_part:
                 moving_object = instruction.component_1
@@ -1064,7 +1037,7 @@ class PmSkills(Node):
         self.pm_robot_utils.wait_for_initial_scene_update()
 
         matches = []
-        for instruction in self.object_scene.assembly_instructions:
+        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
             instruction:ami_msg.AssemblyInstruction
             self.logger.warn(f"Instruction: {instruction.component_1} -> {instruction.component_2}")
 

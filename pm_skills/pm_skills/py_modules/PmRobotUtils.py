@@ -302,25 +302,37 @@ class PmRobotUtils():
 
     def _check_for_valid_laser_measurement(self):
         # down movement
-        values =[]
-        time.sleep(0.2)
-        time_sleep = 0.4
-        values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(time_sleep)
-        values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(time_sleep)
-        values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(time_sleep)
-        values.append(self.get_laser_measurement(unit='um'))
-        time.sleep(time_sleep)
-        values.append(self.get_laser_measurement(unit='um'))
+        if self.get_mode() == self.REAL_MODE:
+            values =[]
+            time.sleep(0.2)
+            time_sleep = 0.4
+            values.append(self.get_laser_measurement(unit='um'))
+            time.sleep(time_sleep)
+            values.append(self.get_laser_measurement(unit='um'))
+            time.sleep(time_sleep)
+            values.append(self.get_laser_measurement(unit='um'))
+            time.sleep(time_sleep)
+            values.append(self.get_laser_measurement(unit='um'))
+            time.sleep(time_sleep)
+            values.append(self.get_laser_measurement(unit='um'))
 
-        if all(v == values[0] for v in values):
-            self._node.get_logger().warn(f"Laser Measurement Valid - False")
+            if all(v == values[0] for v in values):
+                self._node.get_logger().warn(f"Laser Measurement Valid - False")
+                return False
+            else:
+                self._node.get_logger().warn(f"Laser Measurement Valid - True")
+                return True
+            
+        elif self.get_mode() == self.UNITY_MODE:
+            value = self.get_laser_measurement(unit='um')
+            if (value > 299.0) or(value  < -299.0):
+                self._node.get_logger().warn(f"Laser Measurement Valid - False")
+                return False
+            else:
+                return True
+        else: 
+            self._node.get_logger().warn(f"Get laser measurement not implmentet for this mode {self.get_mode()}")
             return False
-        else:
-            self._node.get_logger().warn(f"Laser Measurement Valid - True")
-            return True
 
     def wait_for_joints_reached(self, 
                                 joint_names:list[str], 
