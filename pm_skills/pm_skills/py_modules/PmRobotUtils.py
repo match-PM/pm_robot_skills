@@ -30,7 +30,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
-from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState
+from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement
 from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
@@ -58,7 +58,8 @@ class PmRobotUtils():
         self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
         self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
         self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
-
+        self.client_set_force_sensor_bias = self._node.create_client(ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
+        self.client_get_force_measurement = self._node.create_client(ForceSensorGetMeasurement,'/pm_sensor_controller/ForceSensor/GetMeasurement')
 
         self.object_scene:ami_msg.ObjectScene = None
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
@@ -135,6 +136,19 @@ class PmRobotUtils():
     def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
         self.object_scene = msg
     
+    def set_force_sensor_bias(self)->bool:
+        if not self.client_set_force_sensor_bias.wait_for_service(1):
+            self._node.get_logger().error(f"Service {self.client_set_force_sensor_bias.srv_name} not available!")
+            return False
+        request = ForceSensorBias.Request() 
+
+        request.bias = True
+
+        response:ForceSensorBias.Response = self.client_set_force_sensor_bias.call(request)
+        self._node.get_logger().info(f"Force Sensor Bias set!")
+
+        return True
+
     def get_cam_file_name_bottom(self)->str:
         mode = self.get_mode()
 
@@ -366,6 +380,7 @@ class PmRobotUtils():
             
             if reached:
                 self._node.get_logger().info("Robot reached the desired joint positions.")
+                time.sleep(0.5)
                 return True
             
             if time.time() - start_time > timeout:
@@ -553,6 +568,12 @@ class PmRobotUtils():
         transform = Transform()
         transform.translation.x = transform_st.transform.translation.x
         transform.translation.y = transform_st.transform.translation.y
+        transform.translation.z = transform_st.transform.translation.z
+
+        transform.rotation.x = transform_st.transform.rotation.x
+        transform.rotation.y = transform_st.transform.rotation.y
+        transform.rotation.z = transform_st.transform.rotation.z
+        transform.rotation.w = transform_st.transform.rotation.w
 
         return transform
 
