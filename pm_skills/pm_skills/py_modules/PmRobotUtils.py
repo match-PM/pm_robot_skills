@@ -6,7 +6,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
-from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
+from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, AlignGonio, MoveRelative
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision
 import pm_vision_interfaces.msg as vision_msg
@@ -16,6 +16,8 @@ from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcess
 
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
+
+from std_msgs.msg import Float64MultiArray
 
 from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
@@ -30,7 +32,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
-from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement
+from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement, EmptyWithSuccess
 from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
@@ -53,6 +55,7 @@ class PmRobotUtils():
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
+        self.client_move_laser_relative = self._node.create_client(MoveRelative, '/pm_moveit_server/move_laser_relative')
         self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_bottom_measurement')
         self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_top_measurement')
         self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
@@ -60,6 +63,13 @@ class PmRobotUtils():
         self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
         self.client_set_force_sensor_bias = self._node.create_client(ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
         self.client_get_force_measurement = self._node.create_client(ForceSensorGetMeasurement,'/pm_sensor_controller/ForceSensor/GetMeasurement')
+        self.client_align_gonio_right = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_right')
+        self.client_align_gonio_left = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_left')
+        self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
+        self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
+        self.client_turn_off_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
+
+        self._current_force_sensor_data = Float64MultiArray()
 
         self.object_scene:ami_msg.ObjectScene = None
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
@@ -71,6 +81,9 @@ class PmRobotUtils():
                                 self.joint_state_callback,
                                 10
                                 )
+        
+        self.client_force_sensor = self._node.create_subscription(Float64MultiArray, '/pm_sensor_controller/ForceSensor/Stream',self.force_sensor_callback, 10)
+
         
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -551,6 +564,42 @@ class PmRobotUtils():
         else:
             return False
         
+    def force_sensor_callback(self, msg: Float64MultiArray):
+        self._current_force_sensor_data = msg
+    
+    def set_collision(self, link_1, link_2, should_check)->bool:
+        
+        if not self.client_set_collision.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_set_collision.srv_name}' not available!")
+            return False
+        
+        set_request = ami_srv.SetCollisionChecking.Request()
+        set_request.link_1 = link_1
+        set_request.link_2 = link_2
+        set_request.should_check = should_check
+
+        set_response:ami_srv.SetCollisionChecking.Response = self.client_set_collision.call(set_request)
+
+        return set_response.success
+    
+    def set_tool_vaccum(self, state:bool)->bool:
+        if not self.client_turn_on_vacuum_tool_head.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_turn_on_vacuum_tool_head.srv_name}' not available!")
+            return False
+        
+        if not self.client_turn_off_vacuum_tool_head.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_turn_off_vacuum_tool_head.srv_name}' not available!")
+            return False
+        
+        request=EmptyWithSuccess.Request()
+
+        if state:
+            response:EmptyWithSuccess.Response = self.client_turn_on_vacuum_tool_head.call(request)
+        else:
+            response:EmptyWithSuccess.Response = self.client_turn_off_vacuum_tool_head.call(request)
+
+        return response.success
+    
     def get_transform_for_frame(self, 
                                 frame_name: str, 
                                 parent_frame:str) -> Transform:

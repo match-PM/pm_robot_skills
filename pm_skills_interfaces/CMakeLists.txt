@@ -23,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlaceComponent.srv"
   "srv/MeasureFrame.srv"
   "srv/CorrectFrame.srv"
+  "srv/IterativeGonioAlign.srv"
   DEPENDENCIES geometry_msgs 
 )
 
