@@ -242,6 +242,7 @@ class PmSkills(Node):
                 measure_request = pm_skill_srv.CorrectFrame.Request()
                 measure_response = pm_skill_srv.CorrectFrame.Response()
                 measure_request.frame_name = frame
+                measure_request.use_iterative_sensing = True
 
                 measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
@@ -313,6 +314,7 @@ class PmSkills(Node):
                 measure_request = pm_skill_srv.CorrectFrame.Request()
                 measure_response = pm_skill_srv.CorrectFrame.Response()
                 measure_request.frame_name = frame
+                measure_request.use_iterative_sensing = True
 
                 measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
@@ -992,7 +994,9 @@ class PmSkills(Node):
             return response.success
     
       
-    def measure_with_laser_callback(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+    def measure_with_laser_callback(self, 
+                                    request:pm_skill_srv.CorrectFrame.Request, 
+                                    response:pm_skill_srv.CorrectFrame.Response):
         
         move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name)
         
@@ -1003,11 +1007,36 @@ class PmSkills(Node):
             return response
         
         if not self.pm_robot_utils._check_for_valid_laser_measurement():
-            response.success = False
-            self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
 
-            return response
-        
+            if request.use_iterative_sensing:
+                # move up
+                self._logger.warn(f"MOVING UP")
+                move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0, 0, -3.0*1e-3,time=1)
+                                                
+                if not move_success:
+                        response.success = False
+                        return response
+
+                step_inc = 0.1 # in mm
+                self._logger.warn(f"Laser measurement not valid! Trying to iteratively find a valid value!")
+
+                x, y, z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+                                                measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
+                                                length = (0.0, 0.0, 4.0),
+                                                step_inc = step_inc,
+                                                total_time = 8.0)
+                
+                if x is None:
+                    response.success = False
+                    self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
+                    return response
+            else:
+                response.success = False
+                self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
+                return response
+
+            self._logger.info(f"Valid value found!")      
+
         laser_measurement = -self.pm_robot_utils.get_laser_measurement(unit="m")
 
         response.correction_values.z = laser_measurement
@@ -1034,6 +1063,8 @@ class PmSkills(Node):
         measure_frame_response = pm_skill_srv.CorrectFrame.Response()
         
         measure_frame_request.frame_name = request.frame_name
+        measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
+        measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
         
         response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
         

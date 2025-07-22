@@ -1,5 +1,6 @@
 string frame_name
 bool remeasure_after_correction false
+bool use_iterative_sensing 
 ---
 bool success
 geometry_msgs/Vector3 correction_values

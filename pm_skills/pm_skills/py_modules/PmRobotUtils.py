@@ -223,6 +223,7 @@ class PmRobotUtils():
                                         time:float = 5)->bool:
         """
         Move the robot relative to its current position.
+        # z axis is defined with gravity vector !!!
         THIS IS NOT COLLISION SAVE!!! Be careful.
         
         """
@@ -625,7 +626,72 @@ class PmRobotUtils():
         transform.rotation.w = transform_st.transform.rotation.w
 
         return transform
+    
+    def interative_sensing(self,
+                           measurement_method:any,
+                           measurement_valid_function:any,
+                           length: tuple[float, float, float],
+                           step_inc: float,
+                           total_time: float):
+        """_summary_
 
+        Args:
+            measurement_method (any): _description_
+            measurement_bounds (tuple[float, float]): _description_
+            length (tuple[float, float, float]): in mm
+            step_inc (float): in mm
+            total_time (float): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        abs_length = [abs(length[0]), abs(length[1]), abs(length[2])]
+        self._node._logger.warn("abs: " + str(abs_length))
+
+        max_length = max(abs_length)
+        self._node._logger.warn("max abs: " + str(max_length))
+
+        total_steps = int(max_length / step_inc)
+        self._node._logger.warn("Total steps: " + str(total_steps))
+
+        step_time = total_time / total_steps
+        
+        x_step = length[0] / total_steps
+        y_step = length[1] / total_steps
+        z_step = length[2] / total_steps
+
+        # log all the values
+        self._node._logger.warn("Step time: " + str(step_time))
+        self._node._logger.warn("X step: " + str(x_step))
+        self._node._logger.warn("Y step: " + str(y_step))
+        self._node._logger.warn("Z step: " + str(z_step))
+        self._node._logger.warn("Length: " + str(length))
+        
+        for i in range(total_steps):
+            self._node._logger.warn(f"Executing iteration {i}/{total_steps}")
+            move_success = self.send_xyz_trajectory_goal_relative(x_joint_rel = x_step*1e-3,
+                                                                    y_joint_rel = y_step*1e-3, 
+                                                                    z_joint_rel = z_step*1e-3, 
+                                                                    time = step_time)
+            
+            if not move_success:
+                self._node._logger.error("Failed to move laser ROUTINE 2")
+                return False
+            
+            time.sleep(0.1)
+
+            #laser_measurement = measurement_method(unit='um')
+            mesurement = measurement_method(unit='um')
+            self._node._logger.info(f"Measurement is {mesurement} um.")
+
+            if measurement_valid_function():
+                current_x_joint_result = self.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
+                current_y_joint_result = self.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
+                current_z_joint_result = self.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
+
+        return None, None, None
+    
     @staticmethod
     def _transform_to_dict(transform):
         ''' 

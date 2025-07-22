@@ -839,7 +839,7 @@ class PmRobotCalibrationNode(Node):
         self.get_logger().error("STARTING Y DIRECTION ROUGTH")
 
         # sense the y direction
-        x, y_joint_result, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        x, y_joint_result, z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                  measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                  length = (0.0, -3.0, 0.0),
                                                  step_inc = step_inc,
@@ -856,7 +856,7 @@ class PmRobotCalibrationNode(Node):
 
         self.get_logger().error("STARTING X DIRECTION ROUGTH")
 
-        x_joint_result, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        x_joint_result, y, z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                         measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                         length = (-3.0, 0.0, 0.0),
                                                         step_inc = step_inc,
@@ -895,7 +895,7 @@ class PmRobotCalibrationNode(Node):
         step_inc = 0.01
         self.get_logger().error("STARTING Y DIRECTION FINE")
 
-        x, y_joint_result_2, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        x, y_joint_result_2, z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                     measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                  length = (0.0, -1.0, 0.0),
                                                  step_inc = step_inc,
@@ -910,7 +910,7 @@ class PmRobotCalibrationNode(Node):
 
         time.sleep(1)
 
-        x_joint_result_2, y, z = self.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+        x_joint_result_2, y, z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                         measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                         length = (-1.0, 0.0, 0.0),
                                                         step_inc = step_inc,
@@ -1491,68 +1491,7 @@ class PmRobotCalibrationNode(Node):
         except Exception as e:
             self._logger.error("Error: " + str(e))
             return False
-    
-    def interative_sensing(self,
-                           measurement_method:any,
-                           measurement_valid_function:any,
-                           length: tuple[float, float, float],
-                           step_inc: float,
-                           total_time: float):
-        """_summary_
-
-        Args:
-            measurement_method (any): _description_
-            measurement_bounds (tuple[float, float]): _description_
-            length (tuple[float, float, float]): in mm
-            step_inc (float): in mm
-            total_time (float): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        abs_length = [abs(length[0]), abs(length[1]), abs(length[2])]
         
-        max_length = max(abs_length)
-        total_steps = int(max_length / step_inc)
-        step_time = total_time / total_steps
-        
-        x_step = length[0] / total_steps
-        y_step = length[1] / total_steps
-        z_step = length[2] / total_steps
-
-        # log all the values
-        self.get_logger().warn("Total steps: " + str(total_steps))
-        self.get_logger().warn("Step time: " + str(step_time))
-        self.get_logger().warn("X step: " + str(x_step))
-        self.get_logger().warn("Y step: " + str(y_step))
-        self.get_logger().warn("Z step: " + str(z_step))
-        self.get_logger().warn("Length: " + str(length))
-        
-        for i in range(total_steps):
-
-            move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(x_joint_rel = x_step*1e-3,
-                                                                                 y_joint_rel = y_step*1e-3, 
-                                                                                 z_joint_rel = z_step*1e-3, 
-                                                                                 time = step_time)
-            
-            if not move_success:
-                self.get_logger().error("Failed to move laser ROUTINE 2")
-                return False
-            
-            time.sleep(0.1)
-
-            #laser_measurement = measurement_method(unit='um')
-            mesurement = measurement_method(unit='um')
-            self.get_logger().info(f"Measurement is {mesurement} um.")
-
-            if not measurement_valid_function():
-                current_x_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
-                current_y_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
-                current_z_joint_result = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
-                return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
-
-        return None, None, None
-    
     def load_last_calibrations_data(self):
         path = get_package_share_directory('pm_robot_calibration')
         file_name = 'last_calibrations.yaml'
