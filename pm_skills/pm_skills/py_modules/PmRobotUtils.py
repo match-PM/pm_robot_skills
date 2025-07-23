@@ -360,7 +360,7 @@ class PmRobotUtils():
                 return True
         else: 
             self._node.get_logger().warn(f"Get laser measurement not implmentet for this mode {self.get_mode()}")
-            return False
+            raise RuntimeError("This should not happen.")
 
     def wait_for_joints_reached(self, 
                                 joint_names:list[str], 

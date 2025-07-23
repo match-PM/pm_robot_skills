@@ -54,7 +54,7 @@ class PmSkills(Node):
     RELEASE_LIFT_DISTNACE = 0.01
     GRIP_APPROACH_OFFSET = 0.02
     #GRIP_SENSING_START_OFFSET = 0.0005
-    GRIP_SENSING_START_OFFSET = 0.001
+    GRIP_SENSING_START_OFFSET = 0.0005
     GRIP_SENSING_END_OFFSET = -0.0005
     ASSEMBLY_FRAME_INDICATOR = 'assembly_frame_Description'
     TARGET_FRAME_INDICATOR = 'target_frame_Description'
@@ -1000,6 +1000,8 @@ class PmSkills(Node):
         
         move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name)
         
+        offset = 0.0
+        
         if not move_laser_to_frame_success:
             response.success = False
             response.message = f"Failed to move laser to frame '{request.frame_name}'"
@@ -1016,11 +1018,15 @@ class PmSkills(Node):
                 if not move_success:
                         response.success = False
                         return response
-
-                step_inc = 0.1 # in mm
+                
+                step_inc = 0.4 # in mm
                 self._logger.warn(f"Laser measurement not valid! Trying to iteratively find a valid value!")
 
-                x, y, z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+                time.sleep(1)
+
+                initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+
+                x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                 measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
                                                 length = (0.0, 0.0, 4.0),
                                                 step_inc = step_inc,
@@ -1030,14 +1036,18 @@ class PmSkills(Node):
                     response.success = False
                     self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
                     return response
+                
+                offset = initial_z - final_z
+
+
             else:
                 response.success = False
                 self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
                 return response
 
             self._logger.info(f"Valid value found!")      
-
-        laser_measurement = -self.pm_robot_utils.get_laser_measurement(unit="m")
+        
+        laser_measurement = -self.pm_robot_utils.get_laser_measurement(unit="m") + float(offset)
 
         response.correction_values.z = laser_measurement
         response.success = True

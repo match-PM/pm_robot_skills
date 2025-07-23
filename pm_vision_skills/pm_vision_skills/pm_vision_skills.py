@@ -225,9 +225,9 @@ class VisionSkillsNode(Node):
                 response.success= False
                 return response
             
-            result_vector.x = -result_vector.x
-            result_vector.y = -result_vector.y
-            result_vector.z = -result_vector.z
+            result_vector.x = result_vector.x
+            result_vector.y = result_vector.y
+            result_vector.z = result_vector.z
             response.result_vector = result_vector     
             response.success = result.success
             
