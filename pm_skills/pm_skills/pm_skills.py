@@ -1011,6 +1011,9 @@ class PmSkills(Node):
         if not self.pm_robot_utils._check_for_valid_laser_measurement():
 
             if request.use_iterative_sensing:
+                
+                initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                
                 # move up
                 self._logger.warn(f"MOVING UP")
                 move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0, 0, -3.0*1e-3,time=1)
@@ -1024,7 +1027,7 @@ class PmSkills(Node):
 
                 time.sleep(1)
 
-                initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                
 
                 x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                 measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
@@ -1038,7 +1041,7 @@ class PmSkills(Node):
                     return response
                 
                 offset = initial_z - final_z
-
+                self._logger.info(f"Found valid value at: {offset} m")
 
             else:
                 response.success = False
@@ -1047,7 +1050,9 @@ class PmSkills(Node):
 
             self._logger.info(f"Valid value found!")      
         
-        laser_measurement = -self.pm_robot_utils.get_laser_measurement(unit="m") + float(offset)
+        laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m") + float(offset)
+
+        self._logger.info(f"Laser measurement: {laser_measurement} m ")
 
         response.correction_values.z = laser_measurement
         response.success = True
@@ -1086,7 +1091,7 @@ class PmSkills(Node):
                 
         world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
-        world_pose.transform.translation.z -= response_mes.correction_values.z
+        world_pose.transform.translation.z += response_mes.correction_values.z
 
         adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
         adapt_frame_request.frame_name = request.frame_name
