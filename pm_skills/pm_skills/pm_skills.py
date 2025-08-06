@@ -1011,9 +1011,13 @@ class PmSkills(Node):
         if not self.pm_robot_utils._check_for_valid_laser_measurement():
 
             if request.use_iterative_sensing:
-                
+
+                time.sleep(1)
+
                 initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
-                
+
+                time.sleep(1)
+
                 # move up
                 self._logger.warn(f"MOVING UP")
                 move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0, 0, -3.0*1e-3,time=1)
@@ -1023,11 +1027,7 @@ class PmSkills(Node):
                         return response
                 
                 step_inc = 0.4 # in mm
-                self._logger.warn(f"Laser measurement not valid! Trying to iteratively find a valid value!")
-
-                time.sleep(1)
-
-                
+                self._logger.warn(f"Laser measurement not valid! Trying to iteratively find a valid value!")                
 
                 x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                 measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
@@ -1051,7 +1051,7 @@ class PmSkills(Node):
             self._logger.info(f"Valid value found!")      
         
         laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m") + float(offset)
-
+        
         self._logger.info(f"Laser measurement: {laser_measurement} m ")
 
         response.correction_values.z = laser_measurement

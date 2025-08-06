@@ -36,6 +36,17 @@ from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetStat
 from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
+from enum import Enum
+
+class PmRobotTcps(Enum):
+    TCP_LASER = 'Laser_Toolhead_TCP'
+    TCP_TOOL = 'PM_Robot_Tool_TCP'
+    TCP_CAMERA_TOP = 'Cam1_Toolhead_TCP'
+    TCP_CONFOCAL_TOP = 'TCP_Confocal_Sensor_Top'
+    TCP_CONFOCAL_TOP_2 = 'TCP_Confocal_Sensor_Top_2'
+    TCP_CAMERA_BOTTOM = 'Cam1_Toolhead_TCP'
+    TCP_CONFOCAL_BOTTOM = 'TCP_Confocal_Sensor_Bottom'
+    
 class PmRobotUtils():
 
     REAL_MODE = 0
@@ -45,7 +56,16 @@ class PmRobotUtils():
     X_Axis_JOINT_NAME = 'X_Axis_Joint'
     Y_Axis_JOINT_NAME = 'Y_Axis_Joint'
     Z_Axis_JOINT_NAME = 'Z_Axis_Joint'
-    T_Acis_JOINT_NAME = 'T_Axis_Joint'
+    T_Axis_JOINT_NAME = 'T_Axis_Joint'
+
+    TCP_LASER = 'Laser_Toolhead_TCP'
+    TCP_TOOL = 'PM_Robot_Tool_TCP'
+    TCP_CAMERA_TOP = 'Cam1_Toolhead_TCP'
+    TCP_CONFOCAL_TOP = 'TCP_Confocal_Sensor_Top'
+    TCP_CONFOCAL_TOP_2 = 'TCP_Confocal_Sensor_Top_2'
+    TCP_CAMERA_BOTTOM = 'Camera_Station_TCP'
+    TCP_CONFOCAL_BOTTOM = 'TCP_Confocal_Sensor_Bottom'
+   
 
     def __init__(self, node:Node):
         self._node = node
@@ -207,7 +227,7 @@ class PmRobotUtils():
     def send_t_trajectory_goal_absolut(self, t_joint:float, time:float = 5)->bool:
         """Send a goal to the robot."""
         goal = FollowJointTrajectory.Goal()
-        goal.trajectory.joint_names = [self.T_Acis_JOINT_NAME]
+        goal.trajectory.joint_names = [self.T_Axis_JOINT_NAME]
         point = JointTrajectoryPoint()
 
         point.positions = [float(t_joint)]
@@ -223,7 +243,7 @@ class PmRobotUtils():
                                         time:float = 5)->bool:
         """
         Move the robot relative to its current position.
-        # z axis is defined with gravity vector !!!
+        z axis is defined with gravity vector !!! Use negative values to move the robot up!
         THIS IS NOT COLLISION SAVE!!! Be careful.
         
         """
@@ -293,7 +313,7 @@ class PmRobotUtils():
                 target_joint_value = goal.trajectory.points[0].positions[0]
                 self._node._logger.warn(f"Waiting for joints to be reached...{target_joint_value}")
                 wait_success = self.wait_for_joints_reached(
-                    joint_names=[self.T_Acis_JOINT_NAME],
+                    joint_names=[self.T_Axis_JOINT_NAME],
                     target_joint_values=[target_joint_value],
                     tolerance=[0.0001],
                     timeout=5.0)
@@ -345,10 +365,10 @@ class PmRobotUtils():
             values.append(self.get_laser_measurement(unit='um'))
 
             if all(v == values[0] for v in values):
-                self._node.get_logger().warn(f"Laser Measurement Valid - False")
+                #self._node.get_logger().warn(f"Laser Measurement Valid - False")
                 return False
             else:
-                self._node.get_logger().warn(f"Laser Measurement Valid - True")
+                #self._node.get_logger().warn(f"Laser Measurement Valid - True")
                 return True
             
         elif self.get_mode() == self.UNITY_MODE:
@@ -475,7 +495,6 @@ class PmRobotUtils():
         return response.measurement * multiplier
     
     def get_confocal_top_measurement(self, unit:str = "m")->float:
-        self._node.get_logger().warn("Test1")
         req = GetValue.Request()
 
         if self.get_mode() == self.REAL_MODE:
@@ -490,11 +509,17 @@ class PmRobotUtils():
 
         else:
             return None
-    
-        multiplier =  self._get_multiplier(unit)
-        self._node.get_logger().warn("Test2")
+        
+        #self._node.get_logger().warn(f"value {response.data} um")
 
-        return response.data * multiplier
+
+        multiplier =  self._get_multiplier(unit)
+
+        result = response.data * multiplier
+        
+        #self._node.get_logger().warn(f"value {result} m")
+
+        return result
 
     def check_confocal_top_measurement_in_range(self)->bool:
         req = GetValue.Request()
@@ -505,7 +530,7 @@ class PmRobotUtils():
                 return None
             
             response:GetValue.Response = self.client_get_confocal_top_measurement.call(req)
-            self._node.get_logger().warn(f"{response.success}")
+            #self._node.get_logger().warn(f"{response.success}")
 
             return response.success
         
@@ -661,11 +686,11 @@ class PmRobotUtils():
         z_step = length[2] / total_steps
 
         # log all the values
-        self._node._logger.warn("Step time: " + str(step_time))
-        self._node._logger.warn("X step: " + str(x_step))
-        self._node._logger.warn("Y step: " + str(y_step))
-        self._node._logger.warn("Z step: " + str(z_step))
-        self._node._logger.warn("Length: " + str(length))
+        # self._node._logger.warn("Step time: " + str(step_time))
+        # self._node._logger.warn("X step: " + str(x_step))
+        # self._node._logger.warn("Y step: " + str(y_step))
+        # self._node._logger.warn("Z step: " + str(z_step))
+        # self._node._logger.warn("Length: " + str(length))
         
         for i in range(total_steps):
             self._node._logger.warn(f"Executing iteration {i}/{total_steps}")
@@ -681,13 +706,15 @@ class PmRobotUtils():
             time.sleep(0.1)
 
             #laser_measurement = measurement_method(unit='um')
-            mesurement = measurement_method(unit='um')
-            self._node._logger.info(f"Measurement is {mesurement} um.")
 
             if measurement_valid_function():
                 current_x_joint_result = self.get_current_joint_state(PmRobotUtils.X_Axis_JOINT_NAME)
                 current_y_joint_result = self.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
                 current_z_joint_result = self.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+
+                mesurement = measurement_method(unit='um')
+                self._node._logger.info(f"Measurement is {mesurement} um.")
+
                 return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
 
         return None, None, None
