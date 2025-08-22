@@ -68,6 +68,7 @@ class PmSkills(Node):
         self.pm_robot_utils = PmRobotUtils(self)
         self.pm_robot_utils.start_object_scene_subscribtion()
 
+        # services
         self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
         self.force_grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/force_grip_component", self.force_grip_component_callback,callback_group=self.callback_group_me)
 
@@ -85,10 +86,17 @@ class PmSkills(Node):
         self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
         self.dummy_uv_cure_service = self.create_service(EmptyWithSuccess, "pm_skills/uv_cure_dummy", self.activate_uv_dummy, callback_group=self.callback_group_me)
         self.force_sensing_move_srv = self.create_service(pm_msg_srv.GripperForceMove, self.get_name()+'/gripper_force_sensing', self.force_sensing_move_callback, callback_group=self.callback_group_me)
+        
+        self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
+        self.correct_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_confocal_bottom", self.correct_frame_with_confocal_bottom, callback_group=self.callback_group_me)
+
+        self.measure_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_top", self.measure_frame_with_confocal_top, callback_group=self.callback_group_me)
+        self.correct_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_confocal_top", self.correct_frame_with_confocal_top, callback_group=self.callback_group_me)
+
         self.srv_iter_align_gonio_right = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_right', self.iterative_align_gonio_right, callback_group=self.callback_group_me)
         self.srv_iter_align_gonio_left = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_left', self.iterative_align_gonio_left, callback_group=self.callback_group_me)
 
-
+        # clienets
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.move_robot_tool_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
         self.move_robot_tool_relative = self.create_client(MoveRelative, '/pm_moveit_server/move_tool_relative')
@@ -1103,8 +1111,8 @@ class PmSkills(Node):
         #self._logger.warn(f"Check3")
         
         if frame_from_scene:
-            while not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
-                self._logger.error("Service 'ModifyPoseAbsolut' not available. Assembly manager started?...")
+            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
                 response.success= False
                 return response
             
@@ -1118,28 +1126,171 @@ class PmSkills(Node):
         
         return response
     
-    # def move_gripper_to_relative(self, frame_name:str)-> bool:
-    #     call_async = False
-
-    #     if not self.move_robot_tool_client.wait_for_service(timeout_sec=1.0):
-    #         self.logger.error("Service '/pm_moveit_server/move_tool_to_frame' not available")
-    #         return False
+    def measure_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
-    #     req = pm_moveit_srv.MoveToFrame.Request()
-    #     req.target_frame = frame_name
-    #     req.execute_movement = True
-    #     req.translation.z = 0.0000001
+        tcp_name = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM  # we need to move the frame attached to the robot to the tcp. We use the move camera method for that
 
-    #     if call_async:
-    #         future = self.move_robot_tool_client.call_async(req)
-    #         rclpy.spin_until_future_complete(self, future)
-    #         if future.result() is None:
-    #             self.logger.error('Service call failed %r' % (future.exception(),))
-    #             return False
-    #         return future.result().success
-    #     else:
-    #         response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(req)
-    #         return response.success
+        move_frame_to_confocal_bottom_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name= tcp_name,
+                                                                                            endeffector_override=request.frame_name)
+                
+        if not move_frame_to_confocal_bottom_success:
+            response.success = False
+            response.message = f"Failed to move frame '{request.frame_name}' to confocal bottom!" 
+            self.logger.error(response.message)
+            return response
+        
+        if not self.pm_robot_utils.check_confocal_bottom_measurement_in_range():
+            response.success = False
+            self._logger.warn(f"Confocal bottom measurement not valid! OUT OF RANGE")
+            return response
+        
+        confocal_measurement = self.pm_robot_utils.get_confocal_bottom_measurement(unit="m")
+        
+        self._logger.info(f"Measurement: {confocal_measurement} m ")
+
+        response.correction_values.z = confocal_measurement
+        response.success = True
+        response.message = f"Measurement: {confocal_measurement}"
+
+        return response
+
+    def correct_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+        
+        self.pm_robot_utils.wait_for_initial_scene_update()
+        
+        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
+
+        self._logger.warn(f"Correcting frame: {request.frame_name}...")
+        self._logger.warn(f"Object name: {_obj_name}")
+        self._logger.warn(f"Frame name: {_frame_name}")
+
+        if _frame_name is not None:
+            frame_from_scene = True
+        else:
+            frame_from_scene = False
+
+        measure_frame_request = pm_skill_srv.CorrectFrame.Request()
+        measure_frame_response = pm_skill_srv.CorrectFrame.Response()
+        
+        measure_frame_request.frame_name = request.frame_name
+        measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
+        measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
+        
+        response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
+        
+        self._logger.warn(f"REs {str(response_mes)}")
+
+        if not response_mes.success:
+            response.success = False
+            return response
+                
+        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+
+        world_pose.transform.translation.z += response_mes.correction_values.z
+
+        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+        adapt_frame_request.frame_name = request.frame_name
+        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+        adapt_frame_request.pose.orientation = world_pose.transform.rotation
+        
+        if frame_from_scene:
+            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
+                response.success= False
+                return response
+            
+            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
+        else:
+            result_adapt = ami_srv.ModifyPoseAbsolut.Response()
+
+        response.success = result_adapt.success
+        response.correction_values.z = response_mes.correction_values.z
+        
+        return response
+
+    def measure_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+
+        move_confocal_top_to_frame_success = self.pm_robot_utils.move_confocal_top_to_frame(request.frame_name)
+        
+        offset = 0.0
+        
+        if not move_confocal_top_to_frame_success:
+            response.success = False
+            response.message = f"Failed to move laser to frame '{request.frame_name}'"
+            self.logger.error(response.message)
+            return response
+        
+        if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
+            response.success = False
+            self._logger.warn(f"Confocal top measurement not valid! OUT OF RANGE")
+            return response
+        
+        confocal_measurement = self.pm_robot_utils.get_confocal_top_measurement(unit="m")
+        
+        self._logger.info(f"Laser measurement: {confocal_measurement} m ")
+
+        response.correction_values.z = confocal_measurement
+        response.success = True
+        response.message = f"Measurement: {confocal_measurement}"
+        return response
+
+    def correct_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+        self.pm_robot_utils.wait_for_initial_scene_update()
+        
+        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
+
+        self._logger.warn(f"Correcting frame: {request.frame_name}...")
+        self._logger.warn(f"Object name: {_obj_name}")
+        self._logger.warn(f"Frame name: {_frame_name}")
+
+        if _frame_name is not None:
+            frame_from_scene = True
+        else:
+            frame_from_scene = False
+
+        measure_frame_request = pm_skill_srv.CorrectFrame.Request()
+        measure_frame_response = pm_skill_srv.CorrectFrame.Response()
+        
+        measure_frame_request.frame_name = request.frame_name
+        measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
+        measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
+        
+        response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_top(measure_frame_request, measure_frame_response)
+        
+        self._logger.warn(f"REs {str(response_mes)}")
+
+        if not response_mes.success:
+            response.success = False
+            return response
+                
+        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+
+        world_pose.transform.translation.z += response_mes.correction_values.z
+
+        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+        adapt_frame_request.frame_name = request.frame_name
+        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+        adapt_frame_request.pose.orientation = world_pose.transform.rotation
+        
+        if frame_from_scene:
+            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
+                response.success= False
+                return response
+            
+            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
+        else:
+            result_adapt = ami_srv.ModifyPoseAbsolut.Response()
+            self._logger.error(f"The frame '{request.frame_name}' could not be corrected, as it is not from the assembly scene.")
+        
+        response.success = result_adapt.success
+        response.correction_values.z = response_mes.correction_values.z
+        
+        return response
         
     def attach_component_to_gripper(self, component_name:str)-> bool:
         call_async = False

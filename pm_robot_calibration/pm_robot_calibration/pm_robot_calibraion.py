@@ -86,7 +86,7 @@ class PmRobotCalibrationNode(Node):
         # clients
         self.client_spawn_frames = self.create_client(SpawnFramesFromDescription, '/assembly_manager/spawn_frames_from_description')
         self.client_measure_frame_cam = self.create_client(MeasureFrame, '/pm_skills/vision_measure_frame')
-        self.client_correct_frame = self.create_client(CorrectFrame, '/pm_skills/vision_correct_frame')
+        self.client_correct_frame_vision = self.create_client(CorrectFrame, '/pm_skills/vision_correct_frame')
         self.client_modify_pose_from_frame = self.create_client(ami_srv.ModifyPoseFromFrame, '/assembly_manager/modify_frame_from_frame')
         self.client_calibrate_camera_pixel = self.create_client(CalibratePixelPerUm, '/pm_vision_manager/SetCameraPixelPerUm')
         self.client_calibrate_camera_angle = self.create_client(CalibrateAngle, '/pm_vision_manager/SetCameraAngle')
@@ -566,14 +566,24 @@ class PmRobotCalibrationNode(Node):
         #rotations = [90, 65, 55, 45, 35, 25, 0]
         rotations = [90, 60, 30, 0]
 
-        
         #rotations = [60, 40, 20, 0]
+
+        # move gripper close to camera to calibration start position
+        move_to_start_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+                                                                             endeffector_override=self.pm_robot_utils.TCP_TOOL,
+                                                                             z_offset=0.007)
+        
+        if not move_to_start_success:
+            self.get_logger().error("Failed to move to start position...")
+            response.success = False
+            return response
 
         # convert to rad
         rotations = [r * np.pi / 180.0 for r in rotations]
         
         distance_list: list[float] = []  
         frame_poses_list:list[Pose] = []      
+
         for index, rotation in enumerate(rotations):
             move_success = self.pm_robot_utils.send_t_trajectory_goal_absolut(rotation, 2.0)
             self.get_logger().error("Gripper rotation: " + str(rotation))
@@ -585,7 +595,7 @@ class PmRobotCalibrationNode(Node):
             for frame in frames:
                                 
                 if 'Vision' in frame or 'vision' in frame:
-                    correct_frame_success = self.correct_frame(frame)
+                    correct_frame_success = self.correct_frame_vison(frame)
                     #correct_frame_success = self.measure_frame(frame)
                     
                     if not correct_frame_success:
@@ -2094,8 +2104,6 @@ class PmRobotCalibrationNode(Node):
         y_offset = circle.center_point.axis_value_2
 
         return x_offset, y_offset
-
-
     
     def measure_frame(self, frame_id:str)->tuple[bool, Vector3]:
         
@@ -2109,15 +2117,15 @@ class PmRobotCalibrationNode(Node):
         
         return response.success, response.result_vector
     
-    def correct_frame(self, frame_id:str)->bool:
+    def correct_frame_vison(self, frame_id:str)->bool:
         
-        if not self.client_correct_frame.wait_for_service(timeout_sec=1.0):
+        if not self.client_correct_frame_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error('Vision correct frame service not available...')
             return False
         
         request = CorrectFrame.Request()
         request.frame_name = frame_id
-        response:CorrectFrame.Response = self.client_correct_frame.call(request)
+        response:CorrectFrame.Response = self.client_correct_frame_vision.call(request)
         
         return response.success
     

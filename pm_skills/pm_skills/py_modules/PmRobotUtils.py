@@ -652,6 +652,61 @@ class PmRobotUtils():
 
         return transform
     
+    def move_laser_to_frame(self, frame_name:str, z_offset=None)-> bool:
+
+        if not self.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
+            self._node._logger.error("Service '/pm_moveit_server/move_laser_to_frame' not available")
+            return False
+        
+        req = MoveToFrame.Request()
+        req.target_frame = frame_name
+        req.execute_movement = True
+
+        if z_offset is not None:
+            req.translation.z = z_offset
+
+        response:MoveToFrame.Response = self.client_move_robot_laser_to_frame.call(req)
+        return response.success
+    
+    def move_confocal_top_to_frame(self, frame_name:str, z_offset=None)-> bool:
+
+        if not self.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
+            self._node._logger.error(f"Service '{self.client_move_robot_confocal_top_to_frame.srv_name}' not available")
+            return False
+        
+        req = MoveToFrame.Request()
+        req.target_frame = frame_name
+        req.execute_movement = True
+
+        if z_offset is not None:
+            req.translation.z = z_offset
+
+        response:MoveToFrame.Response = self.client_move_robot_confocal_top_to_frame.call(req)
+
+        return response.success
+    
+    def move_camera_top_to_frame(self, frame_name:str, 
+                                 z_offset:float = None, 
+                                 endeffector_override: str = None)-> bool:
+
+        if not self.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
+            self._node._logger.error(f"Service '{self.client_move_robot_cam1_to_frame.srv_name}' not available")
+            return False
+        
+        req = MoveToFrame.Request()
+        req.target_frame = frame_name
+        req.execute_movement = True
+
+        if endeffector_override is not None:
+            req.endeffector_frame_override = endeffector_override
+
+        if z_offset is not None:
+            req.translation.z = z_offset
+
+        response:MoveToFrame.Response = self.client_move_robot_cam1_to_frame.call(req)
+        
+        return response.success
+        
     def interative_sensing(self,
                            measurement_method:any,
                            measurement_valid_function:any,
