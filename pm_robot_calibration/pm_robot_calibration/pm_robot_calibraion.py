@@ -90,6 +90,8 @@ class PmRobotCalibrationNode(Node):
         self.client_modify_pose_from_frame = self.create_client(ami_srv.ModifyPoseFromFrame, '/assembly_manager/modify_frame_from_frame')
         self.client_calibrate_camera_pixel = self.create_client(CalibratePixelPerUm, '/pm_vision_manager/SetCameraPixelPerUm')
         self.client_calibrate_camera_angle = self.create_client(CalibrateAngle, '/pm_vision_manager/SetCameraAngle')
+        self.client_correct_frame_confocal_bottom = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_confocal_bottom')
+        #self.client_correct_frame_confocal_bottom = self.create_client(CorrectFrame, '/pm_skills/measure_frame_with_confocal_bottom')
 
         self.client_move_calibration_target_forward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveForward')
         self.client_move_calibration_target_backward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveBackward')
@@ -112,6 +114,7 @@ class PmRobotCalibrationNode(Node):
         self.calbibrate_gonio_left_chuck_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gonio_left_chuck', self.calibrate_gonio_left_chuck_callback, callback_group=self.callback_group)
         self.calbibrate_gonio_right_chuck_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gonio_right_chuck', self.calibrate_gonio_right_chuck_callback, callback_group=self.callback_group)
         self.calibrate_gripper_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gripper', self.calibrate_gripper_callback, callback_group=self.callback_group)
+        self.calibrate_gripper_plane_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gripper_plane', self.calibrate_gripper_plane, callback_group=self.callback_group)
         
         # paths
         self.bringup_share_path = get_package_share_directory('pm_robot_bringup')
@@ -187,6 +190,7 @@ class PmRobotCalibrationNode(Node):
         
         if not self.client_spawn_frames.wait_for_service(timeout_sec=1.0):
             self._logger.error('Assembly manager not available...')
+            return False, None
         
         self._logger.info('Calibration: Spawning frames for gripper...')
         
@@ -561,7 +565,16 @@ class PmRobotCalibrationNode(Node):
             self.get_logger().error("Failed to spawn gripper frames...")
             response.success = False
             return response
-                
+        
+        move_success = self.pm_robot_utils.send_t_trajectory_goal_absolut(0.0, 2.0)
+
+        if not move_success:
+            self.get_logger().error("Failed to move gripper to rotation 0.0")
+            response.success = False
+            return response
+
+        # maybe make this a service input?? so that the user can dynamically decide on the number of rotations?
+
         #rotations = [0.0, 20, 30, 40, 50, 60, 80]
         #rotations = [90, 65, 55, 45, 35, 25, 0]
         rotations = [90, 60, 30, 0]
@@ -570,8 +583,8 @@ class PmRobotCalibrationNode(Node):
 
         # move gripper close to camera to calibration start position
         move_to_start_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
-                                                                             endeffector_override=self.pm_robot_utils.TCP_TOOL,
-                                                                             z_offset=0.007)
+                                                                             #endeffector_override=self.pm_robot_utils.TCP_TOOL,
+                                                                             z_offset=0.01)
         
         if not move_to_start_success:
             self.get_logger().error("Failed to move to start position...")
@@ -580,6 +593,11 @@ class PmRobotCalibrationNode(Node):
 
         # convert to rad
         rotations = [r * np.pi / 180.0 for r in rotations]
+        
+        if len(rotations) == 0:
+            self.get_logger().error("No angles for the gripper calibration specified")
+            response.success = False
+            return response
         
         distance_list: list[float] = []  
         frame_poses_list:list[Pose] = []      
@@ -626,14 +644,20 @@ class PmRobotCalibrationNode(Node):
                                     logger=self._logger)
         
         min_distance = min(distance_list)
+        max_distance = max(distance_list)
         # fit a circle to the points to find the center
                 
         #2.3656241026821336e-07
         self._logger.info("Min distance: " + str(min_distance * 1e6) + " um")
         self._logger.info(f" length of frame_poses_list: {len(frame_poses_list)}")
         
-        # check if the fit is good
-        if distance > 20 * 1e-6:
+        # if the rotational axis is not ideal all the frames in the 'frame_poses_list' form a circle. We saved all the distances between the points in the circle
+        # if we are already calibrated, the points should be very close together and not form a circle.
+        # we check the distances between the points, if the max_distance exeedes a threshold we calibrate the axis offset
+
+        #if distance > 20 * 1e-6:
+        if max_distance > 20 * 1e-6:
+            # plot a circle through all the poses
             x,y,r,s = self.find_circle_coordinates(copy.copy(frame_poses_list))
             self._logger.info("Circle center: " + str(x) + ", " + str(y) + ", radius (um): " + str(r* 1e6) + ", s: " + str(s))
             
@@ -667,11 +691,109 @@ class PmRobotCalibrationNode(Node):
         self._logger.error(f"x offset: {relative_transform.translation.x * 1e6} um")
         self._logger.error(f"y offset: {relative_transform.translation.y * 1e6} um")
         
+        # move gripper close to confocal bottom to calibration start position
+        move_to_start_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CONFOCAL_BOTTOM,
+                                                                             endeffector_override=self.pm_robot_utils.TCP_TOOL,
+                                                                             z_offset=0.007)
+        
+        if not move_to_start_success:
+            self.get_logger().error("Failed to move to start position...")
+            response.success = False
+            return response
+        
+        # we now measure the rotational deviations of the gripper
+        for frame in frames:                      
+            if 'Laser' in frame or 'laser' in frame:
+                correct_frame_success = self.correct_frame_confocal_bottom(frame)
+                
+                if not correct_frame_success:
+                    self.get_logger().error("Failed to correct frame: " + frame)
+                    response.success = False
+                    return response
+
+        relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+                                                from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
+                                                to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
+                                                tf_buffer=self.pm_robot_utils.tf_buffer,
+                                                logger=self._logger)
+        
+        relative_transform.rotation = relative_transform_angle.rotation
+
+        roll, pitch, yaw = R.from_quat([relative_transform_angle.rotation.x, 
+                                        relative_transform_angle.rotation.y,
+                                        relative_transform_angle.rotation.z,
+                                        relative_transform_angle.rotation.w,]).as_euler('xyz', degrees=True)
+        
+        self._logger.warn(f"Results - Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
+                
         self.save_joint_config('PM_Robot_Tool_TCP_Joint', relative_transform)
         
         self.last_calibrations_data['gripper'] = f'{datetime.datetime.now()}'
         self.save_last_calibrations_data()
         return response        
+    
+
+    def calibrate_gripper_plane(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.load_last_calibrations_data()
+        
+        spawn_success, frames, unique_identifier = self.spawn_frames_for_current_gripper()
+        
+        if not spawn_success:
+            self.get_logger().error("Failed to spawn gripper frames...")
+            response.success = False
+            return response
+        
+        move_success = self.pm_robot_utils.send_t_trajectory_goal_absolut(0.0, 0.5)
+
+        if not move_success:
+            self.get_logger().error("Failed to move gripper to rotation 0.0")
+            response.success = False
+            return response
+
+        # we now measure the rotational deviations of the gripper
+        for frame in frames:                      
+            if 'Laser' in frame or 'laser' in frame:
+                correct_frame_success = self.correct_frame_confocal_bottom(frame)
+                
+                if not correct_frame_success:
+                    self.get_logger().error("Failed to correct frame: " + frame)
+                    response.success = False
+                    return response
+                
+                z_valaue = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
+                self._logger.error(f"z joint: {z_valaue*1e3} mm")
+
+
+        default_transformation = Transform()
+
+        relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+                                                from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
+                                                to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
+                                                tf_buffer=self.pm_robot_utils.tf_buffer,
+                                                logger=self._logger)
+        
+        roll, pitch, yaw = R.from_quat([relative_transform_angle.rotation.x, 
+                                        relative_transform_angle.rotation.y,
+                                        relative_transform_angle.rotation.z,
+                                        relative_transform_angle.rotation.w,]).as_euler('xyz', degrees=True)
+        
+        self._logger.warn(f"Results - Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
+        
+        default_transformation.rotation = relative_transform_angle.rotation
+
+        self.save_joint_config('PM_Robot_Tool_TCP_Joint', 
+                               default_transformation, 
+                               overwrite=True)
+        
+        self.last_calibrations_data['gripper_anlge'] = f'{datetime.datetime.now()}'
+
+        # move out of danger zone
+        #self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.04, 0.5)
+
+        self.save_last_calibrations_data()
+        response.success = True
+        return response
+     
     
     def find_circle_coordinates(self, poses:list[Pose]):
         points = []
@@ -706,9 +828,11 @@ class PmRobotCalibrationNode(Node):
         ax.grid(True)
         ax.set_aspect('equal')  # Ensures circle is not distorted
         #plt.show()
+        path = f'{self.calibration_frame_dict_path}/gripper_calibration_poses_{datetime.datetime.now()}.png'
         #save the figure
-        fig.savefig(f'{self.calibration_frame_dict_path}/gripper_calibration_poses.png')    
-
+        fig.savefig(path)   
+        self.get_logger().info(f"Calibration image has been saved to '{path}'.")
+ 
 
     ###########################################
     ### calibration_cube_to_cam_top ###########
@@ -2126,6 +2250,19 @@ class PmRobotCalibrationNode(Node):
         request = CorrectFrame.Request()
         request.frame_name = frame_id
         response:CorrectFrame.Response = self.client_correct_frame_vision.call(request)
+        
+        return response.success
+    
+
+    def correct_frame_confocal_bottom(self, frame_id:str)->bool:
+        
+        if not self.client_correct_frame_confocal_bottom.wait_for_service(timeout_sec=1.0):
+            self._logger.error(f"Client '{self.client_correct_frame_confocal_bottom.srv_name}' not available...")
+            return False
+        
+        request = CorrectFrame.Request()
+        request.frame_name = frame_id
+        response:CorrectFrame.Response = self.client_correct_frame_confocal_bottom.call(request)
         
         return response.success
     

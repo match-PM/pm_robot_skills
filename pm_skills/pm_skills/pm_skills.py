@@ -1073,9 +1073,9 @@ class PmSkills(Node):
         
         _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
 
-        self._logger.warn(f"Correcting frame: {request.frame_name}...")
-        self._logger.warn(f"Object name: {_obj_name}")
-        self._logger.warn(f"Frame name: {_frame_name}")
+        #self._logger.warn(f"Correcting frame: {request.frame_name}...")
+        #self._logger.warn(f"Object name: {_obj_name}")
+        #self._logger.warn(f"Frame name: {_frame_name}")
 
         if _frame_name is not None:
             frame_from_scene = True
@@ -1091,7 +1091,7 @@ class PmSkills(Node):
         
         response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
         
-        self._logger.warn(f"REs {str(response_mes)}")
+        #self._logger.warn(f"REs {str(response_mes)}")
 
         if not response_mes.success:
             response.success = False
@@ -1130,15 +1130,17 @@ class PmSkills(Node):
         
         tcp_name = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM  # we need to move the frame attached to the robot to the tcp. We use the move camera method for that
 
-        move_frame_to_confocal_bottom_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name= tcp_name,
-                                                                                            endeffector_override=request.frame_name)
-                
+        move_frame_to_confocal_bottom_success = self.pm_robot_utils.move_camera_top_to_frame(   frame_name = tcp_name,
+                                                                                                endeffector_override=request.frame_name)
+        
         if not move_frame_to_confocal_bottom_success:
             response.success = False
             response.message = f"Failed to move frame '{request.frame_name}' to confocal bottom!" 
             self.logger.error(response.message)
             return response
         
+        time.sleep(1)
+
         if not self.pm_robot_utils.check_confocal_bottom_measurement_in_range():
             response.success = False
             self._logger.warn(f"Confocal bottom measurement not valid! OUT OF RANGE")
@@ -1146,11 +1148,11 @@ class PmSkills(Node):
         
         confocal_measurement = self.pm_robot_utils.get_confocal_bottom_measurement(unit="m")
         
-        self._logger.info(f"Measurement: {confocal_measurement} m ")
+        self._logger.info(f"Measurement: {confocal_measurement*1e6} um ")
 
         response.correction_values.z = confocal_measurement
         response.success = True
-        response.message = f"Measurement: {confocal_measurement}"
+        response.message = f"Measurement: {confocal_measurement*1e6} um"
 
         return response
 
@@ -1160,9 +1162,9 @@ class PmSkills(Node):
         
         _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
 
-        self._logger.warn(f"Correcting frame: {request.frame_name}...")
-        self._logger.warn(f"Object name: {_obj_name}")
-        self._logger.warn(f"Frame name: {_frame_name}")
+        #self._logger.warn(f"Correcting frame: {request.frame_name}...")
+        #self._logger.warn(f"Object name: {_obj_name}")
+        #self._logger.warn(f"Frame name: {_frame_name}")
 
         if _frame_name is not None:
             frame_from_scene = True
@@ -1178,7 +1180,7 @@ class PmSkills(Node):
         
         response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
         
-        self._logger.warn(f"REs {str(response_mes)}")
+        #self._logger.warn(f"REs {str(response_mes)}")
 
         if not response_mes.success:
             response.success = False
