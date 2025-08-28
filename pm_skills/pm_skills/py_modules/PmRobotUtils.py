@@ -11,6 +11,7 @@ from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTrans
 from pm_vision_interfaces.srv import ExecuteVision
 import pm_vision_interfaces.msg as vision_msg
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
+from example_interfaces.srv import SetBool
 
 from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcessClass
 
@@ -37,6 +38,13 @@ from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
 from enum import Enum
+
+# create new error
+
+class PmRobotError(Exception):
+    def __init__(self, message="Error occured controlling the robot."):
+        self.message = message
+        super().__init__(self.message)
 
 class PmRobotTcps(Enum):
     TCP_LASER = 'Laser_Toolhead_TCP'
@@ -65,13 +73,16 @@ class PmRobotUtils():
     TCP_CONFOCAL_TOP_2 = 'TCP_Confocal_Sensor_Top_2'
     TCP_CAMERA_BOTTOM = 'Camera_Station_TCP'
     TCP_CONFOCAL_BOTTOM = 'TCP_Confocal_Sensor_Bottom'
-   
+    TCP_1K_DISPENSER = '1K_Dispenser_TCP'
 
     def __init__(self, node:Node):
         self._node = node
         self.client_execute_vision = self._node.create_client(ExecuteVision, '/pm_vision_manager/ExecuteVision')
         self.client_move_robot_cam1_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_cam1_to_frame')
         self.client_move_robot_tool_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
+        self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
+        self.client_move_robot_1k_dispenser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_1k_dispenser_to_frame')
+
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
@@ -80,7 +91,6 @@ class PmRobotUtils():
         self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_top_measurement')
         self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
         self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
-        self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
         self.client_set_force_sensor_bias = self._node.create_client(ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
         self.client_get_force_measurement = self._node.create_client(ForceSensorGetMeasurement,'/pm_sensor_controller/ForceSensor/GetMeasurement')
         self.client_align_gonio_right = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_right')
@@ -88,6 +98,19 @@ class PmRobotUtils():
         self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
         self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.client_turn_off_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
+
+
+        self._open_protection_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Protection_Joint/MoveBackward')
+        self._close_protection_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Protection_Joint/MoveForward')
+
+        self._retract_dispenser_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Joint/MoveBackward')
+        self._extend_dispenser_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Joint/MoveForward')
+
+        self.client_turn_on_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOn')
+        self.client_turn_off_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOff')
+
+        self.client_turn_on_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOn')
+        self.client_turn_off_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOff')
 
         self._current_force_sensor_data = Float64MultiArray()
 
@@ -625,6 +648,42 @@ class PmRobotUtils():
             response:EmptyWithSuccess.Response = self.client_turn_off_vacuum_tool_head.call(request)
 
         return response.success
+
+    def set_gonio_left_vacuum(self, state:bool)->bool:
+        if not self.client_turn_on_gonio_left_vacuum.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_turn_on_gonio_left_vacuum.srv_name}' not available!")
+            return False
+
+        if not self.client_turn_off_gonio_left_vacuum.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_turn_off_gonio_left_vacuum.srv_name}' not available!")
+            return False
+        
+        request=EmptyWithSuccess.Request()
+
+        if state:
+            response:EmptyWithSuccess.Response = self.client_turn_on_gonio_left_vacuum.call(request)
+        else:
+            response:EmptyWithSuccess.Response = self.client_turn_off_gonio_left_vacuum.call(request)
+
+        return response.success
+    
+    def set_gonio_right_vacuum(self, state:bool)->bool:
+        if not self.client_turn_on_gonio_right_vacuum.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_turn_on_gonio_right_vacuum.srv_name}' not available!")
+            return False
+
+        if not self.client_turn_off_gonio_right_vacuum.wait_for_service(1):
+            self._node._logger.error(f"Client '{self.client_turn_off_gonio_right_vacuum.srv_name}' not available!")
+            return False
+        
+        request=EmptyWithSuccess.Request()
+
+        if state:
+            response:EmptyWithSuccess.Response = self.client_turn_on_gonio_right_vacuum.call(request)
+        else:
+            response:EmptyWithSuccess.Response = self.client_turn_off_gonio_right_vacuum.call(request)
+
+        return response.success
     
     def get_transform_for_frame(self, 
                                 frame_name: str, 
@@ -651,9 +710,11 @@ class PmRobotUtils():
         transform.rotation.w = transform_st.transform.rotation.w
 
         return transform
-    
-    def move_laser_to_frame(self, frame_name:str, z_offset=None)-> bool:
 
+    def move_laser_to_frame(self, frame_name:str, z_offset=0.0, y_offset=0.0, x_offset=0.0)-> bool:
+        """
+        Move the laser to the specified frame with the given offsets (in m).
+        """
         if not self.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
             self._node._logger.error("Service '/pm_moveit_server/move_laser_to_frame' not available")
             return False
@@ -662,14 +723,17 @@ class PmRobotUtils():
         req.target_frame = frame_name
         req.execute_movement = True
 
-        if z_offset is not None:
-            req.translation.z = z_offset
+        req.translation.z = z_offset
+        req.translation.y = y_offset
+        req.translation.x = x_offset
 
         response:MoveToFrame.Response = self.client_move_robot_laser_to_frame.call(req)
         return response.success
-    
-    def move_confocal_top_to_frame(self, frame_name:str, z_offset=None)-> bool:
 
+    def move_confocal_top_to_frame(self, frame_name:str, z_offset=0.0, y_offset=0.0, x_offset=0.0)-> bool:
+        """
+        Move the confocal top to the specified frame with the given offsets (in m).
+        """
         if not self.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
             self._node._logger.error(f"Service '{self.client_move_robot_confocal_top_to_frame.srv_name}' not available")
             return False
@@ -678,17 +742,23 @@ class PmRobotUtils():
         req.target_frame = frame_name
         req.execute_movement = True
 
-        if z_offset is not None:
-            req.translation.z = z_offset
+        req.translation.z = z_offset
+        req.translation.y = y_offset
+        req.translation.x = x_offset
 
         response:MoveToFrame.Response = self.client_move_robot_confocal_top_to_frame.call(req)
 
         return response.success
     
     def move_camera_top_to_frame(self, frame_name:str, 
-                                 z_offset:float = None, 
+                                 z_offset:float = 0.0, 
+                                 y_offset:float = 0.0,
+                                 x_offset:float = 0.0,
                                  endeffector_override: str = None)-> bool:
-
+        """
+        Move the camera top to the specified frame with the given offsets (in m).
+        """
+        
         if not self.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
             self._node._logger.error(f"Service '{self.client_move_robot_cam1_to_frame.srv_name}' not available")
             return False
@@ -700,10 +770,36 @@ class PmRobotUtils():
         if endeffector_override is not None:
             req.endeffector_frame_override = endeffector_override
 
-        if z_offset is not None:
-            req.translation.z = z_offset
+        req.translation.z = z_offset
+        req.translation.y = y_offset
+        req.translation.x = x_offset
 
         response:MoveToFrame.Response = self.client_move_robot_cam1_to_frame.call(req)
+        
+        return response.success
+    
+
+    def move_1k_dispenser_to_frame(self, frame_name:str, 
+                                 z_offset:float = 0.0, 
+                                 y_offset:float = 0.0,
+                                 x_offset:float = 0.0)-> bool:
+        """
+        Move the camera top to the specified frame with the given offsets (in m).
+        """
+        
+        if not self.client_move_robot_1k_dispenser_to_frame.wait_for_service(timeout_sec=1.0):
+            self._node._logger.error(f"Service '{self.client_move_robot_1k_dispenser_to_frame.srv_name}' not available")
+            return False
+        
+        req = MoveToFrame.Request()
+        req.target_frame = frame_name
+        req.execute_movement = True
+
+        req.translation.z = z_offset
+        req.translation.y = y_offset
+        req.translation.x = x_offset
+
+        response:MoveToFrame.Response = self.client_move_robot_1k_dispenser_to_frame.call(req)
         
         return response.success
         
@@ -773,7 +869,48 @@ class PmRobotUtils():
                 return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
 
         return None, None, None
-    
+
+    def open_protection(self):
+
+        if not self._open_protection_real_srv.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self._open_protection_real_srv.srv_name}' not available.")
+
+        req = EmptyWithSuccess.Request()
+        response:EmptyWithSuccess.Response = self._open_protection_real_srv.call(req)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to open protection: {response.message}")
+
+    def close_protection(self):
+        if not self._close_protection_real_srv.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self._close_protection_real_srv.srv_name}' not available.")
+
+        req = EmptyWithSuccess.Request()
+        response:EmptyWithSuccess.Response = self._close_protection_real_srv.call(req)
+        return response.success
+
+    def retract_dispenser(self):
+
+        if not self._retract_dispenser_real_srv.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self._retract_dispenser_real_srv.srv_name}' not available.")
+
+        req = EmptyWithSuccess.Request()
+        response: EmptyWithSuccess.Response = self._retract_dispenser_real_srv.call(req)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to retract dispenser: {response.message}")
+
+    def extend_dispenser(self):
+
+        if not self._extend_dispenser_real_srv.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self._extend_dispenser_real_srv.srv_name}' not available.")
+
+        req = EmptyWithSuccess.Request()
+        response:EmptyWithSuccess.Response = self._extend_dispenser_real_srv.call(req)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to extend dispenser: {response.message}")
+
     @staticmethod
     def _transform_to_dict(transform):
         ''' 

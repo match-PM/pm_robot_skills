@@ -502,7 +502,24 @@ class PmSkills(Node):
         if not enable_success:
             response.success = False
             return response
-    
+        
+        disable_success = True
+
+        # turn off the vacuum
+        if self.is_object_on_gonio_left(request.component_name, max_depth=1):
+            self.logger.info(f"Disabling vacuum on gonio left for component '{request.component_name}'")
+            disable_success = self.pm_robot_utils.set_gonio_left_vacuum(False)
+
+        elif self.is_object_on_gonio_right(request.component_name, max_depth=1):
+            self.logger.info(f"Disabling vacuum on gonio right for component '{request.component_name}'")
+            disable_success = self.pm_robot_utils.set_gonio_right_vacuum(False)
+        else:
+            self.logger.info(f"Component '{request.component_name}' is not on a gonio!")
+
+        if not disable_success:
+            response.success = False
+            return response
+        
         move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
 
         if not move_relatively_success:
@@ -977,6 +994,9 @@ class PmSkills(Node):
             return response.success
 
     def move_laser_to_frame(self, frame_name:str, z_offset=None)-> bool:
+        """
+        z_offset in m
+        """
         call_async = False
 
         if not self.pm_robot_utils.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
@@ -1444,52 +1464,45 @@ class PmSkills(Node):
             if obj.obj_name == object_name:
                 return obj.parent_frame
         return None
+    
+    def is_object_on_gonio_left(self, object_name: str, max_depth: int = 3) -> bool:
+        """
+        Check if the object is on the gonio left frame, up to a specified depth.
 
-    def is_object_on_gonio_left(self, object_name:str)-> bool:
-        parent_frame = self.get_parent_of_object(object_name)
+        :param object_name: Name of the object to check.
+        :param max_depth: How many levels up the hierarchy to check.
+        :return: True if the object is on or connected to the gonio left frame.
+        """
+        current_object = object_name
 
-        if self.PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR in parent_frame:
-            return True
-        
-        parent_object_1 = self.get_parent_of_object(parent_frame)
+        for _ in range(max_depth):
+            parent_frame = self.get_parent_of_object(current_object)
+            if parent_frame is None:
+                return False
+            if self.PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR in parent_frame:
+                return True
+            current_object = parent_frame
 
-        if parent_object_1 is None:
-            return False
-        
-        if self.PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR in parent_object_1:
-            return True
-        
-        parent_object_2 = self.get_parent_of_object(parent_object_1)
-
-        if parent_object_2 is None:
-            return False
-        
-        if self.PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR in parent_object_2:
-            return True
-        
         return False
 
-    def is_object_on_gonio_right(self, object_name:str)-> bool:
-        parent_frame = self.get_parent_of_object(object_name)
-        if self.PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR in parent_frame:
-            return True
+    def is_object_on_gonio_right(self, object_name: str, max_depth: int = 3) -> bool:
+        """
+        Check if the object is on the gonio right frame, up to a specified depth.
         
-        parent_object_1 = self.get_parent_of_object(parent_frame)
+        :param object_name: Name of the object to check.
+        :param max_depth: How many levels up the hierarchy to check.
+        :return: True if the object is on or connected to the gonio right frame.
+        """
+        current_object = object_name
 
-        if parent_object_1 is None:
-            return False
-        
-        if self.PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR in parent_object_1:
-            return True
-        
-        parent_object_2 = self.get_parent_of_object(parent_object_1)
+        for _ in range(max_depth):
+            parent_frame = self.get_parent_of_object(current_object)
+            if parent_frame is None:
+                return False
+            if self.PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR in parent_frame:
+                return True
+            current_object = parent_frame
 
-        if parent_object_2 is None:
-            return False
-        
-        if self.PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR in parent_object_2:
-            return True
-        
         return False
 
     def is_gripper_empthy(self)-> bool:
