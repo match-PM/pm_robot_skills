@@ -162,6 +162,7 @@ class VisionSkillsNode(Node):
                 return response
             
             detected_circles = result.vision_response.results.circles
+            detected_points = result.vision_response.results.points
 
             #self._logger.warn(f"Result: {str(result.vision_response.results)}")
 
@@ -192,7 +193,6 @@ class VisionSkillsNode(Node):
                 if detected_cricle.center_point.axis_suffix_2 == 'z' or detected_cricle.center_point.axis_suffix_2 == 'Z':
                     result_vector.z = detected_cricle.center_point.axis_value_2*multiplier
 
-            detected_points = result.vision_response.results.points
 
             if len(detected_points) == 0:
                 self._logger.warn("No points detected...")
@@ -222,6 +222,11 @@ class VisionSkillsNode(Node):
             
             if len(detected_points) == 0 and len(detected_circles) == 0:
                 self._logger.error("No points and circles detected...")
+                response.success= False
+                return response
+            
+            if len(detected_points) > 1 or len(detected_circles) > 1:
+                self._logger.error("Multiple points or circles detected...")
                 response.success= False
                 return response
             

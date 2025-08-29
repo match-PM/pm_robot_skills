@@ -33,7 +33,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
-from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement, EmptyWithSuccess
+from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement, EmptyWithSuccess, ReferenceCubeState
 from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
@@ -96,7 +96,9 @@ class PmRobotUtils():
         self.client_align_gonio_right = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.client_align_gonio_left = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_left')
         self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
-        
+
+        self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
+
         self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.client_turn_off_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
 
@@ -536,7 +538,6 @@ class PmRobotUtils():
         
         #self._node.get_logger().warn(f"value {response.data} um")
 
-
         multiplier =  self._get_multiplier(unit)
 
         result = response.data * multiplier
@@ -783,14 +784,13 @@ class PmRobotUtils():
     def move_1k_dispenser_to_frame(self, frame_name:str, 
                                  z_offset:float = 0.0, 
                                  y_offset:float = 0.0,
-                                 x_offset:float = 0.0)-> bool:
+                                 x_offset:float = 0.0):
         """
         Move the camera top to the specified frame with the given offsets (in m).
         """
         
         if not self.client_move_robot_1k_dispenser_to_frame.wait_for_service(timeout_sec=1.0):
-            self._node._logger.error(f"Service '{self.client_move_robot_1k_dispenser_to_frame.srv_name}' not available")
-            return False
+            raise PmRobotError(f"Service '{self.client_move_robot_1k_dispenser_to_frame.srv_name}' not available")
         
         req = MoveToFrame.Request()
         req.target_frame = frame_name
@@ -801,9 +801,20 @@ class PmRobotUtils():
         req.translation.x = x_offset
 
         response:MoveToFrame.Response = self.client_move_robot_1k_dispenser_to_frame.call(req)
-        
-        return response.success
-        
+
+        if not response.success:
+            raise PmRobotError(f"Failed to move 1k dispenser: {response.message}")
+
+    def check_reference_cube_pressed(self)->bool:
+
+        if not self.client_check_reference_cube.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError (f"Service '{self.client_check_reference_cube.srv_name}' not available")
+
+        req = ReferenceCubeState.Request()
+        response: ReferenceCubeState.Response = self.client_check_reference_cube.call(req)
+
+        return response.pressed
+
     def interative_sensing(self,
                            measurement_method:any,
                            measurement_valid_function:any,
@@ -864,8 +875,9 @@ class PmRobotUtils():
                 current_y_joint_result = self.get_current_joint_state(PmRobotUtils.Y_Axis_JOINT_NAME)
                 current_z_joint_result = self.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
 
-                mesurement = measurement_method(unit='um')
-                self._node._logger.info(f"Measurement is {mesurement} um.")
+                if measurement_method is not None:
+                    measurement = measurement_method(unit='um')
+                    self._node._logger.info(f"Measurement is {measurement} um.")
 
                 return (current_x_joint_result, current_y_joint_result, current_z_joint_result)
 
@@ -888,7 +900,8 @@ class PmRobotUtils():
 
         req = EmptyWithSuccess.Request()
         response:EmptyWithSuccess.Response = self._close_protection_real_srv.call(req)
-        return response.success
+        if not response.success:
+            raise PmRobotError(f"Failed to close protection: {response.message}")
 
     def retract_dispenser(self):
 
