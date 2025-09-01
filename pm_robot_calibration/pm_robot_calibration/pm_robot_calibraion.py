@@ -85,7 +85,6 @@ class PmRobotCalibrationNode(Node):
         self.pm_robot_utils = PmRobotUtils(self)
         self.pm_robot_utils.start_object_scene_subscribtion()
         
-        self.pm_robot_config = {}
         self.gripper_frames_spawned = False
         # clients
         self.client_spawn_frames = self.create_client(SpawnFramesFromDescription, '/assembly_manager/spawn_frames_from_description')
@@ -128,27 +127,18 @@ class PmRobotCalibrationNode(Node):
         self.calibrate_1K_dispenser_z_on_calibration_cube_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_1K_dispenser_z_on_calibration_cube', self.calibrate_1K_dispenser_z_on_calibration_cube, callback_group=self.callback_group)
 
         # paths
-        self.bringup_share_path = get_package_share_directory('pm_robot_bringup')
         self.calibration_frame_dict_path = get_package_share_directory('pm_robot_description') + '/urdf/urdf_configs/calibration_frame_dictionaries'
-        self.pm_robot_config_path = self.bringup_share_path + '/config/pm_robot_bringup_config.yaml'
         self.calibration_log_dir = get_package_share_directory('pm_robot_calibration') + '/calibration_logs/'
 
         #self.update_pm_robot_config()
         self.get_logger().info(self.INFO_TEXT)
-        self._last_calibrations_data = {}
-        
-    def update_pm_robot_config(self):
-        self.pm_robot_utils.pm_robot_config.reload_config()
-        # with open(self.pm_robot_config_path, 'r') as file:
-        #     self.pm_robot_config = yaml.load(file, Loader=yaml.FullLoader)
-        # self.vacuum_gripper_config = VacuumGripperConfig(TOOL_VACUUM_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_VACUUM_IDENT])
-        # self.parallel_gripper_1_jaw_config = ParallelGripperConfig(TOOL_GRIPPER_1_JAW_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_GRIPPER_1_JAW_IDENT])
-        # self.parallel_gripper_2_jaw_config = ParallelGripperConfig(TOOL_GRIPPER_2_JAW_IDENT, self.pm_robot_config['pm_robot_tools'][TOOL_GRIPPER_2_JAW_IDENT])
+        self._last_calibrations_data = {}    
         
     def get_gripper_calibration_frame_dictionary(self)->dict:
         calibration_frame_dict = {}
         file_path = None
-        
+
+        self.pm_robot_utils.update_pm_robot_config()
         file_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_calibration_frame_dict_file_name()
         file_path = self.calibration_frame_dict_path + '/' + file_name 
 
@@ -178,8 +168,6 @@ class PmRobotCalibrationNode(Node):
         return calibration_frame_dict, file_path
     
     def spawn_frames_for_current_gripper(self)->tuple[bool, str]:
-        
-        self.update_pm_robot_config()
         
         calibration_frame_dict, file_path = self.get_gripper_calibration_frame_dictionary()
         frames_list = []
@@ -324,6 +312,7 @@ class PmRobotCalibrationNode(Node):
                 raise PmRobotError("Failed to calibrate coordinate systems")
 
             response.success = process_success
+            self.set_calibration_platelet_backward()
             
         except PmRobotError as e:
             self._logger.error(f"Error occurred during camera calibration: {e}")
@@ -332,7 +321,8 @@ class PmRobotCalibrationNode(Node):
         finally:
             self._logger.info(f"Camera calibration process completed with success: {response.success}")
             try:
-                self.set_calibration_platelet_backward()
+                #self.set_calibration_platelet_backward()
+                pass
 
             except PmRobotError as e2:
                 self._logger.error(f"Error occurred while moving calibration target backward: {e2}")
@@ -383,9 +373,12 @@ class PmRobotCalibrationNode(Node):
 
         trans = self.pm_robot_utils.get_transform_for_frame(frame_name='Cam1_Toolhead_TCP',
                                                             parent_frame='Camera_Station_TCP')
+
+        #rel_trans.translation.x = (rel_trans.translation.x + trans.translation.x)
+        #rel_trans.translation.y = (rel_trans.translation.y + trans.translation.y)
+        rel_trans.translation.x = -1*trans.translation.x - rel_trans.translation.x
+        rel_trans.translation.y = -1*trans.translation.y - rel_trans.translation.y
         
-        rel_trans.translation.x += trans.translation.x
-        rel_trans.translation.y += trans.translation.y
 
         self._logger.error(f"Result trans x: {rel_trans.translation.x}")
         self._logger.error(f"Result trans y: {rel_trans.translation.y}")
@@ -393,7 +386,7 @@ class PmRobotCalibrationNode(Node):
 
         save_success = self.save_joint_config ( joint_name='Cam1_Toolhead_TCP_Joint',
                                                 rel_transformation=rel_trans,
-                                                overwrite=True)
+                                                overwrite=False)
 
         self.log_calibration(file_name='Cam1_Toolhead_TCP_Joint', calibration_dict=self._transform_to_dict(rel_trans))
 
@@ -616,6 +609,7 @@ class PmRobotCalibrationNode(Node):
         spawn_request = ami_srv.CreateRefFrame.Request()
 
         # get current dispenser tip
+        self.pm_robot_utils.update_pm_robot_config()
         dispenser_tip = self.pm_robot_utils.pm_robot_config.dispenser_1k.get_current_dispenser_tip()
 
         frame_name = f"CAL_{dispenser_tip}_Vision_Frame"
@@ -2311,9 +2305,12 @@ class PmRobotCalibrationNode(Node):
             self._logger.fatal('Fatal error in calibration program. Invalid unit!')
             return False
         
-        package_name = 'pm_robot_description'
-        file_name = 'calibration_config/pm_robot_joint_calibration.yaml'
-        file_path = get_package_share_directory(package_name) + '/' + file_name
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+            file_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=True)
+        elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
+            file_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
+        else:
+            file_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
 
         self._log_calibration_result(rel_transformation, unit=unit)
 

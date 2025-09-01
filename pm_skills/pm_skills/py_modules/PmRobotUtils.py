@@ -814,6 +814,12 @@ class PmRobotUtils():
         response: ReferenceCubeState.Response = self.client_check_reference_cube.call(req)
 
         return response.pressed
+    
+    def update_pm_robot_config(self):
+        if self.get_mode() == self.REAL_MODE:
+            self.pm_robot_config.set_real_HW(True)
+        else:
+            self.pm_robot_config.set_real_HW(False)
 
     def interative_sensing(self,
                            measurement_method:any,
