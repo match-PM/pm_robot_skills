@@ -378,7 +378,7 @@ class PmRobotCalibrationNode(Node):
         #rel_trans.translation.y = (rel_trans.translation.y + trans.translation.y)
         rel_trans.translation.x = -1*trans.translation.x - rel_trans.translation.x
         rel_trans.translation.y = -1*trans.translation.y - rel_trans.translation.y
-        
+
 
         self._logger.error(f"Result trans x: {rel_trans.translation.x}")
         self._logger.error(f"Result trans y: {rel_trans.translation.y}")
@@ -924,11 +924,17 @@ class PmRobotCalibrationNode(Node):
 
         default_transformation = Transform()
 
+        # relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+        #                                         from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
+        #                                         to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
+        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
+        #                                         logger=self._logger)
+        
         relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-                                                from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
-                                                to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
-                                                tf_buffer=self.pm_robot_utils.tf_buffer,
-                                                logger=self._logger)
+                                        from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
+                                        to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
+                                        tf_buffer=self.pm_robot_utils.tf_buffer,
+                                        logger=self._logger)
         
         roll, pitch, yaw = R.from_quat([relative_transform_angle.rotation.x, 
                                         relative_transform_angle.rotation.y,
@@ -941,6 +947,7 @@ class PmRobotCalibrationNode(Node):
         result_dict["rx"] = round(roll, 5)
         result_dict["ry"] = round(pitch, 5)
         result_dict["rz"] = round(yaw, 5)
+        result_dict["z"] = round(relative_transform_angle.translation.z*1e6, 1)
 
         default_transformation.rotation = relative_transform_angle.rotation
         default_transformation.translation.z = relative_transform_angle.translation.z

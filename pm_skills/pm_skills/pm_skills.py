@@ -42,7 +42,7 @@ from assembly_scene_publisher.py_modules.scene_functions import (get_parent_of_c
                                                                  is_component_assembled,
                                                                  get_global_statonary_component)
 
-from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
 
 class PmSkills(Node):
     
@@ -244,7 +244,7 @@ class PmSkills(Node):
 
         for iter in range(iterations):
             self.logger.info(f"STARTING RUN '{iter}/{iterations}")
-
+        
             for frame in request.frames_to_measure:
                 self.logger.info(f"Measuring frame '{frame}'")
                 measure_request = pm_skill_srv.CorrectFrame.Request()
@@ -487,15 +487,6 @@ class PmSkills(Node):
             response.success = False
             return response
         
-        attach_component_success = self.attach_component_to_gripper(request.component_name)
-        
-        if not attach_component_success:
-            move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-            response.success = False
-            response.message = f"Failed to attach component '{request.component_name}' to gripper"
-            self.logger.error(response.message)
-            return response
-        
         # # enable vacuum
         enable_success = self.pm_robot_utils.set_tool_vaccum(True)
 
@@ -518,6 +509,16 @@ class PmSkills(Node):
 
         if not disable_success:
             response.success = False
+            return response
+        
+        # attach the component to the gripper
+        attach_component_success = self.attach_component_to_gripper(request.component_name)
+        
+        if not attach_component_success:
+            move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
+            response.success = False
+            response.message = f"Failed to attach component '{request.component_name}' to gripper"
+            self.logger.error(response.message)
             return response
         
         move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
@@ -1025,68 +1026,74 @@ class PmSkills(Node):
     def measure_with_laser_callback(self, 
                                     request:pm_skill_srv.CorrectFrame.Request, 
                                     response:pm_skill_srv.CorrectFrame.Response):
-        
-        move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name)
-        
-        offset = 0.0
-        
-        if not move_laser_to_frame_success:
-            response.success = False
-            response.message = f"Failed to move laser to frame '{request.frame_name}'"
-            self.logger.error(response.message)
-            return response
-        
-        if not self.pm_robot_utils._check_for_valid_laser_measurement():
+        try:
+            move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name)
+            
+            offset = 0.0
+            
+            if not move_laser_to_frame_success:
+                response.success = False
+                response.message = f"Failed to move laser to frame '{request.frame_name}'"
+                self.logger.error(response.message)
+                return response
+            
+            if not self.pm_robot_utils._check_for_valid_laser_measurement():
 
-            if request.use_iterative_sensing:
+                if request.use_iterative_sensing:
 
-                time.sleep(1)
+                    time.sleep(1)
 
-                initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
+                    initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
 
-                time.sleep(1)
+                    time.sleep(1)
 
-                # move up
-                self._logger.warn(f"MOVING UP")
-                move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0, 0, -3.0*1e-3,time=1)
-                                                
-                if not move_success:
+                    # move up
+                    self._logger.warn(f"MOVING UP")
+                    move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0, 0, -3.0*1e-3,time=1)
+                                                    
+                    if not move_success:
+                            response.success = False
+                            return response
+                    
+                    step_inc = 0.4 # in mm
+                    self._logger.warn(f"Laser measurement not valid! Trying to iteratively find a valid value!")                
+
+                    x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
+                                                    measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
+                                                    length = (0.0, 0.0, 4.0),
+                                                    step_inc = step_inc,
+                                                    total_time = 8.0)
+                    
+                    if x is None:
                         response.success = False
+                        self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
                         return response
-                
-                step_inc = 0.4 # in mm
-                self._logger.warn(f"Laser measurement not valid! Trying to iteratively find a valid value!")                
+                    
+                    offset = initial_z - final_z
+                    self._logger.info(f"Found valid value at: {offset} m")
 
-                x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
-                                                measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
-                                                length = (0.0, 0.0, 4.0),
-                                                step_inc = step_inc,
-                                                total_time = 8.0)
-                
-                if x is None:
+                else:
                     response.success = False
                     self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
                     return response
-                
-                offset = initial_z - final_z
-                self._logger.info(f"Found valid value at: {offset} m")
 
-            else:
-                response.success = False
-                self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
-                return response
+                self._logger.info(f"Valid value found!")      
+            
+            laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m") + float(offset)
+            
+            self._logger.info(f"Laser measurement: {laser_measurement} m ")
 
-            self._logger.info(f"Valid value found!")      
-        
-        laser_measurement = self.pm_robot_utils.get_laser_measurement(unit="m") + float(offset)
-        
-        self._logger.info(f"Laser measurement: {laser_measurement} m ")
+            response.correction_values.z = laser_measurement
+            response.success = True
+            response.message = f"Measurement: {laser_measurement}"
 
-        response.correction_values.z = laser_measurement
-        response.success = True
-        response.message = f"Measurement: {laser_measurement}"
+        except PmRobotError as e:
+            response.success = False
+            response.message = str(e)
+            self._logger.error(response.message)
+
         return response
-    
+
     def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
         self.pm_robot_utils.wait_for_initial_scene_update()

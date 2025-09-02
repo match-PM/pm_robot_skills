@@ -345,34 +345,7 @@ class PmRobotUtils():
                     timeout=5.0)
                 
                 return wait_success 
-    
-    def interative_sensing_laser(self)->True:
-        # THIS METHOD IS NOT COLLISION SAVE
-        iterations = 40
-        increments = 0.0001 # 100 um
-
-        self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
-                                                y_joint_rel=0,
-                                                z_joint_rel = -0.003, # 3 mm up
-                                                time=0.5)
-        
-        for iterator in range((iterations)*2):
-
-            if self.get_mode() == self.REAL_MODE:
-                # move up
-                if not self._check_for_valid_laser_measurement():
-                    self.send_xyz_trajectory_goal_relative(x_joint_rel=0,
-                                                           y_joint_rel=0,
-                                                           z_joint_rel=increments,
-                                                           time=0.5)
-                else:
-                    return True
-
-                self._node.get_logger().warn(f"{iterator}")
-        
-        return False
-                # move to default
-                
+                    
 
     def _check_for_valid_laser_measurement(self):
         # down movement
@@ -501,7 +474,7 @@ class PmRobotUtils():
 
         if not self.client_get_laser_mes.wait_for_service(timeout_sec=1.0):
             self._node.get_logger().error("Service '/pm_sensor_controller/Laser/GetMeasurement' not available")
-            return None
+            raise PmRobotError("Service '/pm_sensor_controller/Laser/GetMeasurement' not available")
         
         req = LaserGetMeasurement.Request()
 
@@ -510,7 +483,7 @@ class PmRobotUtils():
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self._node.get_logger().error('Service call failed %r' % (future.exception(),))
-                return None
+                raise PmRobotError('Service call failed %r' % (future.exception(),))
             response= future.result()
             
         else:

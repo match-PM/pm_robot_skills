@@ -274,36 +274,48 @@ class VisionSkillsNode(Node):
 
         self._logger.warn(f"Requesting measure frame for frame: {request.frame_name}...using process file: {measure_frame_request.vision_process_file_name}")
         
-        result:MeasureFrame.Response = self.measure_frame(measure_frame_request, response_em)
+        if request.remeasure_after_correction == True:
+            iter = 2
 
-        response.correction_values = result.result_vector
-        
-        if not result.success:
-            response.success = False
-            return response
-        
-        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+        else:
+            iter = 1
 
-        world_pose.transform.translation.x += result.result_vector.x
-        world_pose.transform.translation.y += result.result_vector.y
-        world_pose.transform.translation.z += result.result_vector.z
+        for _ in range(iter):
+            
+            result:MeasureFrame.Response = self.measure_frame(measure_frame_request, response_em)
 
-        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
-        adapt_frame_request.frame_name = request.frame_name
-        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
-        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
-        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
-        adapt_frame_request.pose.orientation = world_pose.transform.rotation
+            response.correction_values = result.result_vector
+            
+            if not result.success:
+                response.success = False
+                return response
+            
+            world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
-        if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
-            self._logger.error("Service 'ModifyPoseAbsolut' not available...")
-            response.success= False
-            return response
-        
-        result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
-        response.success = result_adapt.success
-        
-        #response.success = True
+            world_pose.transform.translation.x += result.result_vector.x
+            world_pose.transform.translation.y += result.result_vector.y
+            world_pose.transform.translation.z += result.result_vector.z
+
+            adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+            adapt_frame_request.frame_name = request.frame_name
+            adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+            adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+            adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+            adapt_frame_request.pose.orientation = world_pose.transform.rotation
+
+            if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
+                self._logger.error("Service 'ModifyPoseAbsolut' not available...")
+                response.success= False
+                return response
+            
+            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
+            response.success = result_adapt.success
+
+            if not result_adapt.success:
+                response.success = False
+                response.message = "Failed to adapt frame position."
+                self._logger.error(response.message)
+                return response
 
         return response
     
