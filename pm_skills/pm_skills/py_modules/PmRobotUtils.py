@@ -65,7 +65,11 @@ class PmRobotUtils():
     Y_Axis_JOINT_NAME = 'Y_Axis_Joint'
     Z_Axis_JOINT_NAME = 'Z_Axis_Joint'
     T_Axis_JOINT_NAME = 'T_Axis_Joint'
-
+    GONIO_RIGHT_STAGE_1 = 'Gonio_Right_Stage_1_Joint'
+    GONIO_RIGHT_STAGE_2 = 'Gonio_Right_Stage_2_Joint'
+    GONIO_LEFT_STAGE_1 = 'Gonio_Left_Stage_1_Joint'
+    GONIO_LEFT_STAGE_2 = 'Gonio_Left_Stage_2_Joint'
+    
     TCP_LASER = 'Laser_Toolhead_TCP'
     TCP_TOOL = 'PM_Robot_Tool_TCP'
     TCP_CAMERA_TOP = 'Cam1_Toolhead_TCP'
@@ -109,10 +113,10 @@ class PmRobotUtils():
         self._retract_dispenser_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Joint/MoveBackward')
         self._extend_dispenser_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Joint/MoveForward')
 
-        self.client_turn_on_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOn')
+        self.client_turn_on_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/Vacuum')
         self.client_turn_off_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOff')
 
-        self.client_turn_on_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOn')
+        self.client_turn_on_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/Vacuum')
         self.client_turn_off_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOff')
 
         self._current_force_sensor_data = Float64MultiArray()

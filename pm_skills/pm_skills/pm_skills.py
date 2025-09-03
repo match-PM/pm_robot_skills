@@ -26,7 +26,7 @@ from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_f
 from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
 
 from scipy.spatial.transform import Rotation as R
-
+import numpy as np
 from pm_msgs.srv import UVCuringSkill
 import pm_msgs.srv as pm_msg_srv
 
@@ -50,9 +50,9 @@ class PmSkills(Node):
     PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR = 'Gonio_Left_Part'
     PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR = 'Gonio_Right_Part'
     GRIPPING_FRAME_IDENTIFICATORS = ['Grip', 'grip']
-    GRIP_RELATIVE_LIFT_DISTANCE = 0.02
-    RELEASE_LIFT_DISTNACE = 0.01
-    GRIP_APPROACH_OFFSET = 0.02
+    GRIP_RELATIVE_LIFT_DISTANCE = 0.05
+    RELEASE_LIFT_DISTANCE = 0.05
+    GRIP_APPROACH_OFFSET = 0.05
     #GRIP_SENSING_START_OFFSET = 0.0005
     GRIP_SENSING_START_OFFSET = 0.0005
     GRIP_SENSING_END_OFFSET = -0.0005
@@ -73,6 +73,8 @@ class PmSkills(Node):
         self.force_grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/force_grip_component", self.force_grip_component_callback,callback_group=self.callback_group_me)
 
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.place_component_callback,callback_group=self.callback_group_me)
+        self.release_component_srv = self.create_service(EmptyWithSuccess, "pm_skills/release_component", self.release_component_callback,callback_group=self.callback_group_me)
+
         self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
         
         self.vacuum_gripper_on_service = self.create_service(EmptyWithSuccess, "pm_skills/vacuum_gripper/vacuum_on", self.vaccum_gripper_on_callback, callback_group=self.callback_group_me)
@@ -84,7 +86,6 @@ class PmSkills(Node):
 
         self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
         self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
-        self.dummy_uv_cure_service = self.create_service(EmptyWithSuccess, "pm_skills/uv_cure_dummy", self.activate_uv_dummy, callback_group=self.callback_group_me)
         self.force_sensing_move_srv = self.create_service(pm_msg_srv.GripperForceMove, self.get_name()+'/gripper_force_sensing', self.force_sensing_move_callback, callback_group=self.callback_group_me)
         
         self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
@@ -124,7 +125,7 @@ class PmSkills(Node):
         self.get_logger().info('Received ForceSensingMove request.')
 
         self.pm_robot_utils.set_force_sensor_bias()
-        time.sleep(1)
+        time.sleep(2)
         # Validate the request parameters. If any max force is > than 10, set threshold_exceeded to True and return failure.
         threshold_value = 10.0  # N
         max_step_size = 100  # micrometers
@@ -228,74 +229,96 @@ class PmSkills(Node):
 
 
     def iterative_align_gonio_right(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
-        
-        if not self.pm_robot_utils.client_align_gonio_right.wait_for_service(1):
-            self.logger.error(f"Client '{self.pm_robot_utils.client_align_gonio_right.srv_name} not available!")
-            response.success = False
-            return response
+        try:
 
-        # the request never changes
-        align_request = pm_moveit_srv.AlignGonio.Request()
-        align_request.execute_movement = True
-        align_request.endeffector_frame_override = request.gonio_endeffector_frame
-        align_request.target_frame = request.target_alignment_frame
+            # the request never changes
+            align_request = pm_moveit_srv.AlignGonio.Request()
+            align_request.execute_movement = True
+            align_request.endeffector_frame_override = request.gonio_endeffector_frame
+            align_request.target_frame = request.target_alignment_frame
 
-        iterations = request.num_iterations
+            iterations = request.num_iterations
 
-        for iter in range(iterations):
-            self.logger.info(f"STARTING RUN '{iter}/{iterations}")
-        
-            for frame in request.frames_to_measure:
-                self.logger.info(f"Measuring frame '{frame}'")
-                measure_request = pm_skill_srv.CorrectFrame.Request()
-                measure_response = pm_skill_srv.CorrectFrame.Response()
-                measure_request.frame_name = frame
-                measure_request.use_iterative_sensing = True
+            for iter in range(iterations):
+                self.logger.info(f"STARTING RUN '{iter}/{iterations}")
+            
+                for frame in request.frames_to_measure:
+                    self.logger.info(f"Measuring frame '{frame}'")
+                    measure_request = pm_skill_srv.CorrectFrame.Request()
+                    measure_response = pm_skill_srv.CorrectFrame.Response()
+                    measure_request.frame_name = frame
+                    measure_request.use_iterative_sensing = True
 
-                measure_response = self.correct_frame_with_laser(measure_request, measure_response)
+                    measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
-                if not measure_response.success:
-                    self.logger.error(f"Correcting frame '{frame} failed!")
-                    response.success = False
-                    return response
+                    if not measure_response.success:
+                        raise PmRobotError(f"Correcting frame '{frame} failed!")
+
+                # calculating the angle difference
+                try:
+                    transform: Transform = self.pm_robot_utils.get_transform_for_frame(request.gonio_endeffector_frame, 
+                                                                            request.target_alignment_frame)
+                    
+                    current_gonio_angles: Transform = self.pm_robot_utils.get_transform_for_frame(request.gonio_endeffector_frame, 
+                                                                                                    'world')
+                except ValueError as e:
+                    self.logger.error(f"Error: {e}")
+                    self.logger.error(f"Frame '{frame}' does not seem to exist.")
+
+                angles = R.from_quat([transform.rotation.x,
+                                    transform.rotation.y,
+                                    transform.rotation.z,
+                                    transform.rotation.w]
+                                    ).as_euler('xyz', degrees=True)
+
+                angles_current = R.from_quat([current_gonio_angles.rotation.x,
+                                                current_gonio_angles.rotation.y,
+                                                current_gonio_angles.rotation.z,
+                                                current_gonio_angles.rotation.w]
+                                            ).as_euler('xyz', degrees=True)
+
+                self.logger.info(f"Initial deviation at {iter} - x: {angles[0]}, y: {angles[1]}, z: {angles[2]}")
+                self.logger.info(f"Current angles of the goniometer at {iter} - x: {angles_current[0]}, y: {angles_current[1]}, z: {angles_current[2]}")
+                self.logger.info(f"Aligning goniometer!")
+
+                #get joints
+                joint_1_pre = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_RIGHT_STAGE_1)
+                joint_2_pre = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_RIGHT_STAGE_2)
+
+                if not self.pm_robot_utils.client_align_gonio_right.wait_for_service(1):
+                    raise PmRobotError(f"Client '{self.pm_robot_utils.client_align_gonio_right.srv_name} not available!")
                 
-            # calculating the angle difference 
-            try:
-                transform: Transform = self.pm_robot_utils.get_transform_for_frame(request.gonio_endeffector_frame, 
-                                                                        request.target_alignment_frame)
-            except ValueError as e:
-                self.logger.error(f"Error: {e}")
-                self.logger.error(f"Frame '{frame}' does not seem to exist.")
+                align_response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_right.call(align_request)
 
-            
-            angles = R.from_quat([transform.rotation.x,
-                                  transform.rotation.y,
-                                  transform.rotation.z,
-                                  transform.rotation.w]
-                                 ).as_euler('xyz', degrees=True)
+                if not align_response.success:
+                    raise PmRobotError(f"Aligning goniometer failed!")
 
-            self.logger.info(f"Initial deviation at {iter} - x: {angles[0]}, y: {angles[0]}, z: {angles[0]}")
-            self.logger.info(f"Aligning goniometer!")
+                time.sleep(1)  # wait for the robot to settle
 
-            align_response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_right.call(align_request)
+                joint_1_post = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_RIGHT_STAGE_1)
+                joint_2_post = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_RIGHT_STAGE_2)
 
-            if not align_response.success:
-                response.success = False
-                return response
-            
-        self.logger.info(f"Success")
-        move_relative_request = MoveRelative.Request()
-        move_relative_request.execute_movement = True
-        move_relative_request.translation.z = 0.03
+                difference_joint_1 = (joint_1_post - joint_1_pre)*180/np.pi
+                difference_joint_2 = (joint_2_post - joint_2_pre)*180/np.pi
 
-        move_relative_response: MoveRelative.Response = self.pm_robot_utils.client_move_laser_relative.call(move_relative_request)
+                self.logger.warn(f"Gonio joints moved by {round(difference_joint_1, 5)} and {round(difference_joint_2, 5)} (deg)")
 
-        if not move_relative_response.success:
-            self.logger.error(f"Endmove relative failed!")
+            self.logger.info(f"Success")
+            move_relative_request = MoveRelative.Request()
+            move_relative_request.execute_movement = True
+            move_relative_request.translation.z = 0.03
+
+
+            move_relative_response: MoveRelative.Response = self.pm_robot_utils.client_move_laser_relative.call(move_relative_request)
+
+            if not move_relative_response.success:
+                raise PmRobotError(f"Endmove relative failed!")
+
+            response.success = True
+
+        except PmRobotError as e:
+            self.logger.error(f"Error occurred: {e}")
             response.success = False
-            return response
-        
-        response.success = True
 
         return response
 
@@ -346,8 +369,11 @@ class PmSkills(Node):
                                   transform.rotation.w]
                                  ).as_euler('xyz', degrees=True)
 
-            self.logger.info(f"Initial deviation at {iter} - x: {angles[0]}, y: {angles[0]}, z: {angles[0]}")
+            self.logger.info(f"Initial deviation at {iter} - x: {angles[0]}, y: {angles[1]}, z: {angles[2]}")
             self.logger.info(f"Aligning goniometer!")
+
+            joint_1_pre = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_LEFT_STAGE_1)
+            joint_2_pre = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_LEFT_STAGE_2)
 
             align_response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_left.call(align_request)
 
@@ -355,6 +381,16 @@ class PmSkills(Node):
                 response.success = False
                 return response
             
+            time.sleep(1)  # wait for the robot to settle
+
+            joint_1_post = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_LEFT_STAGE_1)
+            joint_2_post = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_LEFT_STAGE_2)
+
+            difference_joint_1 = (joint_1_post - joint_1_pre)*180/np.pi
+            difference_joint_2 = (joint_2_post - joint_2_pre)*180/np.pi
+
+            self.logger.warn(f"Gonio joints moved by {round(difference_joint_1,5)} and {round(difference_joint_2,5)} (deg)")
+
         self.logger.info(f"Success")
         move_relative_request = MoveRelative.Request()
         move_relative_request.execute_movement = True
@@ -374,167 +410,127 @@ class PmSkills(Node):
     def force_grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
         self.pm_robot_utils.wait_for_initial_scene_update()
-
         try:
             if not check_object_exists(self.pm_robot_utils.object_scene, request.component_name):
-                response.success = False
-                response.message = f"Object '{request.component_name}' does not exist!"
-                self.logger.error(response.message)
-                return response
+                raise PmRobotError(f"Object '{request.component_name}' does not exist!")
             
             if not self.is_gripper_empthy():
-                response.success = False
-                response.message = "Gripper is not empty! Can not grip new component!"
-                self.logger.error(response.message)
-                return response
+                raise PmRobotError("Gripper is not empty! Can not grip new component!")
+
+            gripping_frame = self.get_gripping_frame(request.component_name)
+
+            if gripping_frame is None:
+                raise PmRobotError(f"No gripping frame found for object '{request.component_name}'")
             
-        except ValueError as e:
+            self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
+
+            if self.is_object_on_gonio_left(request.component_name):
+                algin_success = self.align_gonio_left(gripping_frame)
+
+            elif self.is_object_on_gonio_right(request.component_name):
+                algin_success = self.align_gonio_right(gripping_frame)
+            
+            else:
+                raise PmRobotError("Object not on gonio!")
+
+            if not algin_success:
+                raise PmRobotError(f"Failed to align gonio for component '{request.component_name}'")
+
+            #Offset
+            move_tool_to_part_offset_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
+
+            if not move_tool_to_part_offset_success:
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}' at offset distance!")
+
+            self.logger.info(f"Moving to grip sensing start position!")
+
+            move_tool_to_part_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_SENSING_START_OFFSET)
+
+            if not move_tool_to_part_success:
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}'!")
+
+            #tip_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_current_tool_attachment()
+
+            tip_name = 'PM_Robot_Vacuum_Tool_Tip'
+
+            col_success = self.pm_robot_utils.set_collision(request.component_name, 
+                                                            tip_name,
+                                                            False)
+            
+            if not col_success:
+                raise PmRobotError(f"Could not disable collision between '{tip_name}' and '{request.component_name}'!")
+
+            # calculating the lower position
+            planning_req = pm_moveit_srv.MoveToFrame.Request()
+            planning_req.target_frame = gripping_frame
+            planning_req.execute_movement = False
+            planning_req.translation.z = self.GRIP_SENSING_END_OFFSET
+
+            planning_res:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(planning_req)
+            
+            if planning_res.success is False:
+                raise PmRobotError(f"Planning of END_OFFSET position failed!")
+
+            self.logger.warn(f"joints {str(planning_res.joint_names)}")
+            self.logger.warn(f"joints {str(planning_res.joint_values)}")
+
+            # Iterative approach  
+            force_sensing_request = pm_msg_srv.GripperForceMove.Request()
+            force_sensing_response = pm_msg_srv.GripperForceMove.Response()
+
+            force_sensing_request.step_size = float(50) # in um
+            force_sensing_request.target_joints_xyz = [planning_res.joint_values[0], planning_res.joint_values[1], planning_res.joint_values[2]]
+            force_sensing_request.max_f_xyz = [1.0, 1.0, 1.0]
+
+            force_sensing_response = self.force_sensing_move_callback(force_sensing_request, force_sensing_response)
+            
+            if not force_sensing_response.success:
+                raise PmRobotError(f"Force sensing failed!")
+            
+            # # enable vacuum
+            enable_success = self.pm_robot_utils.set_tool_vaccum(True)
+
+            if not enable_success:
+                raise PmRobotError(f"Failed to enable vacuum for component '{request.component_name}'!")
+
+            disable_success = True
+
+            # turn off the vacuum
+            if self.is_object_on_gonio_left(request.component_name, max_depth=1):
+                self.logger.info(f"Disabling vacuum on gonio left for component '{request.component_name}'")
+                disable_success = self.pm_robot_utils.set_gonio_left_vacuum(False)
+
+            elif self.is_object_on_gonio_right(request.component_name, max_depth=1):
+                self.logger.info(f"Disabling vacuum on gonio right for component '{request.component_name}'")
+                disable_success = self.pm_robot_utils.set_gonio_right_vacuum(False)
+            else:
+                self.logger.info(f"Component '{request.component_name}' is not on a gonio!")
+
+            if not disable_success:
+                raise PmRobotError(f"Failed to disable vacuum for component '{request.component_name}'!")
+
+            # attach the component to the gripper
+            attach_component_success = self.attach_component_to_gripper(request.component_name)
+            
+            if not attach_component_success:
+                raise PmRobotError(f"Failed to attach component '{request.component_name}' to gripper")
+            
+            response.success = True
+
+            response.message = f"Component '{request.component_name}' gripped successfully!"
+            self.logger.info(response.message)
+
+        except PmRobotError as e:
             response.success = False
             response.message = str(e)
             self.logger.error(response.message)
-            return response
-        
-        gripping_frame = self.get_gripping_frame(request.component_name)
 
-        if gripping_frame is None:
-            response.success = False
-            response.message = f"No gripping frame found for object '{request.component_name}'"
-            self.logger.error(response.message)
-            return response
-        
-        self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
-        
-
-        if self.is_object_on_gonio_left(request.component_name):
-            algin_success = self.align_gonio_left(gripping_frame)
-
-        elif self.is_object_on_gonio_right(request.component_name):
-            algin_success = self.align_gonio_right(gripping_frame)
-        
-        else:
-            response.success = False
-            response.message = "Object not on gonio!"
-            self.logger.error("Object not on gonio!")
-            return response
-        
-        if not algin_success:
-            response.success = False
-            response.message = f"Failed to align gonio for component '{request.component_name}'"
-            self.logger.error(response.message)
-            return response
-        
-        #Offset
-        move_tool_to_part_offset_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
-
-        if not move_tool_to_part_offset_success:
-            response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}' at offset distance!"
-            self.logger.error(response.message)
-            return response
-        
-        self.logger.info(f"Moving to grip sensing start position!")
-
-        move_tool_to_part_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_SENSING_START_OFFSET)
-
-        if not move_tool_to_part_success:
-            response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}'!"
-            self.logger.error(response.message)
-            return response
-        
-        #tip_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_current_tool_attachment()
-
-        tip_name = 'PM_Robot_Vacuum_Tool_Tip'
-
-        col_success = self.pm_robot_utils.set_collision(request.component_name, 
-                                                        tip_name,
-                                                        False)
-        
-        if not col_success:
-            response.success = False
-            self.logger.error(f"Could not disable collision between '{tip_name}' and '{request.component_name}'!")
-            return response
-
-        # calculating the lower position
-        planning_req = pm_moveit_srv.MoveToFrame.Request()
-        planning_req.target_frame = gripping_frame
-        planning_req.execute_movement = False
-        planning_req.translation.z = self.GRIP_SENSING_END_OFFSET
-
-        planning_res:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(planning_req)
-        
-        if planning_res.success is False:
-            response.success = False
-            self.logger.error(f"Planning of END_OFFSET position failed!")
-
-            return response
-
-        self.logger.warn(f"joints {str(planning_res.joint_names)}")
-        self.logger.warn(f"joints {str(planning_res.joint_values)}")
-
-        # Iterative approach  
-        force_sensing_request = pm_msg_srv.GripperForceMove.Request()
-        force_sensing_response = pm_msg_srv.GripperForceMove.Response()
-
-        force_sensing_request.step_size = float(50) # in um
-        force_sensing_request.target_joints_xyz = [planning_res.joint_values[0], planning_res.joint_values[1], planning_res.joint_values[2]]
-        force_sensing_request.max_f_xyz = [1.0, 1.0, 1.0]
-
-        force_sensing_response = self.force_sensing_move_callback(force_sensing_request, force_sensing_response)
-        
-        if not force_sensing_response.success:
-            self.logger.error(f"Force sensing failed!")
-            response.success = False
-            return response
-        
-        # # enable vacuum
-        enable_success = self.pm_robot_utils.set_tool_vaccum(True)
-
-        if not enable_success:
-            response.success = False
-            return response
-        
-        disable_success = True
-
-        # turn off the vacuum
-        if self.is_object_on_gonio_left(request.component_name, max_depth=1):
-            self.logger.info(f"Disabling vacuum on gonio left for component '{request.component_name}'")
-            disable_success = self.pm_robot_utils.set_gonio_left_vacuum(False)
-
-        elif self.is_object_on_gonio_right(request.component_name, max_depth=1):
-            self.logger.info(f"Disabling vacuum on gonio right for component '{request.component_name}'")
-            disable_success = self.pm_robot_utils.set_gonio_right_vacuum(False)
-        else:
-            self.logger.info(f"Component '{request.component_name}' is not on a gonio!")
-
-        if not disable_success:
-            response.success = False
-            return response
-        
-        # attach the component to the gripper
-        attach_component_success = self.attach_component_to_gripper(request.component_name)
-        
-        if not attach_component_success:
+        finally:
             move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-            response.success = False
-            response.message = f"Failed to attach component '{request.component_name}' to gripper"
-            self.logger.error(response.message)
-            return response
-        
-        move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-
-        if not move_relatively_success:
-            response.success = False
-            response.message = f"Failed to lift gripper after attaching component '{request.component_name}'"
-            self.logger.error(response.message)
-            return response
-        
-        self.logger.info(f"Move tool relative success: {move_relatively_success}")
-
-        response.success = True
-
-        response.message = f"Component '{request.component_name}' gripped successfully!"
-        self.logger.info(response.message)
+            if not move_relatively_success:
+                response.success = False
+                response.message = f"Failed to lift gripper after attaching component '{request.component_name}'"
+                self.logger.error(response.message)
 
         return response
     
@@ -589,7 +585,7 @@ class PmSkills(Node):
             return response
         
         #Offset
-        move_tool_to_part_offset_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.RELEASE_LIFT_DISTNACE)
+        move_tool_to_part_offset_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.RELEASE_LIFT_DISTANCE)
 
         if not move_tool_to_part_offset_success:
             response.success = False
@@ -632,130 +628,174 @@ class PmSkills(Node):
         return response
 
     def place_component_callback(self, request:pm_skill_srv.PlaceComponent.Request, response:pm_skill_srv.PlaceComponent.Response):
+        
         try:
+            should_move_up_at_error = False
+
             if self.is_gripper_empthy():
-                response.success = False
-                response.message = "Gripper is empty! Can not place component!"
-                self.logger.error(response.message)
-                return response
-        except ValueError as e:
+                raise PmRobotError(f"Gripper is empty! Can not place component!")
+            
+            gripped_component = self.get_gripped_component()
+            
+            if gripped_component is None:
+                raise PmRobotError(f"No gripped component found!")
+            
+            gripped_component_frames = self.get_assembly_target_frame_gripped_component()
+
+            self.logger.warn(f"Component frames '{str(gripped_component_frames)}'!")
+
+            all_involved_frames_tuples = self.get_assembly_and_target_frames()
+
+            target_frame = None
+
+            for component_frame in gripped_component_frames:
+                if self.ASSEMBLY_FRAME_INDICATOR in component_frame:
+                    component_assembly_frame = component_frame
+                    #strip indicator from frame name
+                    assembly_description = component_frame.replace(self.ASSEMBLY_FRAME_INDICATOR, '')
+                    self.logger.info(f"Placing component '{gripped_component}'")
+
+                    for frame_tuple in all_involved_frames_tuples:
+                        if assembly_description in frame_tuple[1] and frame_tuple[0] != gripped_component:
+                            target_frame = frame_tuple[1]
+                            break
+                    
+                    self.logger.info(f"Placing component '{gripped_component}' at frame '{target_frame}'")
+
+            if target_frame is None:
+                raise PmRobotError(f"No target frame found for component '{gripped_component}'")
+            
+            target_component = self.get_component_for_frame_name(target_frame)
+
+            if target_component is None:
+                raise PmRobotError(f"No component found for target frame '{target_frame}'")
+            
+            # RECALCULATE THE ASSEMBLY TRANSFORMATIONplace_component_callback
+            # INSERT HERE
+
+            # Align gonio to the left or right depending on the target frame
+            if self.is_object_on_gonio_left(target_component):
+                algin_success = self.align_gonio_left(endeffector_override=target_frame,
+                                                        alignment_frame=component_assembly_frame)
+
+            elif self.is_object_on_gonio_right(target_component):
+                algin_success = self.align_gonio_right(endeffector_override=target_frame,
+                                                        alignment_frame=component_assembly_frame)
+
+            else:
+                raise PmRobotError("Target object not on gonio!")
+
+            if not algin_success:
+                raise PmRobotError(f"Failed to align gonio for target component '{target_component}'")
+            
+            self.logger.warn("Endeffector override: " + component_assembly_frame)
+            # Move component to the target frame with a z offset
+            move_component_to_part_offset_success = self.move_gripper_to_frame(target_frame, 
+                                                                               endeffector_override=component_assembly_frame, 
+                                                                               z_offset=self.RELEASE_LIFT_DISTANCE)
+
+            if not move_component_to_part_offset_success:
+                raise PmRobotError(f"Failed to move gripper to target part '{target_component}'")
+
+            should_move_up_at_error = True
+
+            # Move component to the target frame
+            move_component_to_part_success = self.move_gripper_to_frame(target_frame, 
+                                                                        endeffector_override=component_assembly_frame,
+                                                                        z_offset=0.0)
+            
+            if not move_component_to_part_success:
+                raise PmRobotError(f"Failed to move gripper to target part '{target_component}'")
+            
+            response.success = True
+            response.message = f"Component '{gripped_component}' placed successfully!"
+
+        except PmRobotError as e:
+            if should_move_up_at_error:
+                move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
+                if not move_relatively_success:
+                    response.success = False
+                    response.message = f"Failed to lift gripper after placing component '{gripped_component}'"
+                    self.logger.error(response.message)
             response.success = False
             response.message = str(e)
             self.logger.error(response.message)
-            return response
 
-        
-        gripped_component = self.get_gripped_component()
-        gripped_component_frames = self.get_assembly_target_frame_gripped_component()
+        finally:
+            pass
 
-        self.logger.warn(f"Component frames '{str(gripped_component_frames)}'!")
-
-        all_involved_frames_tuples = self.get_assembly_and_target_frames()
-
-        target_frame = None
-
-        for component_frame in gripped_component_frames:
-            if self.ASSEMBLY_FRAME_INDICATOR in component_frame:
-                component_assembly_frame = component_frame
-                #strip indicator from frame name
-                assembly_description = component_frame.replace(self.ASSEMBLY_FRAME_INDICATOR, '')
-                self.logger.info(f"Placing component '{gripped_component}'")
-
-                for frame_tuple in all_involved_frames_tuples:
-                    if assembly_description in frame_tuple[1] and frame_tuple[0] != gripped_component:
-                        target_frame = frame_tuple[1]
-                        break
-                
-                self.logger.info(f"Placing component '{gripped_component}' at frame '{target_frame}'")
-
-
-        if target_frame is None:
-            response.success = False
-            response.message = "No assembly or target frame found for gripped component!"
-            self.logger.error(response.message)
-            return response
-
-        if target_frame is None:
-            response.success = False
-            response.message = f"No target frame found for component '{gripped_component}'"
-            self.logger.error(response.message)
-            return response 
-        
-        target_component = self.get_component_for_frame_name(target_frame)
-
-        if target_component is None:
-            response.success = False
-            response.message = f"No component found for target frame '{target_frame}'"
-            self.logger.error(response.message)
-            return response
-        
-        # RECALCULATE THE ASSEMBLY TRANSFORMATIONplace_component_callback
-        # INSERT HERE
-
-        # Align gonio to the left or right depending on the target frame
-        if self.is_object_on_gonio_left(target_component):
-            algin_success = self.align_gonio_left(endeffector_override=target_frame,
-                                                    alignment_frame=component_assembly_frame)
-
-        elif self.is_object_on_gonio_right(target_component):
-            algin_success = self.align_gonio_right(endeffector_override=target_frame,
-                                                    alignment_frame=component_assembly_frame)
-
-        else:
-            response.success = False
-            response.message = "Target object not on gonio!"
-            self.logger.error("Target object not on gonio!")
-            return response
-        
-        if not algin_success:
-            response.success = False
-            response.message = f"Failed to align gonio for target component '{target_component}'"
-            self.logger.error(response.message)
-            return response
-        
-        self.logger.warn("Endeffector override: " + component_assembly_frame)
-        # Move component to the target frame with a z offset
-        move_component_to_part_offset_success = self.move_gripper_to_frame(target_frame, endeffector_override=component_assembly_frame, z_offset=self.RELEASE_LIFT_DISTNACE)
-
-        if not move_component_to_part_offset_success:
-            response.success = False
-            response.message = f"Failed to move gripper to target part '{target_component}'"
-            self.logger.error(response.message)
-            return response
-
-        # Move component to the target frame
-        move_component_to_part_success = self.move_gripper_to_frame(target_frame, endeffector_override=component_assembly_frame)
-
-        if not move_component_to_part_success:
-            response.success = False
-            response.message = f"Failed to move gripper to target part '{target_component}'"
-            self.logger.error(response.message)
-            return response
-        
-        # release component
-        attach_component_success = self.attach_component_to_component(gripped_component, target_component)
-
-        if not attach_component_success:
-            move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTNACE)
-            response.success = False
-            response.message = f"Failed to attach component '{gripped_component}' to component '{target_component}'"
-            self.logger.error(response.message)
-            return response
-
-        move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-
-        if not move_relatively_success:
-            response.success = False
-            response.message = f"Failed to lift gripper after placing component '{gripped_component}'"
-            self.logger.error(response.message)
-            return response
-        
-        # ACTIVATE COLLISION BETWEEN PART AND GRIPPER !!!!!
-
-        response.success = True
-        response.message = f"Component '{gripped_component}' placed successfully!"
         return response
+
+    def release_component_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         
+        try:
+            if self.is_gripper_empthy():
+                raise PmRobotError(f"Gripper is empty! Can not place component!")
+            
+            gripped_component = self.get_gripped_component()
+            
+            if gripped_component is None:
+                raise PmRobotError(f"No gripped component found!")
+            
+            gripped_component_frames = self.get_assembly_target_frame_gripped_component()
+
+            self.logger.warn(f"Component frames '{str(gripped_component_frames)}'!")
+
+            all_involved_frames_tuples = self.get_assembly_and_target_frames()
+
+            target_frame = None
+
+            for component_frame in gripped_component_frames:
+                if self.ASSEMBLY_FRAME_INDICATOR in component_frame:
+                    component_assembly_frame = component_frame
+                    #strip indicator from frame name
+                    assembly_description = component_frame.replace(self.ASSEMBLY_FRAME_INDICATOR, '')
+                    self.logger.info(f"Placing component '{gripped_component}'")
+
+                    for frame_tuple in all_involved_frames_tuples:
+                        if assembly_description in frame_tuple[1] and frame_tuple[0] != gripped_component:
+                            target_frame = frame_tuple[1]
+                            break
+                    
+                    self.logger.info(f"Placing component '{gripped_component}' at frame '{target_frame}'")
+
+            if target_frame is None:
+                raise PmRobotError(f"No target frame found for component '{gripped_component}'")
+            
+            target_component = self.get_component_for_frame_name(target_frame)
+
+            if target_component is None:
+                raise PmRobotError(f"No component found for target frame '{target_frame}'")
+
+            # release component
+            attach_component_success = self.attach_component_to_component(gripped_component, target_component)
+
+            if not attach_component_success:
+                raise PmRobotError(f"Failed to attach component '{gripped_component}' to component '{target_component}'")
+            
+            vaccum_off_success = self.pm_robot_utils.set_tool_vaccum(False)
+
+            if not vaccum_off_success:
+                raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
+
+            #####
+            # !!!! ACTIVATE COLLISION BETWEEN PART AND GRIPPER !!!!!
+            #####
+
+            move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
+            if not move_relatively_success:
+                raise PmRobotError(f"Failed to lift gripper after releasing component '{gripped_component}'")
+
+            response.success = True
+            response.message = f"Component '{gripped_component}' released successfully!"
+                    
+        except PmRobotError as e:
+            response.success = False
+            response.message = str(e)
+            self.logger.error(response.message)
+
+        return response
+
     def assemble_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         
         global_stationary_component = self.get_global_statonary_component()
@@ -1410,37 +1450,7 @@ class PmSkills(Node):
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.align_gonio_left_client.call(req)
             return response.success
-    
-    def activate_uv(self,request: UVCuringSkill.Request)->bool:
-        call_async = False
-
-        if not self.uv_cure_clinet.wait_for_service(timeout_sec=1.0):
-            self.logger.error("Service '/pm_moveit_server/align_gonio_left' not available")
-            return False
-    
-        if call_async:
-            future = self.uv_cure_clinet.call_async(request)
-            rclpy.spin_until_future_complete(self, future)
-            if future.result() is None:
-                self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
-        else:
-            response:pm_moveit_srv.AlignGonio.Response = self.uv_cure_clinet.call(request)
-            return response.success
-    
-    def activate_uv_dummy(self,request:EmptyWithSuccess.Request,response: EmptyWithSuccess.Response):
-
-        req = UVCuringSkill.Request()
-        req.duration = [2.0, 2.0, 2.0, 2.0]
-        req.intensity_percent = [50, 50, 50, 50]
-
-        activate_success = self.activate_uv(request=req)
-
-        response.success = activate_success
-
-        return response 
-        
+            
     def get_gripping_frame(self, object_name:str)-> str:
         grip_frames = []
         for obj in self.pm_robot_utils.object_scene.objects_in_scene:
