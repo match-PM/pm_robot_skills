@@ -408,7 +408,7 @@ class PmSkills(Node):
     def force_grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
 
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        self.pm_robot_utils.wait_for_initial_scene_update()
 
         try:
             should_move_up_at_error = False
@@ -667,6 +667,8 @@ class PmSkills(Node):
 
             placing_frame = self._create_place_offset_frame(target_frame, request)
 
+            placing_frame = target_frame
+
             # Align gonio to the left or right depending on the target frame
             if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(target_component):
                 algin_success = self.align_gonio_left(endeffector_override=placing_frame,
@@ -743,8 +745,10 @@ class PmSkills(Node):
         target_frame_obj = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(target_frame)
         target_component = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(target_frame)
 
+        #generate random number
+        random_number = random.randint(1000, 9999)
         spawn_request = ami_srv.CreateRefFrame.Request()
-        spawn_request.ref_frame.frame_name = target_frame + "_offset"
+        spawn_request.ref_frame.frame_name = f"{target_component}_PLACEMENT_offset_{random_number}"
         spawn_request.ref_frame.parent_frame = target_component
         spawn_request.ref_frame.pose.position.x = target_frame_obj.pose.position.x + request.x_offset_um * 1e-6
         spawn_request.ref_frame.pose.position.y = target_frame_obj.pose.position.y + request.y_offset_um * 1e-6

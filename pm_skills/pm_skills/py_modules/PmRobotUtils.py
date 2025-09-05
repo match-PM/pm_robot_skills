@@ -106,9 +106,8 @@ class PmRobotUtils():
         self.client_align_gonio_right = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.client_align_gonio_left = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_left')
         self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
-        self.client_create_ref_frame = self.create_client(ami_srv.CreateRefFrame, '/assembly_manager/create_ref_frame')
+        self.client_create_ref_frame = self._node.create_client(ami_srv.CreateRefFrame, '/assembly_manager/create_ref_frame')
         self.client_recalculate_assembly_instruction = self._node.create_client(ami_srv.CalculateAssemblyInstructions, '/assembly_manager/calculate_assembly_instructions')
-
 
         self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
 
@@ -169,7 +168,11 @@ class PmRobotUtils():
         self._tf_static_msgs.extend(msg.transforms)
 
     def start_object_scene_subscribtion(self):
-        self.objcet_scene_subscriber = self._node.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10)
+        self.object_scene_subscriber = self._node.create_subscription(ami_msg.ObjectScene, 
+                                                                      '/assembly_manager/scene', 
+                                                                      self.object_scene_callback, 
+                                                                      10,   
+                                                                      callback_group=ReentrantCallbackGroup())
 
     def is_gazebo_running(self)->bool:
         """Check if the Gazebo node is active."""
@@ -209,6 +212,7 @@ class PmRobotUtils():
             time.sleep(0.5)
 
     def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
+        self._node.get_logger().info("Object scene updated.")
         self.object_scene_un.scene = msg
     
     def set_force_sensor_bias(self)->bool:
@@ -664,15 +668,18 @@ class PmRobotUtils():
         tool_type = self.pm_robot_config.tool.get_active_tool_type()
 
         if tool_type == self.pm_robot_config.tool._gripper_vacuum.TOOL_VACUUM_IDENT:
-            gripper_tip = self.pm_robot_config.tool.get_tool().get_current_tool_attachment()
+            gripper_tip = self.pm_robot_config.tool._gripper_vacuum.TOOL_TIP_LINK_NAME
 
         elif tool_type == self.pm_robot_config.tool._gripper_1_jaw.TOOL_GRIPPER_1_JAW_IDENT:
             raise PmRobotError("Not yet implemented for 1 jaw gripper!")
 
         elif tool_type == self.pm_robot_config.tool._gripper_2_jaw.TOOL_GRIPPER_2_JAW_IDENT:
             raise PmRobotError("Not yet implemented for 2 jaw gripper!")
+        
+        else:
+            raise PmRobotError(f"Tool type '{tool_type}' not supported for setting gripper link collision!")
 
-        tip_name = 'PM_Robot_Vacuum_Tool_Tip'
+        #tip_name = 'PM_Robot_Vacuum_Tool_Tip'
 
         self.set_collision(part_name, 
                             gripper_tip,
