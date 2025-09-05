@@ -45,6 +45,10 @@ from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transfo
 from assembly_scene_publisher.py_modules.geometry_type_functions import (get_relative_transform_for_transforms, get_relative_transform_for_transforms_calibration)
 
 
+from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
+                                                              RefFrameNotFoundError, 
+                                                              RefPlaneNotFoundError, 
+                                                              ComponentNotFoundError)
 TOOL_VACUUM_IDENT = 'pm_robot_vacuum_tools'
 TOOL_GRIPPER_1_JAW_IDENT = 'pm_robot_tool_parallel_gripper_1_jaw'
 TOOL_GRIPPER_2_JAW_IDENT = 'pm_robot_tool_parallel_gripper_2_jaws'
@@ -773,7 +777,7 @@ class PmRobotCalibrationNode(Node):
                         if not correct_frame_success:
                             raise PmRobotError("Failed to correct frame: " + frame)
                 
-                ref_frame = get_ref_frame_by_name(self.pm_robot_utils.object_scene, f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP')
+                ref_frame = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP')
                 
                 if ref_frame is None:
                     raise PmRobotError("Failed to get reference frame...")
@@ -786,7 +790,7 @@ class PmRobotCalibrationNode(Node):
 
                 frame_poses_list.append(copy.deepcopy(ref_frame.pose))
             
-            relative_transform:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+            relative_transform:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.assembly_scene_analyzer._get_scene(),
                                         from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
                                         to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
                                         tf_buffer=self.pm_robot_utils.tf_buffer,
@@ -908,7 +912,7 @@ class PmRobotCalibrationNode(Node):
                     response.success = False
                     return response
 
-                ref_frame: amimsg.RefFrame = get_ref_frame_by_name(self.pm_robot_utils.object_scene, frame)
+                ref_frame: amimsg.RefFrame = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(frame)
 
                 x_value = ref_frame.pose.position.x
                 y_value = ref_frame.pose.position.y
@@ -924,13 +928,8 @@ class PmRobotCalibrationNode(Node):
 
         default_transformation = Transform()
 
-        # relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
-        #                                         from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
-        #                                         to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
-        #                                         tf_buffer=self.pm_robot_utils.tf_buffer,
-        #                                         logger=self._logger)
         
-        relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.object_scene,
+        relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.assembly_scene_analyzer._get_scene(),
                                         from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
                                         to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
                                         tf_buffer=self.pm_robot_utils.tf_buffer,

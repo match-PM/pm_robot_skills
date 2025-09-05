@@ -15,12 +15,15 @@ from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcess
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 
-from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 import time
 
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 
+from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
+                                                              RefFrameNotFoundError, 
+                                                              RefPlaneNotFoundError, 
+                                                              ComponentNotFoundError)
 
 class VisionSkillsNode(Node):
 
@@ -37,20 +40,16 @@ class VisionSkillsNode(Node):
 
         #self.srv = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
         #self.srv = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
-
+    
         self.tf_buffer = Buffer()
         
         self.tf_listener = TransformListener(self.tf_buffer, self)
-
 
         self.pm_robot_utils = PmRobotUtils(self)
         # overwriting the callback function!!
         self.pm_robot_utils.object_scene_callback = self.object_scene_callback
         self.pm_robot_utils.start_object_scene_subscribtion()   
 
-
-        # self.objcet_scene_subscriber = self.create_subscription(ami_msg.ObjectScene, '/assembly_manager/scene', self.object_scene_callback, 10)
-        # self.object_scene:ami_msg.ObjectScene = None
 
     def measure_frame(self, request:MeasureFrame.Request, response:MeasureFrame.Response):
 
@@ -246,13 +245,17 @@ class VisionSkillsNode(Node):
     def correct_frame(self, request:CorrectFrame.Request, response:CorrectFrame.Response):
         self.pm_robot_utils.wait_for_initial_scene_update()
         
-        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
-
-        if _frame_name is None:
+        if not self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
             self._logger.error(f"Frame {request.frame_name} not found in the scene. Cannot correct the frame...")
             response.success = False
             return response
-        
+
+        try:
+            _obj_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
+
+        except ComponentNotFoundError as e:
+            _obj_name = None
+
         # self._logger.warn(f"Correcting frame: {request.frame_name}...")
         # self._logger.warn(f"Object name: {_obj_name}")
         # self._logger.warn(f"Frame name: {_frame_name}")
@@ -266,9 +269,9 @@ class VisionSkillsNode(Node):
             extention = ''
 
         if _obj_name is None:
-            measure_frame_request.vision_process_file_name = f"Assembly_Manager/Frames/{_frame_name}{extention}.json"
+            measure_frame_request.vision_process_file_name = f"Assembly_Manager/Frames/{request.frame_name}{extention}.json"
         else:
-            measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{_frame_name}{extention}.json"
+            measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{request.frame_name}{extention}.json"
 
         response_em = MeasureFrame.Response()
 
@@ -323,11 +326,11 @@ class VisionSkillsNode(Node):
         """Handles updates to the object scene and generates process files accordingly."""
         
         # If this is the first received scene, initialize and process it
-        if self.pm_robot_utils.object_scene is None:
+        if self.pm_robot_utils.object_scene_un.scene is None:
             self._logger.info("First object scene received. Processing all objects and frames...")
         else:
             # If the scene has not changed, do nothing
-            if self.pm_robot_utils.object_scene == msg:
+            if self.pm_robot_utils.object_scene_un.scene == msg:
                 self._logger.debug("No changes detected in the object scene.")
                 return
             self._logger.info("Processing updated object scene...")
@@ -358,7 +361,7 @@ class VisionSkillsNode(Node):
             )
 
         # Update the stored object scene
-        self.pm_robot_utils.object_scene = msg
+        self.pm_robot_utils.object_scene_un.scene = msg
                                
 
 def main(args=None):

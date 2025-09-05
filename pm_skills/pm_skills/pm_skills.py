@@ -8,7 +8,6 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 import math
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
-
 import pm_skills_interfaces.srv as pm_skill_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, MoveRelative
 from example_interfaces.srv import SetBool, Trigger
@@ -23,24 +22,18 @@ from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerSce
 
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 
-from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
-
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 from pm_msgs.srv import UVCuringSkill
 import pm_msgs.srv as pm_msg_srv
+from assembly_scene_publisher.py_modules.geometry_functions import quaternion_multiply
 
-from assembly_scene_publisher.py_modules.scene_functions import (get_parent_of_component,
-                                                                 has_component_parent_of_name,
-                                                                 find_matches_for_component,
-                                                                 get_components_to_assemble,
-                                                                 get_component_for_frame_name,
-                                                                 check_object_exists,
-                                                                 get_assembly_and_target_frames,
-                                                                 get_list_of_components,
-                                                                 is_component_stationary,
-                                                                 is_component_assembled,
-                                                                 get_global_statonary_component)
+from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
+                                                              RefFrameNotFoundError, 
+                                                              RefPlaneNotFoundError, 
+                                                              ComponentNotFoundError,
+                                                              TargetFrameNotFoundError,
+                                                              AssemblyFrameNotFoundError)
 
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
 
@@ -67,7 +60,7 @@ class PmSkills(Node):
         self.callback_group_re = ReentrantCallbackGroup()
         self.pm_robot_utils = PmRobotUtils(self)
         self.pm_robot_utils.start_object_scene_subscribtion()
-
+        
         # services
         self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
         self.force_grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/force_grip_component", self.force_grip_component_callback,callback_group=self.callback_group_me)
@@ -229,6 +222,9 @@ class PmSkills(Node):
 
 
     def iterative_align_gonio_right(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
+        
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
         try:
 
             # the request never changes
@@ -324,6 +320,8 @@ class PmSkills(Node):
 
     def iterative_align_gonio_left(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
         
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
         if not self.pm_robot_utils.client_align_gonio_left.wait_for_service(1):
             self.logger.error(f"Client '{self.pm_robot_utils.client_align_gonio_left.srv_name} not available!")
             response.success = False
@@ -409,25 +407,32 @@ class PmSkills(Node):
 
     def force_grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
-        self.pm_robot_utils.wait_for_initial_scene_update()
+
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
         try:
-            if not check_object_exists(self.pm_robot_utils.object_scene, request.component_name):
+            should_move_up_at_error = False
+            self.logger.info(f"Force gripping component '{request.component_name}'")
+
+            if not self.pm_robot_utils.assembly_scene_analyzer.check_object_exists(request.component_name):
                 raise PmRobotError(f"Object '{request.component_name}' does not exist!")
-            
-            if not self.is_gripper_empthy():
+
+            self.logger.info(f"Force gripping component '{request.component_name}'")
+
+            if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
                 raise PmRobotError("Gripper is not empty! Can not grip new component!")
 
-            gripping_frame = self.get_gripping_frame(request.component_name)
+            gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame(request.component_name)
 
             if gripping_frame is None:
                 raise PmRobotError(f"No gripping frame found for object '{request.component_name}'")
             
             self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
 
-            if self.is_object_on_gonio_left(request.component_name):
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name):
                 algin_success = self.align_gonio_left(gripping_frame)
 
-            elif self.is_object_on_gonio_right(request.component_name):
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name):
                 algin_success = self.align_gonio_right(gripping_frame)
             
             else:
@@ -441,6 +446,8 @@ class PmSkills(Node):
 
             if not move_tool_to_part_offset_success:
                 raise PmRobotError(f"Failed to move gripper to part '{request.component_name}' at offset distance!")
+            
+            should_move_up_at_error = True
 
             self.logger.info(f"Moving to grip sensing start position!")
 
@@ -449,16 +456,17 @@ class PmSkills(Node):
             if not move_tool_to_part_success:
                 raise PmRobotError(f"Failed to move gripper to part '{request.component_name}'!")
 
-            #tip_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_current_tool_attachment()
 
-            tip_name = 'PM_Robot_Vacuum_Tool_Tip'
-
-            col_success = self.pm_robot_utils.set_collision(request.component_name, 
-                                                            tip_name,
-                                                            False)
+            self.pm_robot_utils.set_gripper_component_collision(component_name=request.component_name, 
+                                                                state=False)
             
-            if not col_success:
-                raise PmRobotError(f"Could not disable collision between '{tip_name}' and '{request.component_name}'!")
+            #tip_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_current_tool_attachment()
+            # tip_name = 'PM_Robot_Vacuum_Tool_Tip'
+            # col_success = self.pm_robot_utils.set_collision(request.component_name, 
+            #                                                 tip_name,
+            #                                                 False)
+            # if not col_success:
+            #     raise PmRobotError(f"Could not disable collision between '{tip_name}' and '{request.component_name}'!")
 
             # calculating the lower position
             planning_req = pm_moveit_srv.MoveToFrame.Request()
@@ -496,11 +504,11 @@ class PmSkills(Node):
             disable_success = True
 
             # turn off the vacuum
-            if self.is_object_on_gonio_left(request.component_name, max_depth=1):
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name, max_depth=1):
                 self.logger.info(f"Disabling vacuum on gonio left for component '{request.component_name}'")
                 disable_success = self.pm_robot_utils.set_gonio_left_vacuum(False)
 
-            elif self.is_object_on_gonio_right(request.component_name, max_depth=1):
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name, max_depth=1):
                 self.logger.info(f"Disabling vacuum on gonio right for component '{request.component_name}'")
                 disable_success = self.pm_robot_utils.set_gonio_right_vacuum(False)
             else:
@@ -526,25 +534,28 @@ class PmSkills(Node):
             self.logger.error(response.message)
 
         finally:
-            move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-            if not move_relatively_success:
-                response.success = False
-                response.message = f"Failed to lift gripper after attaching component '{request.component_name}'"
-                self.logger.error(response.message)
+            if should_move_up_at_error:
+                move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
+                if not move_relatively_success:
+                    response.success = False
+                    response.message = f"Failed to lift gripper after attaching component '{request.component_name}'"
+                    self.logger.error(response.message)
 
         return response
     
     def grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
-       
+
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        
         try:
-            if not check_object_exists(request.component_name):
+            if not self.pm_robot_utils.assembly_scene_analyzer.check_object_exists(request.component_name):
                 response.success = False
                 response.message = f"Object '{request.component_name}' does not exist!"
                 self.logger.error(response.message)
                 return response
-            
-            if not self.is_gripper_empthy():
+
+            if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
                 response.success = False
                 response.message = "Gripper is not empty! Can not grip new component!"
                 self.logger.error(response.message)
@@ -556,7 +567,7 @@ class PmSkills(Node):
             self.logger.error(response.message)
             return response
         
-        gripping_frame = self.get_gripping_frame(request.component_name)
+        gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame(request.component_name)
 
         if gripping_frame is None:
             response.success = False
@@ -565,11 +576,11 @@ class PmSkills(Node):
             return response
         
         self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
-        
-        if self.is_object_on_gonio_left(request.component_name):
+
+        if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name):
             algin_success = self.align_gonio_left(gripping_frame)
 
-        elif self.is_object_on_gonio_right(request.component_name):
+        elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name):
             algin_success = self.align_gonio_right(gripping_frame)
         
         else:
@@ -628,59 +639,42 @@ class PmSkills(Node):
         return response
 
     def place_component_callback(self, request:pm_skill_srv.PlaceComponent.Request, response:pm_skill_srv.PlaceComponent.Response):
-        
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
         try:
             should_move_up_at_error = False
 
-            if self.is_gripper_empthy():
+            if self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
                 raise PmRobotError(f"Gripper is empty! Can not place component!")
             
-            gripped_component = self.get_gripped_component()
+            gripped_component = self.pm_robot_utils.assembly_scene_analyzer.get_gripped_component()
             
-            if gripped_component is None:
-                raise PmRobotError(f"No gripped component found!")
+            assembly_frame = self.pm_robot_utils.assembly_scene_analyzer.get_assembly_frame_for_component(gripped_component)
+
+            target_frame = self.pm_robot_utils.assembly_scene_analyzer.get_target_frame_for_component(gripped_component)
+
+            self.logger.warn(f"Gripped Component: '{str(gripped_component)}'!")
+            self.logger.warn(f"Assembly Frame: '{str(assembly_frame)}'!")
+            self.logger.warn(f"Target Frame: '{str(target_frame)}'!")
+
+            target_component = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(target_frame)
             
-            gripped_component_frames = self.get_assembly_target_frame_gripped_component()
+            instruction = self.pm_robot_utils.assembly_scene_analyzer.get_assembly_instruction(assembly_component=gripped_component,
+                                                                                                  target_component=target_component)
 
-            self.logger.warn(f"Component frames '{str(gripped_component_frames)}'!")
+            # recalculate the instruction before creating the place frame
+            self.pm_robot_utils.recalculate_assembly_instruction(instruction_id=instruction.id)
 
-            all_involved_frames_tuples = self.get_assembly_and_target_frames()
-
-            target_frame = None
-
-            for component_frame in gripped_component_frames:
-                if self.ASSEMBLY_FRAME_INDICATOR in component_frame:
-                    component_assembly_frame = component_frame
-                    #strip indicator from frame name
-                    assembly_description = component_frame.replace(self.ASSEMBLY_FRAME_INDICATOR, '')
-                    self.logger.info(f"Placing component '{gripped_component}'")
-
-                    for frame_tuple in all_involved_frames_tuples:
-                        if assembly_description in frame_tuple[1] and frame_tuple[0] != gripped_component:
-                            target_frame = frame_tuple[1]
-                            break
-                    
-                    self.logger.info(f"Placing component '{gripped_component}' at frame '{target_frame}'")
-
-            if target_frame is None:
-                raise PmRobotError(f"No target frame found for component '{gripped_component}'")
-            
-            target_component = self.get_component_for_frame_name(target_frame)
-
-            if target_component is None:
-                raise PmRobotError(f"No component found for target frame '{target_frame}'")
-            
-            # RECALCULATE THE ASSEMBLY TRANSFORMATIONplace_component_callback
-            # INSERT HERE
+            placing_frame = self._create_place_offset_frame(target_frame, request)
 
             # Align gonio to the left or right depending on the target frame
-            if self.is_object_on_gonio_left(target_component):
-                algin_success = self.align_gonio_left(endeffector_override=target_frame,
-                                                        alignment_frame=component_assembly_frame)
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(target_component):
+                algin_success = self.align_gonio_left(endeffector_override=placing_frame,
+                                                        alignment_frame=assembly_frame)
 
-            elif self.is_object_on_gonio_right(target_component):
-                algin_success = self.align_gonio_right(endeffector_override=target_frame,
-                                                        alignment_frame=component_assembly_frame)
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(target_component):
+                algin_success = self.align_gonio_right(endeffector_override=placing_frame,
+                                                        alignment_frame=assembly_frame)
 
             else:
                 raise PmRobotError("Target object not on gonio!")
@@ -688,10 +682,10 @@ class PmSkills(Node):
             if not algin_success:
                 raise PmRobotError(f"Failed to align gonio for target component '{target_component}'")
             
-            self.logger.warn("Endeffector override: " + component_assembly_frame)
+            self.logger.warn("Endeffector override: " + assembly_frame)
             # Move component to the target frame with a z offset
-            move_component_to_part_offset_success = self.move_gripper_to_frame(target_frame, 
-                                                                               endeffector_override=component_assembly_frame, 
+            move_component_to_part_offset_success = self.move_gripper_to_frame(placing_frame, 
+                                                                               endeffector_override=assembly_frame, 
                                                                                z_offset=self.RELEASE_LIFT_DISTANCE)
 
             if not move_component_to_part_offset_success:
@@ -700,8 +694,8 @@ class PmSkills(Node):
             should_move_up_at_error = True
 
             # Move component to the target frame
-            move_component_to_part_success = self.move_gripper_to_frame(target_frame, 
-                                                                        endeffector_override=component_assembly_frame,
+            move_component_to_part_success = self.move_gripper_to_frame(placing_frame, 
+                                                                        endeffector_override=assembly_frame,
                                                                         z_offset=0.0)
             
             if not move_component_to_part_success:
@@ -710,7 +704,11 @@ class PmSkills(Node):
             response.success = True
             response.message = f"Component '{gripped_component}' placed successfully!"
 
-        except PmRobotError as e:
+        except (PmRobotError, 
+                ComponentNotFoundError, 
+                RefFrameNotFoundError, 
+                AssemblyFrameNotFoundError,
+                TargetFrameNotFoundError) as e:
             if should_move_up_at_error:
                 move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
                 if not move_relatively_success:
@@ -720,52 +718,80 @@ class PmSkills(Node):
             response.success = False
             response.message = str(e)
             self.logger.error(response.message)
-
+            
         finally:
             pass
 
         return response
 
-    def release_component_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+    def _create_place_offset_frame(self, 
+                                  target_frame, 
+                                  request:pm_skill_srv.PlaceComponent.Request)->str:
+        """
+        Create a new frame for placing the component with an offset
+        Args:
+            target_frame (str): The name of the target frame to place the component
+            request (pm_skill_srv.PlaceComponent.Request): The request containing the offset values
+        Returns:
+            str: The name of the created offset frame
+        Raises:
+            PmRobotError: If the frame creation fails
+            RefFrameNotFoundError: If the target frame does not exist
+            ComponentNotFoundError: If the target component does not exist
+        """
+
+        target_frame_obj = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(target_frame)
+        target_component = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(target_frame)
+
+        spawn_request = ami_srv.CreateRefFrame.Request()
+        spawn_request.ref_frame.frame_name = target_frame + "_offset"
+        spawn_request.ref_frame.parent_frame = target_component
+        spawn_request.ref_frame.pose.position.x = target_frame_obj.pose.position.x + request.x_offset_um * 1e-6
+        spawn_request.ref_frame.pose.position.y = target_frame_obj.pose.position.y + request.y_offset_um * 1e-6
+        spawn_request.ref_frame.pose.position.z = target_frame_obj.pose.position.z + request.z_offset_um * 1e-6
+
+        # confert euler angles to quaternion
+        if request.rx_offset_deg != 0.0 or request.ry_offset_deg != 0.0 or request.rz_offset_deg != 0.0:
+            q = R.from_euler('xyz', [request.rx_offset_deg, request.ry_offset_deg, request.rz_offset_deg], degrees=True).as_quat()
+            quat = Quaternion()
+            quat.x = q[0]
+            quat.y = q[1]
+            quat.z = q[2]
+            quat.w = q[3]
+            # multiply quaternions
+            # current orientation
+            result_quat = quaternion_multiply(target_frame_obj.pose.orientation, quat)
+            spawn_request.ref_frame.pose.orientation = result_quat
+        else:
+            spawn_request.ref_frame.pose.orientation = target_frame_obj.pose.orientation
         
+        spawn_response:ami_srv.CreateRefFrame.Response = self.pm_robot_utils.create_ref_frame(spawn_request)
+
+        return spawn_request.ref_frame.frame_name
+
+    def release_component_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
         try:
-            if self.is_gripper_empthy():
-                raise PmRobotError(f"Gripper is empty! Can not place component!")
-            
-            gripped_component = self.get_gripped_component()
+            if self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
+                raise PmRobotError(f"Gripper is empty! Can not release component!")
+
+            gripped_component = self.pm_robot_utils.assembly_scene_analyzer.get_gripped_component()
             
             if gripped_component is None:
                 raise PmRobotError(f"No gripped component found!")
             
-            gripped_component_frames = self.get_assembly_target_frame_gripped_component()
-
-            self.logger.warn(f"Component frames '{str(gripped_component_frames)}'!")
-
-            all_involved_frames_tuples = self.get_assembly_and_target_frames()
-
-            target_frame = None
-
-            for component_frame in gripped_component_frames:
-                if self.ASSEMBLY_FRAME_INDICATOR in component_frame:
-                    component_assembly_frame = component_frame
-                    #strip indicator from frame name
-                    assembly_description = component_frame.replace(self.ASSEMBLY_FRAME_INDICATOR, '')
-                    self.logger.info(f"Placing component '{gripped_component}'")
-
-                    for frame_tuple in all_involved_frames_tuples:
-                        if assembly_description in frame_tuple[1] and frame_tuple[0] != gripped_component:
-                            target_frame = frame_tuple[1]
-                            break
-                    
-                    self.logger.info(f"Placing component '{gripped_component}' at frame '{target_frame}'")
-
-            if target_frame is None:
-                raise PmRobotError(f"No target frame found for component '{gripped_component}'")
+            gripped_component = self.pm_robot_utils.assembly_scene_analyzer.get_gripped_component()
             
-            target_component = self.get_component_for_frame_name(target_frame)
+            assembly_frame = self.pm_robot_utils.assembly_scene_analyzer.get_assembly_frame_for_component(gripped_component)
 
-            if target_component is None:
-                raise PmRobotError(f"No component found for target frame '{target_frame}'")
+            target_frame = self.pm_robot_utils.assembly_scene_analyzer.get_target_frame_for_component(gripped_component)
+
+            target_component = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(target_frame)
+
+            self.logger.warn(f"Gripped Component: '{str(gripped_component)}'!")
+            self.logger.warn(f"Assembly Frame: '{str(assembly_frame)}'!")
+            self.logger.warn(f"Target Frame: '{str(target_frame)}'!")
 
             # release component
             attach_component_success = self.attach_component_to_component(gripped_component, target_component)
@@ -778,29 +804,35 @@ class PmSkills(Node):
             if not vaccum_off_success:
                 raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
 
-            #####
-            # !!!! ACTIVATE COLLISION BETWEEN PART AND GRIPPER !!!!!
-            #####
-
             move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
             if not move_relatively_success:
                 raise PmRobotError(f"Failed to lift gripper after releasing component '{gripped_component}'")
 
+            self.pm_robot_utils.set_gripper_component_collision(component_name=gripped_component, 
+                                                    state=True)
+                
             response.success = True
             response.message = f"Component '{gripped_component}' released successfully!"
                     
-        except PmRobotError as e:
-            response.success = False
-            response.message = str(e)
-            self.logger.error(response.message)
+        except (PmRobotError, 
+                ComponentNotFoundError, 
+                RefFrameNotFoundError, 
+                AssemblyFrameNotFoundError,
+                TargetFrameNotFoundError) as e:
+
+                response.message = f"Failed to lift gripper after placing component '{gripped_component}'"
+                self.logger.error(response.message)
+                response.success = False
 
         return response
 
+
     def assemble_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
-        
-        global_stationary_component = self.get_global_statonary_component()
-        assemble_list = self.get_components_to_assemble()
-        first_component = self.find_matches_for_component(global_stationary_component, only_unassembled=False)
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
+        global_stationary_component = self.pm_robot_utils.assembly_scene_analyzer.get_global_stationary_component()
+        assemble_list = self.pm_robot_utils.assembly_scene_analyzer.get_components_to_assemble()
+        first_component = self.pm_robot_utils.assembly_scene_analyzer.find_matches_for_component(global_stationary_component, only_unassembled=False)
 
         self.assembly_loop(first_component)
         
@@ -811,13 +843,15 @@ class PmSkills(Node):
     def vaccum_gripper_on_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         """Mimics the vacuum gripper funtionality by activating the vacuum and changing the parent frame"""
 
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
         sim_time = self.pm_robot_utils.is_gazebo_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
 
-        assembly_and_target_frames = self.get_assembly_and_target_frames()      
+        assembly_and_target_frames = self.pm_robot_utils.assembly_scene_analyzer.get_assembly_and_target_frames()      
 
         try:
-            if not self.is_gripper_empthy():
+            if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
                 response.success = False
                 response.message = "Gripper is not empty! Can not grip new component!"
                 self.logger.error(response.message)
@@ -863,7 +897,7 @@ class PmSkills(Node):
         sim_time = self.pm_robot_utils.is_gazebo_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
 
-        assembly_and_target_frames = self.get_assembly_and_target_frames()    
+        assembly_and_target_frames = self.pm_robot_utils.assembly_scene_analyzer.get_all_assembly_and_target_frames()
 
         try:
             if not sim_time:
@@ -881,7 +915,7 @@ class PmSkills(Node):
                     self.logger.info(f"target component: '{target_component}'")
                     break
 
-            response_attachment = self.attach_component_to_component(self.get_gripped_component(), target_component)
+            response_attachment = self.attach_component_to_component(self.pm_robot_utils.assembly_scene_analyzer.get_gripped_component(), target_component)
             if not response_attachment:
                 response.success = False
                 response.message = "Failed change parent frame!"
@@ -954,10 +988,10 @@ class PmSkills(Node):
         return response
             
     def assembly_loop(self, list_of_components:list[str]):
-        
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
         for component in list_of_components:
             self.logger.error(f"ComponentTTTTT: {component}")
-            if not self.is_component_assembled(component):
+            if not self.pm_robot_utils.assembly_scene_analyzer.is_component_assembled(component):
 
                 response = self.grip_component_callback(pm_skill_srv.GripComponent.Request(component_name=component), pm_skill_srv.GripComponent.Response())
                 if not response.success:
@@ -969,7 +1003,7 @@ class PmSkills(Node):
                     self.logger.error(f"Failed to place component '{component}'")
                     return False
                 
-            list_of_component= self.find_matches_for_component(component,only_unassembled=False)
+            list_of_component= self.pm_robot_utils.assembly_scene_analyzer.find_matches_for_component(component,only_unassembled=False)
             self.logger.warn(f"List of components: {list_of_component}")
             self.assembly_loop(list_of_component)
 
@@ -1136,18 +1170,9 @@ class PmSkills(Node):
 
     def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        
-        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        #self._logger.warn(f"Correcting frame: {request.frame_name}...")
-        #self._logger.warn(f"Object name: {_obj_name}")
-        #self._logger.warn(f"Frame name: {_frame_name}")
-
-        if _frame_name is not None:
-            frame_from_scene = True
-        else:
-            frame_from_scene = False
+        frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
 
         measure_frame_request = pm_skill_srv.CorrectFrame.Request()
         measure_frame_response = pm_skill_srv.CorrectFrame.Response()
@@ -1225,18 +1250,13 @@ class PmSkills(Node):
 
     def correct_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        
-        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
+        frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
 
         #self._logger.warn(f"Correcting frame: {request.frame_name}...")
         #self._logger.warn(f"Object name: {_obj_name}")
         #self._logger.warn(f"Frame name: {_frame_name}")
-
-        if _frame_name is not None:
-            frame_from_scene = True
-        else:
-            frame_from_scene = False
 
         measure_frame_request = pm_skill_srv.CorrectFrame.Request()
         measure_frame_response = pm_skill_srv.CorrectFrame.Response()
@@ -1306,18 +1326,10 @@ class PmSkills(Node):
         return response
 
     def correct_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        
-        _obj_name, _frame_name =  is_frame_from_scene(self.pm_robot_utils.object_scene, request.frame_name)
 
-        self._logger.warn(f"Correcting frame: {request.frame_name}...")
-        self._logger.warn(f"Object name: {_obj_name}")
-        self._logger.warn(f"Frame name: {_frame_name}")
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        if _frame_name is not None:
-            frame_from_scene = True
-        else:
-            frame_from_scene = False
+        frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
 
         measure_frame_request = pm_skill_srv.CorrectFrame.Request()
         measure_frame_response = pm_skill_srv.CorrectFrame.Response()
@@ -1362,6 +1374,7 @@ class PmSkills(Node):
         return response
         
     def attach_component_to_gripper(self, component_name:str)-> bool:
+
         call_async = False
 
         if not self.attach_component.wait_for_service(timeout_sec=1.0):
@@ -1451,246 +1464,6 @@ class PmSkills(Node):
             response:pm_moveit_srv.AlignGonio.Response = self.align_gonio_left_client.call(req)
             return response.success
             
-    def get_gripping_frame(self, object_name:str)-> str:
-        grip_frames = []
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            if obj.obj_name == object_name:
-                for frame in obj.ref_frames:
-                    frame:ami_msg.RefFrame
-                    for identificador in self.GRIPPING_FRAME_IDENTIFICATORS:
-                        # check if string is part of string
-                        if identificador in frame.frame_name:
-                            grip_frames.append(frame.frame_name)
-
-        if len(grip_frames) == 0:
-            self.logger.error(f"No gripping frame found for object '{object_name}'")
-            return None
-        
-        if len(grip_frames) > 1:
-            self.logger.error(f"Multiple potential gripping frames found for object '{object_name}'. Identificators: {self.GRIPPING_FRAME_IDENTIFICATORS}")
-            return None
-        else:
-            return grip_frames[0]
-    
-    # delete
-    def get_parent_of_object(self, object_name:str):
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            if obj.obj_name == object_name:
-                return obj.parent_frame
-        return None
-    
-    def is_object_on_gonio_left(self, object_name: str, max_depth: int = 3) -> bool:
-        """
-        Check if the object is on the gonio left frame, up to a specified depth.
-
-        :param object_name: Name of the object to check.
-        :param max_depth: How many levels up the hierarchy to check.
-        :return: True if the object is on or connected to the gonio left frame.
-        """
-        current_object = object_name
-
-        for _ in range(max_depth):
-            parent_frame = self.get_parent_of_object(current_object)
-            if parent_frame is None:
-                return False
-            if self.PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR in parent_frame:
-                return True
-            current_object = parent_frame
-
-        return False
-
-    def is_object_on_gonio_right(self, object_name: str, max_depth: int = 3) -> bool:
-        """
-        Check if the object is on the gonio right frame, up to a specified depth.
-        
-        :param object_name: Name of the object to check.
-        :param max_depth: How many levels up the hierarchy to check.
-        :return: True if the object is on or connected to the gonio right frame.
-        """
-        current_object = object_name
-
-        for _ in range(max_depth):
-            parent_frame = self.get_parent_of_object(current_object)
-            if parent_frame is None:
-                return False
-            if self.PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR in parent_frame:
-                return True
-            current_object = parent_frame
-
-        return False
-
-    def is_gripper_empthy(self)-> bool:
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        
-
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            if obj.parent_frame == self.PM_ROBOT_GRIPPER_FRAME:
-                return False
-        return True
-
-    def get_gripped_component(self)-> str:
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            if obj.parent_frame == self.PM_ROBOT_GRIPPER_FRAME:
-                return obj.obj_name
-        return None
-
-    # delete
-    def get_assembly_and_target_frames(self)-> list[tuple[str,str]]:
-        frames = []
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            for frame in obj.ref_frames:
-                frame:ami_msg.RefFrame
-                if self.ASSEMBLY_FRAME_INDICATOR in frame.frame_name:
-                    frames.append((obj.obj_name,frame.frame_name))
-                if self.TARGET_FRAME_INDICATOR in frame.frame_name:
-                    frames.append((obj.obj_name,frame.frame_name))
-        return frames
-
-    def get_assembly_target_frame_gripped_component(self)->list[str]:
-        """
-        Get the assembly and target frames for the gripped component. 
-
-        Returns:
-            list[str]: List of assembly and target frames for the gripped component.
-        """
-        gripped_component = self.get_gripped_component()
-        
-        frames = []
-
-        if gripped_component is None:
-            return None
-        
-        frames_tuple = self.get_assembly_and_target_frames()
-        for frame_tuple in frames_tuple:
-            if frame_tuple[0] == gripped_component:
-                frames.append(frame_tuple[1])
-        
-        return frames
-
-    # delete
-    def get_component_for_frame_name(self, frame_name:str)-> str:
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            for frame in obj.ref_frames:
-                frame:ami_msg.RefFrame
-                if frame.frame_name == frame_name:
-                    return obj.obj_name
-        return None
-
-    # delete
-    def get_list_of_components(self)-> list[str]:
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        components = []
-        for obj in self.pm_robot_utils.object_scene.objects_in_scene:
-            obj:ami_msg.Object
-            components.append(obj.obj_name)
-        return components
-
-    # delete
-    def get_global_statonary_component(self)-> str:
-        """
-        Returns the name of the component that is not moved among all of the components.
-        """
-
-        self.pm_robot_utils.wait_for_initial_scene_update()
-
-        components = self.get_list_of_components()
-        
-        for component in components:
-            if self.is_component_stationary(component):
-                return component
-
-    # delete
-    def is_component_stationary(self, component_name:str)-> bool:
-
-        self.pm_robot_utils.wait_for_initial_scene_update()
-
-        is_stationary = True
-        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
-            instruction:ami_msg.AssemblyInstruction
-            if component_name == instruction.component_1 and instruction.component_1_is_moving_part:
-                is_stationary = False
-
-            if component_name == instruction.component_2 and not instruction.component_1_is_moving_part:
-                is_stationary = False
-
-        return is_stationary
-
-    # delete
-    def is_component_assembled(self, component_name:str)-> bool:
-        self.pm_robot_utils.wait_for_initial_scene_update()
-
-        is_assembled = False
-
-        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
-            instruction:ami_msg.AssemblyInstruction
-            if component_name == instruction.component_1 and instruction.component_2 == self.get_parent_of_object(component_name):
-                return True
-
-            if component_name == instruction.component_2 and instruction.component_1 == self.get_parent_of_object(component_name):
-                return True
-        
-        return False
-
-    # delete
-    def get_components_to_assemble(self)-> list[str]:
-        components_to_assembly = []
-
-        self.pm_robot_utils.wait_for_initial_scene_update()
-
-        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
-            instruction:ami_msg.AssemblyInstruction
-            if instruction.component_1_is_moving_part:
-                moving_object = instruction.component_1
-                stationary_object = instruction.component_2
-            else:
-                moving_object = instruction.component_2
-                stationary_object = instruction.component_1
-            
-            if stationary_object != self.get_parent_of_object(moving_object):
-                components_to_assembly.append(moving_object)
-        
-        return components_to_assembly
-
-    # delete
-    def find_matches_for_component(self, component_name:str, only_unassembled = True)-> list[str]:
-        """
-        The component to find the matches for should be the stationary component.
-        """
-        self.pm_robot_utils.wait_for_initial_scene_update()
-
-        matches = []
-        for instruction in self.pm_robot_utils.object_scene.assembly_instructions:
-            instruction:ami_msg.AssemblyInstruction
-            self.logger.warn(f"Instruction: {instruction.component_1} -> {instruction.component_2}")
-
-            test= self.is_component_assembled(instruction.component_2)
-            self.logger.warn(f"Is component {instruction.component_2} assembled: {test}")
-
-            if component_name == instruction.component_1:
-                if ((not only_unassembled or self.is_component_assembled(instruction.component_2)) and 
-                    not instruction.component_1_is_moving_part):
-                    #not instruction.component_2 == self.get_global_statonary_component()):
-
-                    matches.append(instruction.component_2)
-
-            if component_name == instruction.component_2:
-                if ((not only_unassembled or self.is_component_assembled(instruction.component_1)) and 
-                    instruction.component_1_is_moving_part):
-                    #not instruction.component_1 == self.get_global_statonary_component()):
-
-                    matches.append(instruction.component_1)
-        return matches
-
 
 def main(args=None):
     rclpy.init(args=args)

@@ -38,7 +38,13 @@ from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
 from enum import Enum
+from assembly_scene_publisher.py_modules.AssemblySceneAnalyzerAdv import AssemblySceneAnalyzerAdv
+from assembly_scene_publisher.py_modules.AssemblySceneAnalyzer import UnInitializedScene
 
+from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
+                                                              RefFrameNotFoundError, 
+                                                              RefPlaneNotFoundError, 
+                                                              ComponentNotFoundError)
 # create new error
 
 class PmRobotError(Exception):
@@ -100,6 +106,9 @@ class PmRobotUtils():
         self.client_align_gonio_right = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.client_align_gonio_left = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_left')
         self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
+        self.client_create_ref_frame = self.create_client(ami_srv.CreateRefFrame, '/assembly_manager/create_ref_frame')
+        self.client_recalculate_assembly_instruction = self._node.create_client(ami_srv.CalculateAssemblyInstructions, '/assembly_manager/calculate_assembly_instructions')
+
 
         self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
 
@@ -121,7 +130,10 @@ class PmRobotUtils():
 
         self._current_force_sensor_data = Float64MultiArray()
 
-        self.object_scene:ami_msg.ObjectScene = None
+        self.object_scene_un= UnInitializedScene()
+
+        self.assembly_scene_analyzer = AssemblySceneAnalyzerAdv(self.object_scene_un, self._node.get_logger())
+
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
         self.t_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_t_axis_controller/follow_joint_trajectory')
         
@@ -191,13 +203,13 @@ class PmRobotUtils():
     
         
     def wait_for_initial_scene_update(self):
-        while self.object_scene is None:
+        while self.object_scene_un.scene is None:
             self._node.get_logger().warn("Waiting for object scene to be updated...")
             self._node.get_logger().warn("Make sure you started the scene subscribtion...")
-            time.sleep(0.1)
+            time.sleep(0.5)
 
     def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
-        self.object_scene = msg
+        self.object_scene_un.scene = msg
     
     def set_force_sensor_bias(self)->bool:
         if not self.client_set_force_sensor_bias.wait_for_service(1):
@@ -594,13 +606,20 @@ class PmRobotUtils():
         
     def force_sensor_callback(self, msg: Float64MultiArray):
         self._current_force_sensor_data = msg
-    
-    def set_collision(self, link_1, link_2, should_check)->bool:
-        
+
+    def set_collision(self, link_1, link_2, should_check):
+        """
+        Set collision checking between two links.
+        Args:
+            link_1 (str): The first link.
+            link_2 (str): The second link.
+            should_check (bool): Whether to enable or disable collision checking.
+        Raises:
+            PmRobotError: If the service is not available or the request fails.
+        """
         if not self.client_set_collision.wait_for_service(1):
-            self._node._logger.error(f"Client '{self.client_set_collision.srv_name}' not available!")
-            return False
-        
+            raise PmRobotError(f"Client '{self.client_set_collision.srv_name}' not available!")
+
         set_request = ami_srv.SetCollisionChecking.Request()
         set_request.link_1 = link_1
         set_request.link_2 = link_2
@@ -608,7 +627,8 @@ class PmRobotUtils():
 
         set_response:ami_srv.SetCollisionChecking.Response = self.client_set_collision.call(set_request)
 
-        return set_response.success
+        if not set_response.success:
+            raise PmRobotError(f"Could not set collision between '{link_1}' and '{link_2}' to '{should_check}'")
     
     def set_tool_vaccum(self, state:bool)->bool:
         if not self.client_turn_on_vacuum_tool_head.wait_for_service(1):
@@ -627,6 +647,54 @@ class PmRobotUtils():
             response:EmptyWithSuccess.Response = self.client_turn_off_vacuum_tool_head.call(request)
 
         return response.success
+
+
+    def set_gripper_link_collision(self, part_name:str, state:bool):
+        """
+        Enable or disable collision between the gripper link and a specified part.
+        Args:
+            part_name (str): The name of the part to set collision with.
+            state (bool): True to enable collision, False to disable.
+        Raises:
+            PmRobotError: If the setting collision fails or if the tool type is unsupported.
+        Returns:
+            None
+        """
+
+        tool_type = self.pm_robot_config.tool.get_active_tool_type()
+
+        if tool_type == self.pm_robot_config.tool._gripper_vacuum.TOOL_VACUUM_IDENT:
+            gripper_tip = self.pm_robot_config.tool.get_tool().get_current_tool_attachment()
+
+        elif tool_type == self.pm_robot_config.tool._gripper_1_jaw.TOOL_GRIPPER_1_JAW_IDENT:
+            raise PmRobotError("Not yet implemented for 1 jaw gripper!")
+
+        elif tool_type == self.pm_robot_config.tool._gripper_2_jaw.TOOL_GRIPPER_2_JAW_IDENT:
+            raise PmRobotError("Not yet implemented for 2 jaw gripper!")
+
+        tip_name = 'PM_Robot_Vacuum_Tool_Tip'
+
+        self.set_collision(part_name, 
+                            gripper_tip,
+                            state)
+            
+    def set_gripper_component_collision(self, component_name:str, state:bool):
+        """
+        Enable or disable collision between the gripped component and a specified part.
+        Args:
+            part_name (str): The name of the part to set collision with.
+            state (bool): True to enable collision, False to disable.
+        Raises:
+            PmRobotError: If the setting collision fails or if the tool type is unsupported.
+            ComponentNotFoundError: If the gripped component is not found.
+        Returns:
+            None
+        """
+
+        self.assembly_scene_analyzer.wait_for_initial_scene_update()
+        self.assembly_scene_analyzer.get_component_by_name(component_name)
+
+        self.set_gripper_link_collision(component_name, state)
 
     def set_gonio_left_vacuum(self, state:bool)->bool:
         if not self.client_turn_on_gonio_left_vacuum.wait_for_service(1):
@@ -709,6 +777,18 @@ class PmRobotUtils():
         response:MoveToFrame.Response = self.client_move_robot_laser_to_frame.call(req)
         return response.success
 
+    def recalculate_assembly_instruction(self, instruction_id:str):
+        if not self.client_recalculate_assembly_instruction.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_recalculate_assembly_instruction.srv_name}' not available")
+        
+        req = ami_srv.CalculateAssemblyInstructions.Request()
+        req.instruction_id = instruction_id
+
+        response:ami_srv.CalculateAssemblyInstructions.Response = self.client_recalculate_assembly_instruction.call(req)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to recalculate assembly instruction: {instruction_id}")
+
     def move_confocal_top_to_frame(self, frame_name:str, z_offset=0.0, y_offset=0.0, x_offset=0.0)-> bool:
         """
         Move the confocal top to the specified frame with the given offsets (in m).
@@ -757,7 +837,23 @@ class PmRobotUtils():
         
         return response.success
     
+    def create_ref_frame(self, ref_frame_request: ami_srv.CreateRefFrame.Request)->ami_srv.CreateRefFrame.Response:
+        """
+        Create a reference frame in the assembly manager.
+        param ref_frame_request: ami_srv.CreateRefFrame.Request
+        return: ami_srv.CreateRefFrame.Response
+        Raises PmRobotError if the service call fails or if the response indicates failure.
+        """
+        if not self.client_create_ref_frame.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_create_ref_frame.srv_name}' not available")
+        
+        response:ami_srv.CreateRefFrame.Response = self.client_create_ref_frame.call(ref_frame_request)
 
+        if not response.success:
+            raise PmRobotError(f"Failed to create reference frame: {response.message}")
+
+        return response
+    
     def move_1k_dispenser_to_frame(self, frame_name:str, 
                                  z_offset:float = 0.0, 
                                  y_offset:float = 0.0,
