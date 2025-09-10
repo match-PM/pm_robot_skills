@@ -850,7 +850,7 @@ class PmSkills(Node):
 
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        sim_time = self.pm_robot_utils.is_gazebo_running()
+        sim_time = self.pm_robot_utils.is_gazebo_running() or self.pm_robot_utils.is_unity_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
 
         assembly_and_target_frames = self.pm_robot_utils.assembly_scene_analyzer.get_assembly_and_target_frames()      
@@ -899,7 +899,7 @@ class PmSkills(Node):
     def vaccum_gripper_off_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         """Mimics the vacuum gripper funtionality by deactivating the vacuum and changing the parent frame"""
 
-        sim_time = self.pm_robot_utils.is_gazebo_running()
+        sim_time = self.pm_robot_utils.is_gazebo_running() or self.pm_robot_utils.is_unity_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
 
         assembly_and_target_frames = self.pm_robot_utils.assembly_scene_analyzer.get_all_assembly_and_target_frames()
