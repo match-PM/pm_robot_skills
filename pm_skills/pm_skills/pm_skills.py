@@ -236,6 +236,7 @@ class PmSkills(Node):
 
             iterations = request.num_iterations
 
+            initial_approach = True
             for iter in range(iterations):
                 self.logger.info(f"STARTING RUN '{iter}/{iterations}")
             
@@ -245,6 +246,14 @@ class PmSkills(Node):
                     measure_response = pm_skill_srv.CorrectFrame.Response()
                     measure_request.frame_name = frame
                     measure_request.use_iterative_sensing = True
+
+                    if initial_approach:
+                        move_success = self.move_laser_to_frame(frame, z_offset=0.02)
+                        if not move_success:
+                            self.logger.error(f"Moving laser to frame '{frame}' for initial approach failed!")
+                            response.success = False
+                            return response
+                        initial_approach = False
 
                     measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
@@ -336,6 +345,8 @@ class PmSkills(Node):
 
         iterations = request.num_iterations
 
+        initial_approach = True
+
         for iter in range(iterations):
             self.logger.info(f"STARTING RUN '{iter}/{iterations}")
 
@@ -345,6 +356,14 @@ class PmSkills(Node):
                 measure_response = pm_skill_srv.CorrectFrame.Response()
                 measure_request.frame_name = frame
                 measure_request.use_iterative_sensing = True
+
+                if initial_approach:
+                    move_success = self.move_laser_to_frame(frame, z_offset=0.02)
+                    if not move_success:
+                        self.logger.error(f"Moving laser to frame '{frame}' for initial approach failed!")
+                        response.success = False
+                        return response
+                    initial_approach = False
 
                 measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
@@ -1073,7 +1092,7 @@ class PmSkills(Node):
             response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(req)
             return response.success
 
-    def move_laser_to_frame(self, frame_name:str, z_offset=None)-> bool:
+    def move_laser_to_frame(self, frame_name:str, z_offset: float=None)-> bool:
         """
         z_offset in m
         """
