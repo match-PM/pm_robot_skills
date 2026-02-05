@@ -319,6 +319,11 @@ class VisionSkillsNode(Node):
                 response.message = "Failed to adapt frame position."
                 self._logger.error(response.message)
                 return response
+            
+            threshold = 2*1e-6
+            if abs(result.result_vector.x)<threshold and abs(result.result_vector.y) < threshold and request.remeasure_after_correction == True and not _ == 1:
+                self._logger.info(f"Correction has been smaler than {threshold*1e6} um. Remesuring will not be triggered!")
+                return response
 
         return response
     

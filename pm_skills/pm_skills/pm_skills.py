@@ -62,13 +62,13 @@ class PmSkills(Node):
         self.pm_robot_utils.start_object_scene_subscribtion()
         
         # services
-        self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
+        #self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
         self.force_grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/force_grip_component", self.force_grip_component_callback,callback_group=self.callback_group_me)
 
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.place_component_callback,callback_group=self.callback_group_me)
         self.release_component_srv = self.create_service(EmptyWithSuccess, "pm_skills/release_component", self.release_component_callback,callback_group=self.callback_group_me)
 
-        self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
+        #self.assemble_srv  = self.create_service(EmptyWithSuccess, "pm_skills/assemble", self.assemble_callback,callback_group=self.callback_group_me)
         
         self.vacuum_gripper_on_service = self.create_service(EmptyWithSuccess, "pm_skills/vacuum_gripper/vacuum_on", self.vaccum_gripper_on_callback, callback_group=self.callback_group_me)
         self.vacuum_gripper_off_service = self.create_service(EmptyWithSuccess, "pm_skills/vacuum_gripper/vacuum_off", self.vaccum_gripper_off_callback, callback_group=self.callback_group_me)
@@ -158,6 +158,12 @@ class PmSkills(Node):
         length_z = target_z- start_z
         # Calculate the length of the vector from start to target position
         length = math.sqrt(length_x**2 + length_y**2 + length_z**2)
+
+        if length == 0.0:
+            self.get_logger().info('Already at target position.')
+            response.success = True
+            response.completed = False
+            return response
 
         if (length/ step_size) > max_steps:
             self.get_logger().error(f'The distance to the target position is too large. The maximum number of steps is {max_steps}.')
@@ -448,15 +454,17 @@ class PmSkills(Node):
                 raise PmRobotError(f"No gripping frame found for object '{request.component_name}'")
             
             self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
+            
+            algin_success = True
 
-            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name):
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name) and request.align_orientation:
                 algin_success = self.align_gonio_left(gripping_frame)
 
-            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name):
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name) and request.align_orientation:
                 algin_success = self.align_gonio_right(gripping_frame)
             
             else:
-                raise PmRobotError("Object not on gonio!")
+                pass
 
             if not algin_success:
                 raise PmRobotError(f"Failed to align gonio for component '{request.component_name}'")
@@ -480,14 +488,6 @@ class PmSkills(Node):
             self.pm_robot_utils.set_gripper_component_collision(component_name=request.component_name, 
                                                                 state=False)
             
-            #tip_name = self.pm_robot_utils.pm_robot_config.tool.get_tool().get_current_tool_attachment()
-            # tip_name = 'PM_Robot_Vacuum_Tool_Tip'
-            # col_success = self.pm_robot_utils.set_collision(request.component_name, 
-            #                                                 tip_name,
-            #                                                 False)
-            # if not col_success:
-            #     raise PmRobotError(f"Could not disable collision between '{tip_name}' and '{request.component_name}'!")
-
             # calculating the lower position
             planning_req = pm_moveit_srv.MoveToFrame.Request()
             planning_req.target_frame = gripping_frame
@@ -506,9 +506,9 @@ class PmSkills(Node):
             force_sensing_request = pm_msg_srv.GripperForceMove.Request()
             force_sensing_response = pm_msg_srv.GripperForceMove.Response()
 
-            force_sensing_request.step_size = float(50) # in um
+            force_sensing_request.step_size = float(10) # in um
             force_sensing_request.target_joints_xyz = [planning_res.joint_values[0], planning_res.joint_values[1], planning_res.joint_values[2]]
-            force_sensing_request.max_f_xyz = [1.0, 1.0, 1.0]
+            force_sensing_request.max_f_xyz = [1.0, 1.0, 1.0] # in N
 
             force_sensing_response = self.force_sensing_move_callback(force_sensing_request, force_sensing_response)
             
@@ -568,6 +568,8 @@ class PmSkills(Node):
 
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
         
+        raise PmRobotError(f"This skill should not be used!")
+    
         try:
             if not self.pm_robot_utils.assembly_scene_analyzer.check_object_exists(request.component_name):
                 response.success = False
@@ -690,16 +692,19 @@ class PmSkills(Node):
             placing_frame = target_frame
 
             # Align gonio to the left or right depending on the target frame
-            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(target_component):
+
+            algin_success = True
+
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(target_component) and request.align_orientation:
                 algin_success = self.align_gonio_left(endeffector_override=placing_frame,
                                                         alignment_frame=assembly_frame)
 
-            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(target_component):
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(target_component) and request.align_orientation:
                 algin_success = self.align_gonio_right(endeffector_override=placing_frame,
                                                         alignment_frame=assembly_frame)
 
             else:
-                raise PmRobotError("Target object not on gonio!")
+                pass
 
             if not algin_success:
                 raise PmRobotError(f"Failed to align gonio for target component '{target_component}'")
@@ -774,7 +779,7 @@ class PmSkills(Node):
         spawn_request.ref_frame.pose.position.y = target_frame_obj.pose.position.y + request.y_offset_um * 1e-6
         spawn_request.ref_frame.pose.position.z = target_frame_obj.pose.position.z + request.z_offset_um * 1e-6
 
-        # confert euler angles to quaternion
+        # convert euler angles to quaternion
         if request.rx_offset_deg != 0.0 or request.ry_offset_deg != 0.0 or request.rz_offset_deg != 0.0:
             q = R.from_euler('xyz', [request.rx_offset_deg, request.ry_offset_deg, request.rz_offset_deg], degrees=True).as_quat()
             quat = Quaternion()
