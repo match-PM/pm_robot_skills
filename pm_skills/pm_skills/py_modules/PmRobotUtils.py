@@ -108,6 +108,7 @@ class PmRobotUtils():
         self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
         self.client_create_ref_frame = self._node.create_client(ami_srv.CreateRefFrame, '/assembly_manager/create_ref_frame')
         self.client_recalculate_assembly_instruction = self._node.create_client(ami_srv.CalculateAssemblyInstructions, '/assembly_manager/calculate_assembly_instructions')
+        self.client_set_frame_properties = self._node.create_client(ami_srv.SetFrameProperties, '/assembly_manager/set_frame_properties')
 
         self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
 
@@ -1011,6 +1012,29 @@ class PmRobotUtils():
         if not response.success:
             raise PmRobotError(f"Failed to extend dispenser: {response.message}")
 
+    def set_frame_properties(self, frame_name:str, properties:ami_srv.SetFrameProperties.Request):
+        """
+        Docstring for set_frame_properties
+        
+        :param self: Description
+        :param frame_name: Description
+        :type frame_name: str
+        :param properties: Description
+        :type properties: ami_srv.SetFrameProperties.Request
+        raises PmRobotError: 
+        """
+        if not self.client_set_frame_properties.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_set_frame_properties.srv_name}' not available")
+        
+        req = ami_srv.SetFrameProperties.Request()
+        req.frame_name = frame_name
+        req.properties = properties
+
+        response:ami_srv.SetFrameProperties.Response = self.client_set_frame_properties.call(req)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to set frame properties for frame: {frame_name}")
+        
     @staticmethod
     def _transform_to_dict(transform):
         ''' 

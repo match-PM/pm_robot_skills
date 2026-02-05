@@ -16,7 +16,8 @@ import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 import pm_moveit_interfaces.srv as pm_moveit_srv
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
-
+from assembly_scene_publisher.py_modules.scene_errors import *
+from assembly_manager_interfaces.msg import RefFrameProperties
 from pm_msgs.srv import EmptyWithSuccess
 from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerScene
 
@@ -42,7 +43,6 @@ class PmSkills(Node):
     PM_ROBOT_GRIPPER_FRAME = 'PM_Robot_Tool_TCP'
     PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR = 'Gonio_Left_Part'
     PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR = 'Gonio_Right_Part'
-    GRIPPING_FRAME_IDENTIFICATORS = ['Grip', 'grip']
     GRIP_RELATIVE_LIFT_DISTANCE = 0.05
     RELEASE_LIFT_DISTANCE = 0.05
     GRIP_APPROACH_OFFSET = 0.05
@@ -119,7 +119,7 @@ class PmSkills(Node):
         self.get_logger().info('Received ForceSensingMove request.')
 
         self.pm_robot_utils.set_force_sensor_bias()
-        time.sleep(2)
+        time.sleep(1)
         # Validate the request parameters. If any max force is > than 10, set threshold_exceeded to True and return failure.
         threshold_value = 10.0  # N
         max_step_size = 100  # micrometers
@@ -304,7 +304,7 @@ class PmSkills(Node):
 
                 if not align_response.success:
                     raise PmRobotError(f"Aligning goniometer failed!")
-
+                
                 time.sleep(1)  # wait for the robot to settle
 
                 joint_1_post = self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.GONIO_RIGHT_STAGE_1)
@@ -448,7 +448,7 @@ class PmSkills(Node):
             if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
                 raise PmRobotError("Gripper is not empty! Can not grip new component!")
 
-            gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame(request.component_name)
+            gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame_of_component(request.component_name)
 
             if gripping_frame is None:
                 raise PmRobotError(f"No gripping frame found for object '{request.component_name}'")
@@ -1198,53 +1198,56 @@ class PmSkills(Node):
         return response
 
     def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
-        
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        try:
+            self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
+            frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
 
-        measure_frame_request = pm_skill_srv.CorrectFrame.Request()
-        measure_frame_response = pm_skill_srv.CorrectFrame.Response()
-        
-        measure_frame_request.frame_name = request.frame_name
-        measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
-        measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
-        
-        response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
-        
-        #self._logger.warn(f"REs {str(response_mes)}")
-
-        if not response_mes.success:
-            response.success = False
-            return response
-                
-        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
-
-        world_pose.transform.translation.z += response_mes.correction_values.z
-
-        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
-        adapt_frame_request.frame_name = request.frame_name
-        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
-        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
-        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
-        adapt_frame_request.pose.orientation = world_pose.transform.rotation
-
-        #self._logger.warn(f"Check3")
-        
-        if frame_from_scene:
-            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
-                self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
-                response.success= False
-                return response
+            measure_frame_request = pm_skill_srv.CorrectFrame.Request()
+            measure_frame_response = pm_skill_srv.CorrectFrame.Response()
             
-            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
-        else:
-            result_adapt = ami_srv.ModifyPoseAbsolut.Response()
+            measure_frame_request.frame_name = request.frame_name
+            measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
+            measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
+            
+            response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
+            
+            if not response_mes.success:
+                raise PmRobotError("Measuring frame with laser failed!")
+            
+            world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
-        #self._logger.warn(f"Check4")
-        
-        response.success = result_adapt.success
-        
+            world_pose.transform.translation.z += response_mes.correction_values.z
+
+            adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+            adapt_frame_request.frame_name = request.frame_name
+            adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+            adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+            adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+            adapt_frame_request.pose.orientation = world_pose.transform.rotation
+            
+            if frame_from_scene:
+                if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                    self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
+                    response.success= False
+                    return response
+                
+                result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
+            else:
+                result_adapt = ami_srv.ModifyPoseAbsolut.Response()
+
+            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
+            properties.laser_frame_properties.has_been_measured = True
+            properties.laser_frame_properties.is_laser_frame = True
+            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
+
+            response.success = result_adapt.success
+
+        except (PmRobotError,RefFrameNotFoundError) as e:
+            response.success = False
+            response.message = str(e)
+            self._logger.error(response.message)
+
         return response
     
     def measure_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
@@ -1279,53 +1282,58 @@ class PmSkills(Node):
 
     def correct_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
         
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        try:
+            self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
+            if not(self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)):
+                raise RefFrameNotFoundError(f"Frame '{request.frame_name}' is not from assembly scene!")
 
-        #self._logger.warn(f"Correcting frame: {request.frame_name}...")
-        #self._logger.warn(f"Object name: {_obj_name}")
-        #self._logger.warn(f"Frame name: {_frame_name}")
-
-        measure_frame_request = pm_skill_srv.CorrectFrame.Request()
-        measure_frame_response = pm_skill_srv.CorrectFrame.Response()
-        
-        measure_frame_request.frame_name = request.frame_name
-        measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
-        measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
-        
-        response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
-        
-        #self._logger.warn(f"REs {str(response_mes)}")
-
-        if not response_mes.success:
-            response.success = False
-            return response
-                
-        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
-
-        world_pose.transform.translation.z += response_mes.correction_values.z
-
-        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
-        adapt_frame_request.frame_name = request.frame_name
-        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
-        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
-        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
-        adapt_frame_request.pose.orientation = world_pose.transform.rotation
-        
-        if frame_from_scene:
-            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
-                self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
-                response.success= False
-                return response
+            measure_frame_request = pm_skill_srv.CorrectFrame.Request()
+            measure_frame_response = pm_skill_srv.CorrectFrame.Response()
             
+            measure_frame_request.frame_name = request.frame_name
+            measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
+            measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
+            
+            response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
+            
+            #self._logger.warn(f"REs {str(response_mes)}")
+
+            if not response_mes.success:
+                response.success = False
+                return response
+                    
+            world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+
+            world_pose.transform.translation.z += response_mes.correction_values.z
+
+            adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+            adapt_frame_request.frame_name = request.frame_name
+            adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+            adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+            adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+            adapt_frame_request.pose.orientation = world_pose.transform.rotation
+            
+            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
+
             result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
-        else:
+
             result_adapt = ami_srv.ModifyPoseAbsolut.Response()
 
-        response.success = result_adapt.success
-        response.correction_values.z = response_mes.correction_values.z
-        
+            response.success = result_adapt.success
+            response.correction_values.z = response_mes.correction_values.z
+
+            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
+            properties.laser_frame_properties.has_been_measured = True
+            properties.laser_frame_properties.is_laser_frame = True
+            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
+
+        except (PmRobotError,RefFrameNotFoundError) as e:
+            response.success = False
+            response.message = str(e)
+            self._logger.error(response.message)
+
         return response
 
     def measure_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
@@ -1356,49 +1364,54 @@ class PmSkills(Node):
 
     def correct_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
 
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        try:
+            self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
+            if not self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
+                raise RefFrameNotFoundError(f"Frame '{request.frame_name}' is not from assembly scene!")
 
-        measure_frame_request = pm_skill_srv.CorrectFrame.Request()
-        measure_frame_response = pm_skill_srv.CorrectFrame.Response()
-        
-        measure_frame_request.frame_name = request.frame_name
-        measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
-        measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
-        
-        response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_top(measure_frame_request, measure_frame_response)
-        
-        self._logger.warn(f"REs {str(response_mes)}")
-
-        if not response_mes.success:
-            response.success = False
-            return response
-                
-        world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
-
-        world_pose.transform.translation.z += response_mes.correction_values.z
-
-        adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
-        adapt_frame_request.frame_name = request.frame_name
-        adapt_frame_request.pose.position.x = world_pose.transform.translation.x
-        adapt_frame_request.pose.position.y = world_pose.transform.translation.y
-        adapt_frame_request.pose.position.z = world_pose.transform.translation.z
-        adapt_frame_request.pose.orientation = world_pose.transform.rotation
-        
-        if frame_from_scene:
-            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
-                self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
-                response.success= False
-                return response
+            measure_frame_request = pm_skill_srv.CorrectFrame.Request()
+            measure_frame_response = pm_skill_srv.CorrectFrame.Response()
             
+            measure_frame_request.frame_name = request.frame_name
+            measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
+            measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
+            
+            response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_top(measure_frame_request, measure_frame_response)
+            
+            self._logger.warn(f"REs {str(response_mes)}")
+
+            if not response_mes.success:
+                raise PmRobotError("Measuring frame with confocal top failed!")
+                    
+            world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+
+            world_pose.transform.translation.z += response_mes.correction_values.z
+
+            adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+            adapt_frame_request.frame_name = request.frame_name
+            adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+            adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+            adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+            adapt_frame_request.pose.orientation = world_pose.transform.rotation
+            
+            if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError
+                    
             result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
-        else:
-            result_adapt = ami_srv.ModifyPoseAbsolut.Response()
-            self._logger.error(f"The frame '{request.frame_name}' could not be corrected, as it is not from the assembly scene.")
-        
-        response.success = result_adapt.success
-        response.correction_values.z = response_mes.correction_values.z
+            
+            response.success = result_adapt.success
+            response.correction_values.z = response_mes.correction_values.z
+            
+            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
+            properties.laser_frame_properties.has_been_measured = True
+            properties.laser_frame_properties.is_laser_frame = True
+            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
+
+        except (PmRobotError,RefFrameNotFoundError) as e:
+            response.success = False
+            response.message = str(e)
+            self._logger.error(response.message)    
         
         return response
         

@@ -11,14 +11,14 @@ import pm_vision_interfaces.msg as vision_msg
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion
 
 from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcessClass
-
+from assembly_scene_publisher.py_modules.scene_errors import *
+from assembly_manager_interfaces.msg import RefFrameProperties
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
-
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 import time
 
-from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
 
 from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
                                                               RefFrameNotFoundError, 
@@ -243,87 +243,91 @@ class VisionSkillsNode(Node):
         return response
     
     def correct_frame(self, request:CorrectFrame.Request, response:CorrectFrame.Response):
-        self.pm_robot_utils.wait_for_initial_scene_update()
-        
-        if not self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
-            self._logger.error(f"Frame {request.frame_name} not found in the scene. Cannot correct the frame...")
+        try:
+            self.pm_robot_utils.wait_for_initial_scene_update()
+            
+            if not self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
+                raise RefFrameNotFoundError(f"Frame '{request.frame_name}' not found in the current assembly scene.")
+                return response
+
+            try:
+                _obj_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
+
+            except ComponentNotFoundError as e:
+                _obj_name = None
+
+            # self._logger.warn(f"Correcting frame: {request.frame_name}...")
+            # self._logger.warn(f"Object name: {_obj_name}")
+            # self._logger.warn(f"Frame name: {_frame_name}")
+
+            measure_frame_request = MeasureFrame.Request()
+            measure_frame_request.frame_name =request.frame_name
+
+            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
+                extention = '_sim'
+            else:
+                extention = ''
+
+            if _obj_name is None:
+                measure_frame_request.vision_process_file_name = f"Assembly_Manager/Frames/{request.frame_name}{extention}.json"
+            else:
+                measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{request.frame_name}{extention}.json"
+
+            response_em = MeasureFrame.Response()
+
+            self._logger.warn(f"Requesting measure frame for frame: {request.frame_name}...using process file: {measure_frame_request.vision_process_file_name}")
+            
+            if request.remeasure_after_correction == True:
+                iter = 2
+
+            else:
+                iter = 1
+
+            for _ in range(iter):
+                
+                result:MeasureFrame.Response = self.measure_frame(measure_frame_request, response_em)
+
+                response.correction_values = result.result_vector
+                
+                if not result.success:
+                    raise PmRobotError("Measurement for correction failed.")
+                
+                world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+
+                world_pose.transform.translation.x += result.result_vector.x
+                world_pose.transform.translation.y += result.result_vector.y
+                world_pose.transform.translation.z += result.result_vector.z
+
+                adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+                adapt_frame_request.frame_name = request.frame_name
+                adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+                adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+                adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+                adapt_frame_request.pose.orientation = world_pose.transform.rotation
+
+                if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
+                    raise PmRobotError("Service 'ModifyPoseAbsolut' not available.")
+                
+                result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
+                response.success = result_adapt.success
+
+                if not result_adapt.success:
+                    raise PmRobotError("Adapting frame pose failed.")
+                
+                threshold = 2*1e-6
+                if abs(result.result_vector.x)<threshold and abs(result.result_vector.y) < threshold and request.remeasure_after_correction == True and not _ == 1:
+                    self._logger.info(f"Correction has been smaler than {threshold*1e6} um. Remesuring will not be triggered!")
+                    return response
+            
+            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
+            properties.vision_frame_properties.has_been_measured = True
+            properties.vision_frame_properties.is_vision_frame = True
+            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
+                
+        except (RefFrameNotFoundError, PmRobotError) as e:
+            self._logger.error(str(e))
             response.success = False
             return response
-
-        try:
-            _obj_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
-
-        except ComponentNotFoundError as e:
-            _obj_name = None
-
-        # self._logger.warn(f"Correcting frame: {request.frame_name}...")
-        # self._logger.warn(f"Object name: {_obj_name}")
-        # self._logger.warn(f"Frame name: {_frame_name}")
-
-        measure_frame_request = MeasureFrame.Request()
-        measure_frame_request.frame_name =request.frame_name
-
-        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
-            extention = '_sim'
-        else:
-            extention = ''
-
-        if _obj_name is None:
-            measure_frame_request.vision_process_file_name = f"Assembly_Manager/Frames/{request.frame_name}{extention}.json"
-        else:
-            measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{request.frame_name}{extention}.json"
-
-        response_em = MeasureFrame.Response()
-
-        self._logger.warn(f"Requesting measure frame for frame: {request.frame_name}...using process file: {measure_frame_request.vision_process_file_name}")
-        
-        if request.remeasure_after_correction == True:
-            iter = 2
-
-        else:
-            iter = 1
-
-        for _ in range(iter):
-            
-            result:MeasureFrame.Response = self.measure_frame(measure_frame_request, response_em)
-
-            response.correction_values = result.result_vector
-            
-            if not result.success:
-                response.success = False
-                return response
-            
-            world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
-
-            world_pose.transform.translation.x += result.result_vector.x
-            world_pose.transform.translation.y += result.result_vector.y
-            world_pose.transform.translation.z += result.result_vector.z
-
-            adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
-            adapt_frame_request.frame_name = request.frame_name
-            adapt_frame_request.pose.position.x = world_pose.transform.translation.x
-            adapt_frame_request.pose.position.y = world_pose.transform.translation.y
-            adapt_frame_request.pose.position.z = world_pose.transform.translation.z
-            adapt_frame_request.pose.orientation = world_pose.transform.rotation
-
-            if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
-                self._logger.error("Service 'ModifyPoseAbsolut' not available...")
-                response.success= False
-                return response
-            
-            result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
-            response.success = result_adapt.success
-
-            if not result_adapt.success:
-                response.success = False
-                response.message = "Failed to adapt frame position."
-                self._logger.error(response.message)
-                return response
-            
-            threshold = 2*1e-6
-            if abs(result.result_vector.x)<threshold and abs(result.result_vector.y) < threshold and request.remeasure_after_correction == True and not _ == 1:
-                self._logger.info(f"Correction has been smaler than {threshold*1e6} um. Remesuring will not be triggered!")
-                return response
 
         return response
     
@@ -345,7 +349,7 @@ class VisionSkillsNode(Node):
             obj: ami_msg.Object
             for frame in obj.ref_frames:
                 frame: ami_msg.RefFrame
-                if not ('Vision' in frame.frame_name or 'vision' in frame.frame_name):
+                if not frame.properties.vision_frame_properties.is_vision_frame:
                     continue
                 VisionProcessClass.create_process_file(
                     f"Assembly_Manager/{obj.obj_name}", frame.frame_name, logger=self._logger
@@ -356,7 +360,7 @@ class VisionSkillsNode(Node):
 
         # Process reference frames in the scene
         for frame in msg.ref_frames_in_scene:
-            if not ('Vision' in frame.frame_name or 'vision' in frame.frame_name):
+            if not frame.properties.vision_frame_properties.is_vision_frame:
                 continue
             VisionProcessClass.create_process_file(
                 "Assembly_Manager/Frames", frame.frame_name, logger=self._logger
