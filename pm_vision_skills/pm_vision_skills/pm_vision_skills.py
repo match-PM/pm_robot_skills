@@ -61,11 +61,13 @@ class VisionSkillsNode(Node):
         if request.frame_name == '':
             self._logger.error("Frame name is empty...")
             response.success= False
+            response.message = "Frame name is empty!"
             return response
         
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'ExecuteVision' not available...")
             response.success= False
+            response.message = "Service 'ExecuteVision' not available!"
             return response
         
         self._logger.info("Service 'ExecuteVision' is available...")
@@ -87,13 +89,15 @@ class VisionSkillsNode(Node):
             vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
         else:
             response.success= False
-            self._logger.error("Gazebo mode is not supported for this operation...")
+            response.message = "Gazebo mode is not supported for this operation!"
+            self._logger.error(response.message)
             return response
 
         #if not self.pm_robot_utils.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
         if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
             self._logger.error("Service 'MoveCamToFrame' not available...")
             response.success= False
+            response.message = "Service 'MoveCamToFrame' not available!"
             return response
         
         #result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_tool_to_frame.call(move_request)
@@ -115,7 +119,8 @@ class VisionSkillsNode(Node):
 
             else:
                 response.success= False
-                self._logger.error("Gazebo mode is not supported for this operation...")
+                response.message = "Gazebo mode is not supported for this operation!"
+                self._logger.error(response.message)
                 return response
 
             move_request = MoveToFrame.Request()
@@ -125,14 +130,15 @@ class VisionSkillsNode(Node):
             if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
                 self._logger.error("Service 'MoveCamToFrame' not available...")
                 response.success= False
+                response.message = "Service 'MoveCamToFrame' not available!"
                 return response
             
             result_move_tool:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
 
-            # Cannot move to the frame
             if not result_move_tool.success:
                 self._logger.error("Error moving tool to frame...")
                 response.success= False
+                response.message = f"Failed to move tool to frame '{request.frame_name}'!"
                 return response
 
         # Measure the frame
@@ -142,6 +148,7 @@ class VisionSkillsNode(Node):
             if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
                 self._logger.error("Service 'ExecuteVision' not available...")
                 response.success= False
+                response.message = "Service 'ExecuteVision' not available!"
                 return response
             # vision_available = self.pm_robot_utils.check_available_client_execute_vision()
 
@@ -158,6 +165,7 @@ class VisionSkillsNode(Node):
             if not result.success:
                 self._logger.error("Vision process failed...")
                 response.success= False
+                response.message = "Vision process failed!"
                 return response
             
             detected_circles = result.vision_response.results.circles
@@ -222,11 +230,13 @@ class VisionSkillsNode(Node):
             if len(detected_points) == 0 and len(detected_circles) == 0:
                 self._logger.error("No points and circles detected...")
                 response.success= False
+                response.message = "No points and circles detected!"
                 return response
             
             if len(detected_points) > 1 or len(detected_circles) > 1:
                 self._logger.error("Multiple points or circles detected...")
                 response.success= False
+                response.message = "Multiple points or circles detected!"
                 return response
             
             result_vector.x = result_vector.x
@@ -327,6 +337,7 @@ class VisionSkillsNode(Node):
         except (RefFrameNotFoundError, PmRobotError) as e:
             self._logger.error(str(e))
             response.success = False
+            response.message = str(e)
             return response
 
         return response

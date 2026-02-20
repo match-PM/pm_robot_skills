@@ -254,17 +254,18 @@ class PmSkills(Node):
                     measure_request.use_iterative_sensing = True
 
                     if initial_approach:
-                        move_success = self.move_laser_to_frame(frame, z_offset=0.02)
+                        move_success, move_msg = self.move_laser_to_frame(frame, z_offset=0.02)
                         if not move_success:
                             self.logger.error(f"Moving laser to frame '{frame}' for initial approach failed!")
                             response.success = False
+                            response.message = f"Moving laser to frame '{frame}' for initial approach failed: {move_msg}"
                             return response
                         initial_approach = False
 
                     measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
                     if not measure_response.success:
-                        raise PmRobotError(f"Correcting frame '{frame} failed!")
+                        raise PmRobotError(f"Correcting frame '{frame}' failed!")
 
                 # calculating the angle difference
                 try:
@@ -276,6 +277,7 @@ class PmSkills(Node):
                 except ValueError as e:
                     self.logger.error(f"Error: {e}")
                     self.logger.error(f"Frame '{frame}' does not seem to exist.")
+                    raise PmRobotError(f"Frame '{frame}' does not seem to exist: {e}")
 
                 angles = R.from_quat([transform.rotation.x,
                                     transform.rotation.y,
@@ -327,10 +329,12 @@ class PmSkills(Node):
                 raise PmRobotError(f"Endmove relative failed!")
 
             response.success = True
+            response.message = "Iterative gonio right alignment completed successfully!"
 
         except PmRobotError as e:
             self.logger.error(f"Error occurred: {e}")
             response.success = False
+            response.message = str(e)
 
         return response
 
@@ -339,8 +343,9 @@ class PmSkills(Node):
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
         if not self.pm_robot_utils.client_align_gonio_left.wait_for_service(1):
-            self.logger.error(f"Client '{self.pm_robot_utils.client_align_gonio_left.srv_name} not available!")
+            self.logger.error(f"Client '{self.pm_robot_utils.client_align_gonio_left.srv_name}' not available!")
             response.success = False
+            response.message = f"Client '{self.pm_robot_utils.client_align_gonio_left.srv_name}' not available!"
             return response
 
         # the request never changes
@@ -364,18 +369,20 @@ class PmSkills(Node):
                 measure_request.use_iterative_sensing = True
 
                 if initial_approach:
-                    move_success = self.move_laser_to_frame(frame, z_offset=0.02)
+                    move_success, move_msg = self.move_laser_to_frame(frame, z_offset=0.02)
                     if not move_success:
                         self.logger.error(f"Moving laser to frame '{frame}' for initial approach failed!")
                         response.success = False
+                        response.message = f"Moving laser to frame '{frame}' for initial approach failed: {move_msg}"
                         return response
                     initial_approach = False
 
                 measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
                 if not measure_response.success:
-                    self.logger.error(f"Correcting frame '{frame} failed!")
+                    self.logger.error(f"Correcting frame '{frame}' failed!")
                     response.success = False
+                    response.message = f"Correcting frame '{frame}' failed!"
                     return response
                 
             # calculating the angle difference 
@@ -385,6 +392,9 @@ class PmSkills(Node):
             except ValueError as e:
                 self.logger.error(f"Error: {e}")
                 self.logger.error(f"Frame '{frame}' does not seem to exist.")
+                response.success = False
+                response.message = f"Frame '{frame}' does not seem to exist: {e}"
+                return response
 
             
             angles = R.from_quat([transform.rotation.x,
@@ -402,7 +412,9 @@ class PmSkills(Node):
             align_response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_left.call(align_request)
 
             if not align_response.success:
+                self.logger.error(f"Aligning goniometer left failed!")
                 response.success = False
+                response.message = "Aligning goniometer left failed!"
                 return response
             
             time.sleep(1)  # wait for the robot to settle
@@ -425,9 +437,11 @@ class PmSkills(Node):
         if not move_relative_response.success:
             self.logger.error(f"Endmove relative failed!")
             response.success = False
+            response.message = "Endmove relative failed!"
             return response
         
         response.success = True
+        response.message = "Iterative gonio left alignment completed successfully!"
 
         return response
 
@@ -456,33 +470,34 @@ class PmSkills(Node):
             self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
             
             algin_success = True
+            align_msg = ""
 
             if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name) and request.align_orientation:
-                algin_success = self.align_gonio_left(gripping_frame)
+                algin_success, align_msg = self.align_gonio_left(gripping_frame)
 
             elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name) and request.align_orientation:
-                algin_success = self.align_gonio_right(gripping_frame)
+                algin_success, align_msg = self.align_gonio_right(gripping_frame)
             
             else:
                 pass
 
             if not algin_success:
-                raise PmRobotError(f"Failed to align gonio for component '{request.component_name}'")
+                raise PmRobotError(f"Failed to align gonio for component '{request.component_name}': {align_msg}")
 
             #Offset
-            move_tool_to_part_offset_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
+            move_tool_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
 
             if not move_tool_to_part_offset_success:
-                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}' at offset distance!")
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}' at offset distance: {move_offset_msg}")
             
             should_move_up_at_error = True
 
             self.logger.info(f"Moving to grip sensing start position!")
 
-            move_tool_to_part_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_SENSING_START_OFFSET)
+            move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_SENSING_START_OFFSET)
 
             if not move_tool_to_part_success:
-                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}'!")
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}': {move_part_msg}")
 
 
             self.pm_robot_utils.set_gripper_component_collision(component_name=request.component_name, 
@@ -555,10 +570,10 @@ class PmSkills(Node):
 
         finally:
             if should_move_up_at_error:
-                move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
+                move_relatively_success, lift_msg = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
                 if not move_relatively_success:
                     response.success = False
-                    response.message = f"Failed to lift gripper after attaching component '{request.component_name}'"
+                    response.message = f"Failed to lift gripper after attaching component '{request.component_name}': {lift_msg}"
                     self.logger.error(response.message)
 
         return response
@@ -600,10 +615,10 @@ class PmSkills(Node):
         self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
 
         if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name):
-            algin_success = self.align_gonio_left(gripping_frame)
+            algin_success, align_msg = self.align_gonio_left(gripping_frame)
 
         elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name):
-            algin_success = self.align_gonio_right(gripping_frame)
+            algin_success, align_msg = self.align_gonio_right(gripping_frame)
         
         else:
             response.success = False
@@ -613,41 +628,41 @@ class PmSkills(Node):
         
         if not algin_success:
             response.success = False
-            response.message = f"Failed to align gonio for component '{request.component_name}'"
+            response.message = f"Failed to align gonio for component '{request.component_name}': {align_msg}"
             self.logger.error(response.message)
             return response
         
         #Offset
-        move_tool_to_part_offset_success = self.move_gripper_to_frame(gripping_frame, z_offset=self.RELEASE_LIFT_DISTANCE)
+        move_tool_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.RELEASE_LIFT_DISTANCE)
 
         if not move_tool_to_part_offset_success:
             response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}' at offset distance!"
+            response.message = f"Failed to move gripper to part '{request.component_name}' at offset distance: {move_offset_msg}"
             self.logger.error(response.message)
             return response
         
-        move_tool_to_part_success = self.move_gripper_to_frame(gripping_frame,z_offset=self.GRIPPING_OFFSET)
+        move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame,z_offset=self.GRIPPING_OFFSET)
 
         if not move_tool_to_part_success:
             response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}'!"
+            response.message = f"Failed to move gripper to part '{request.component_name}': {move_part_msg}"
             self.logger.error(response.message)
             return response
         
         attach_component_success = self.attach_component_to_gripper(request.component_name)
 
         if not attach_component_success:
-            move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
+            move_relatively_success, lift_msg = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
             response.success = False
             response.message = f"Failed to attach component '{request.component_name}' to gripper"
             self.logger.error(response.message)
             return response
         
-        move_relatively_success = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
+        move_relatively_success, lift_msg = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
 
         if not move_relatively_success:
             response.success = False
-            response.message = f"Failed to lift gripper after attaching component '{request.component_name}'"
+            response.message = f"Failed to lift gripper after attaching component '{request.component_name}': {lift_msg}"
             self.logger.error(response.message)
             return response
         
@@ -694,39 +709,40 @@ class PmSkills(Node):
             # Align gonio to the left or right depending on the target frame
 
             algin_success = True
+            align_msg = ""
 
             if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(target_component) and request.align_orientation:
-                algin_success = self.align_gonio_left(endeffector_override=placing_frame,
+                algin_success, align_msg = self.align_gonio_left(endeffector_override=placing_frame,
                                                         alignment_frame=assembly_frame)
 
             elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(target_component) and request.align_orientation:
-                algin_success = self.align_gonio_right(endeffector_override=placing_frame,
+                algin_success, align_msg = self.align_gonio_right(endeffector_override=placing_frame,
                                                         alignment_frame=assembly_frame)
 
             else:
                 pass
 
             if not algin_success:
-                raise PmRobotError(f"Failed to align gonio for target component '{target_component}'")
+                raise PmRobotError(f"Failed to align gonio for target component '{target_component}': {align_msg}")
             
             self.logger.warn("Endeffector override: " + assembly_frame)
             # Move component to the target frame with a z offset
-            move_component_to_part_offset_success = self.move_gripper_to_frame(placing_frame, 
+            move_component_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(placing_frame, 
                                                                                endeffector_override=assembly_frame, 
                                                                                z_offset=self.RELEASE_LIFT_DISTANCE)
 
             if not move_component_to_part_offset_success:
-                raise PmRobotError(f"Failed to move gripper to target part '{target_component}'")
+                raise PmRobotError(f"Failed to move gripper to target part '{target_component}': {move_offset_msg}")
 
             should_move_up_at_error = True
 
             # Move component to the target frame
-            move_component_to_part_success = self.move_gripper_to_frame(placing_frame, 
+            move_component_to_part_success, move_part_msg = self.move_gripper_to_frame(placing_frame, 
                                                                         endeffector_override=assembly_frame,
                                                                         z_offset=0.0)
             
             if not move_component_to_part_success:
-                raise PmRobotError(f"Failed to move gripper to target part '{target_component}'")
+                raise PmRobotError(f"Failed to move gripper to target part '{target_component}': {move_part_msg}")
             
             response.success = True
             response.message = f"Component '{gripped_component}' placed successfully!"
@@ -737,10 +753,10 @@ class PmSkills(Node):
                 AssemblyFrameNotFoundError,
                 TargetFrameNotFoundError) as e:
             if should_move_up_at_error:
-                move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
+                move_relatively_success, lift_msg = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
                 if not move_relatively_success:
                     response.success = False
-                    response.message = f"Failed to lift gripper after placing component '{gripped_component}'"
+                    response.message = f"Failed to lift gripper after placing component '{gripped_component}': {lift_msg}"
                     self.logger.error(response.message)
             response.success = False
             response.message = str(e)
@@ -833,9 +849,9 @@ class PmSkills(Node):
             if not vaccum_off_success:
                 raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
 
-            move_relatively_success = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
+            move_relatively_success, lift_msg = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
             if not move_relatively_success:
-                raise PmRobotError(f"Failed to lift gripper after releasing component '{gripped_component}'")
+                raise PmRobotError(f"Failed to lift gripper after releasing component '{gripped_component}': {lift_msg}")
 
             self.pm_robot_utils.set_gripper_component_collision(component_name=gripped_component, 
                                                     state=True)
@@ -849,7 +865,7 @@ class PmSkills(Node):
                 AssemblyFrameNotFoundError,
                 TargetFrameNotFoundError) as e:
 
-                response.message = f"Failed to lift gripper after placing component '{gripped_component}'"
+                response.message = str(e)
                 self.logger.error(response.message)
                 response.success = False
 
@@ -975,6 +991,7 @@ class PmSkills(Node):
         else:
             self.logger.warn("Invaild dispense Duration!")
             response.success = False
+            response.message = "Invalid dispense duration!"
             
         self.logger.info(f"Done {request.dispenser}")
         return response
@@ -1004,6 +1021,7 @@ class PmSkills(Node):
         else: 
             self.logger.warn('Invalid image display time!')
             response.success = False
+            # Note: ExecuteVision.srv does not have a message field
 
         if request.run_cross_validation:
             self.logger.info("Running cross validtation.")
@@ -1046,12 +1064,12 @@ class PmSkills(Node):
             self.logger.info("Simulation time is inactive!")
             self.sim_time = False
 
-    def lift_gripper_relative(self, distance:float)-> bool:
+    def lift_gripper_relative(self, distance:float)-> tuple[bool, str]:
         call_async = False
 
         if not self.move_robot_tool_relative.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/move_tool_relative' not available")
-            return False
+            return False, "Service '/pm_moveit_server/move_tool_relative' not available"
         
         req = pm_moveit_srv.MoveRelative.Request()
         req.translation.z = distance
@@ -1062,18 +1080,18 @@ class PmSkills(Node):
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
+                return False, f"Service call failed: {future.exception()}"
+            return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.MoveRelative.Response = self.move_robot_tool_relative.call(req)
-            return response.success
+            return response.success, response.message
         
-    def move_gripper_to_frame(self, frame_name:str, endeffector_override = None, z_offset=None)-> bool:
+    def move_gripper_to_frame(self, frame_name:str, endeffector_override = None, z_offset=None)-> tuple[bool, str]:
         call_async = False
 
         if not self.move_robot_tool_client.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/move_tool_to_frame' not available")
-            return False
+            return False, "Service '/pm_moveit_server/move_tool_to_frame' not available"
         
         req = pm_moveit_srv.MoveToFrame.Request()
         req.target_frame = frame_name
@@ -1091,13 +1109,13 @@ class PmSkills(Node):
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
+                return False, f"Service call failed: {future.exception()}"
+            return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(req)
-            return response.success
+            return response.success, response.message
 
-    def move_laser_to_frame(self, frame_name:str, z_offset: float=None)-> bool:
+    def move_laser_to_frame(self, frame_name:str, z_offset: float=None)-> tuple[bool, str]:
         """
         z_offset in m
         """
@@ -1105,7 +1123,7 @@ class PmSkills(Node):
 
         if not self.pm_robot_utils.client_move_robot_laser_to_frame.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/move_laser_to_frame' not available")
-            return False
+            return False, "Service '/pm_moveit_server/move_laser_to_frame' not available"
         
         req = pm_moveit_srv.MoveToFrame.Request()
         req.target_frame = frame_name
@@ -1119,24 +1137,24 @@ class PmSkills(Node):
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
+                return False, f"Service call failed: {future.exception()}"
+            return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(req)
-            return response.success
+            return response.success, response.message
     
       
     def measure_with_laser_callback(self, 
                                     request:pm_skill_srv.CorrectFrame.Request, 
                                     response:pm_skill_srv.CorrectFrame.Response):
         try:
-            move_laser_to_frame_success = self.move_laser_to_frame(request.frame_name)
+            move_laser_to_frame_success, move_msg = self.move_laser_to_frame(request.frame_name)
             
             offset = 0.0
             
             if not move_laser_to_frame_success:
                 response.success = False
-                response.message = f"Failed to move laser to frame '{request.frame_name}'"
+                response.message = f"Failed to move laser to frame '{request.frame_name}': {move_msg}"
                 self.logger.error(response.message)
                 return response
             
@@ -1156,6 +1174,8 @@ class PmSkills(Node):
                                                     
                     if not move_success:
                             response.success = False
+                            response.message = f"Failed to move up for iterative laser sensing on frame '{request.frame_name}'"
+                            self._logger.error(response.message)
                             return response
                     
                     step_inc = 0.4 # in mm
@@ -1169,7 +1189,8 @@ class PmSkills(Node):
                     
                     if x is None:
                         response.success = False
-                        self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
+                        response.message = f"Laser measurement not valid for frame '{request.frame_name}'! OUT OF RANGE"
+                        self._logger.warn(response.message)
                         return response
                     
                     offset = initial_z - final_z
@@ -1177,7 +1198,8 @@ class PmSkills(Node):
 
                 else:
                     response.success = False
-                    self._logger.warn(f"Laser measurement not valid! OUT OF RANGE")
+                    response.message = f"Laser measurement not valid for frame '{request.frame_name}'! OUT OF RANGE"
+                    self._logger.warn(response.message)
                     return response
 
                 self._logger.info(f"Valid value found!")      
@@ -1213,7 +1235,7 @@ class PmSkills(Node):
             response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
             
             if not response_mes.success:
-                raise PmRobotError("Measuring frame with laser failed!")
+                raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed!")
             
             world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
@@ -1230,6 +1252,7 @@ class PmSkills(Node):
                 if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
                     self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
                     response.success= False
+                    response.message = f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?..."
                     return response
                 
                 result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
@@ -1254,12 +1277,12 @@ class PmSkills(Node):
         
         tcp_name = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM  # we need to move the frame attached to the robot to the tcp. We use the move camera method for that
 
-        move_frame_to_confocal_bottom_success = self.pm_robot_utils.move_camera_top_to_frame(   frame_name = tcp_name,
+        move_frame_to_confocal_bottom_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(   frame_name = tcp_name,
                                                                                                 endeffector_override=request.frame_name)
         
         if not move_frame_to_confocal_bottom_success:
             response.success = False
-            response.message = f"Failed to move frame '{request.frame_name}' to confocal bottom!" 
+            response.message = f"Failed to move frame '{request.frame_name}' to confocal bottom: {move_msg}" 
             self.logger.error(response.message)
             return response
         
@@ -1267,7 +1290,8 @@ class PmSkills(Node):
 
         if not self.pm_robot_utils.check_confocal_bottom_measurement_in_range():
             response.success = False
-            self._logger.warn(f"Confocal bottom measurement not valid! OUT OF RANGE")
+            response.message = f"Confocal bottom measurement not valid for frame '{request.frame_name}'! OUT OF RANGE"
+            self._logger.warn(response.message)
             return response
         
         confocal_measurement = self.pm_robot_utils.get_confocal_bottom_measurement(unit="m")
@@ -1300,8 +1324,7 @@ class PmSkills(Node):
             #self._logger.warn(f"REs {str(response_mes)}")
 
             if not response_mes.success:
-                response.success = False
-                return response
+                raise PmRobotError(f"Measuring frame '{request.frame_name}' with confocal bottom failed!")
                     
             world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
@@ -1338,19 +1361,20 @@ class PmSkills(Node):
 
     def measure_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
 
-        move_confocal_top_to_frame_success = self.pm_robot_utils.move_confocal_top_to_frame(request.frame_name)
+        move_confocal_top_to_frame_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(request.frame_name)
         
         offset = 0.0
         
         if not move_confocal_top_to_frame_success:
             response.success = False
-            response.message = f"Failed to move laser to frame '{request.frame_name}'"
+            response.message = f"Failed to move laser to frame '{request.frame_name}': {move_msg}"
             self.logger.error(response.message)
             return response
         
         if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
             response.success = False
-            self._logger.warn(f"Confocal top measurement not valid! OUT OF RANGE")
+            response.message = f"Confocal top measurement not valid for frame '{request.frame_name}'! OUT OF RANGE"
+            self._logger.warn(response.message)
             return response
         
         confocal_measurement = self.pm_robot_utils.get_confocal_top_measurement(unit="m")
@@ -1382,7 +1406,7 @@ class PmSkills(Node):
             self._logger.warn(f"REs {str(response_mes)}")
 
             if not response_mes.success:
-                raise PmRobotError("Measuring frame with confocal top failed!")
+                raise PmRobotError(f"Measuring frame '{request.frame_name}' with confocal top failed!")
                     
             world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
@@ -1396,7 +1420,7 @@ class PmSkills(Node):
             adapt_frame_request.pose.orientation = world_pose.transform.rotation
             
             if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
-                raise PmRobotError
+                raise PmRobotError(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
                     
             result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
             
@@ -1460,12 +1484,12 @@ class PmSkills(Node):
             response:ami_srv.ChangeParentFrame.Response = self.attach_component.call(req)
             return response.success
 
-    def align_gonio_right(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> bool:
+    def align_gonio_right(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> tuple[bool, str]:
         call_async = False
 
         if not self.align_gonio_right_client.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/align_gonio_right' not available")
-            return False
+            return False, "Service '/pm_moveit_server/align_gonio_right' not available"
         
         req = pm_moveit_srv.AlignGonio.Request()
         req.target_frame = alignment_frame
@@ -1477,18 +1501,18 @@ class PmSkills(Node):
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
+                return False, f"Service call failed: {future.exception()}"
+            return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.align_gonio_right_client.call(req)
-            return response.success
+            return response.success, response.message
         
-    def align_gonio_left(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> bool:
+    def align_gonio_left(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> tuple[bool, str]:
         call_async = False
 
         if not self.align_gonio_left_client.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/align_gonio_left' not available")
-            return False
+            return False, "Service '/pm_moveit_server/align_gonio_left' not available"
         
         req = pm_moveit_srv.AlignGonio.Request()
         req.target_frame = alignment_frame
@@ -1500,11 +1524,11 @@ class PmSkills(Node):
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
-                return False
-            return future.result().success
+                return False, f"Service call failed: {future.exception()}"
+            return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.align_gonio_left_client.call(req)
-            return response.success
+            return response.success, response.message
             
 
 def main(args=None):

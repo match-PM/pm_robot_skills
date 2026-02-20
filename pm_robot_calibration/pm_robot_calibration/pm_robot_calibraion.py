@@ -745,12 +745,12 @@ class PmRobotCalibrationNode(Node):
             #rotations = [60, 40, 20, 0]
 
             # move gripper close to camera to calibration start position
-            move_to_start_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+            move_to_start_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                                 endeffector_override=self.pm_robot_utils.TCP_TOOL,
                                                                                 z_offset=0.05)
             
             if not move_to_start_success:
-                raise PmRobotError("Failed to move to start position...")
+                raise PmRobotError(f"Failed to move to start position: {move_msg}")
 
             # convert to rad
             rotations = [r * np.pi / 180.0 for r in rotations]
@@ -1040,16 +1040,16 @@ class PmRobotCalibrationNode(Node):
                 raise PmRobotError("Service 'ExecuteVision' not available...")
 
             frame_name = f'{unique_identifier}Vision_Dynamic'
-            move_success_offset = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name,
+            move_success_offset, move_offset_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name,
                                                                                             z_offset=0.05)
 
             if not move_success_offset:
-                raise PmRobotError(f"Could not move the camera to frame {frame_name}...")
+                raise PmRobotError(f"Could not move the camera to frame {frame_name}: {move_offset_msg}")
             
-            move_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name)
+            move_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name)
 
             if not move_success:
-                raise PmRobotError(f"Could not move the camera to frame {frame_name}...")
+                raise PmRobotError(f"Could not move the camera to frame {frame_name}: {move_msg}")
 
             # Measure the frame
             result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
@@ -1578,19 +1578,19 @@ class PmRobotCalibrationNode(Node):
         try:
             self._logger.warn(f"Starting calibration 'calibrate_confocal_top_xy_on_camera_bottom'...")
 
-            move_success = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+            move_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                           z_offset=0.05)
 
             if not move_success:
-                raise PmRobotError("Failed to move confocal top to frame")
+                raise PmRobotError(f"Failed to move confocal top to frame: {move_msg}")
             
             self.set_calibration_platelet_forward()
             
-            move_success = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+            move_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                           z_offset=0.002)
 
             if not move_success:
-                raise PmRobotError("Failed to move confocal top to frame")
+                raise PmRobotError(f"Failed to move confocal top to frame: {move_msg}")
             
             if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
                             
@@ -1967,12 +1967,12 @@ class PmRobotCalibrationNode(Node):
             if not self.pm_robot_utils.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
                 raise PmRobotError('Camera move service not available...')
             
-            move_success = self.pm_robot_utils.move_confocal_top_to_frame(frame_name=frame_name,
+            move_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name=frame_name,
                                                                           x_offset=x_offset,
                                                                           y_offset=y_offset)
 
             if not move_success:
-                raise PmRobotError("Failed to move laser to frame")
+                raise PmRobotError(f"Failed to move laser to frame: {move_msg}")
            
             if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
                 
@@ -2053,17 +2053,17 @@ class PmRobotCalibrationNode(Node):
         try:
             self._logger.warn(f"Starting calibration 'calibrate_calibration_cube_z_on_confocal_top'...")
 
-            move_confocal_success = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
+            move_confocal_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
                                                                                    z_offset=0.05)
             
             if not move_confocal_success:
-                raise PmRobotError(f"Moving confocal top to frame failed!")
+                raise PmRobotError(f"Moving confocal top to frame failed: {move_msg}")
 
-            move_confocal_success = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
+            move_confocal_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
                                                                                    z_offset=0.002)
 
             if not move_confocal_success:
-                raise PmRobotError(f"Moving confocal top to frame failed!")
+                raise PmRobotError(f"Moving confocal top to frame failed: {move_msg}")
 
             step_inc = 0.5
             x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_confocal_top_measurement,

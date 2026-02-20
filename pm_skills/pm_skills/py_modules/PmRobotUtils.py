@@ -797,13 +797,13 @@ class PmRobotUtils():
         if not response.success:
             raise PmRobotError(f"Failed to recalculate assembly instruction: {instruction_id}")
 
-    def move_confocal_top_to_frame(self, frame_name:str, z_offset=0.0, y_offset=0.0, x_offset=0.0)-> bool:
+    def move_confocal_top_to_frame(self, frame_name:str, z_offset=0.0, y_offset=0.0, x_offset=0.0)-> tuple[bool, str]:
         """
         Move the confocal top to the specified frame with the given offsets (in m).
         """
         if not self.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
             self._node._logger.error(f"Service '{self.client_move_robot_confocal_top_to_frame.srv_name}' not available")
-            return False
+            return False, f"Service '{self.client_move_robot_confocal_top_to_frame.srv_name}' not available"
         
         req = MoveToFrame.Request()
         req.target_frame = frame_name
@@ -815,20 +815,20 @@ class PmRobotUtils():
 
         response:MoveToFrame.Response = self.client_move_robot_confocal_top_to_frame.call(req)
 
-        return response.success
+        return response.success, response.message
     
     def move_camera_top_to_frame(self, frame_name:str, 
                                  z_offset:float = 0.0, 
                                  y_offset:float = 0.0,
                                  x_offset:float = 0.0,
-                                 endeffector_override: str = None)-> bool:
+                                 endeffector_override: str = None)-> tuple[bool, str]:
         """
         Move the camera top to the specified frame with the given offsets (in m).
         """
         
         if not self.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
             self._node._logger.error(f"Service '{self.client_move_robot_cam1_to_frame.srv_name}' not available")
-            return False
+            return False, f"Service '{self.client_move_robot_cam1_to_frame.srv_name}' not available"
         
         req = MoveToFrame.Request()
         req.target_frame = frame_name
@@ -843,7 +843,7 @@ class PmRobotUtils():
 
         response:MoveToFrame.Response = self.client_move_robot_cam1_to_frame.call(req)
         
-        return response.success
+        return response.success, response.message
     
     def create_ref_frame(self, ref_frame_request: ami_srv.CreateRefFrame.Request)->ami_srv.CreateRefFrame.Response:
         """
