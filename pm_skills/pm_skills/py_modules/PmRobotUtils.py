@@ -18,10 +18,14 @@ from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcess
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 
+import pm_skills_interfaces.srv as pm_skill_srv
+
 from std_msgs.msg import Float64MultiArray
 
 from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
-from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
+from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world, get_transform_for_frame
+from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
+
 import time
 
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -114,7 +118,7 @@ class PmRobotUtils():
 
         self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.client_turn_off_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
-
+        self.client_check_line_of_sight = self._node.create_client(ami_srv.CheckLineOfSight, '/assembly_manager/check_line_of_sight')
 
         self._open_protection_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Protection_Joint/MoveBackward')
         self._close_protection_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Protection_Joint/MoveForward')
@@ -126,8 +130,11 @@ class PmRobotUtils():
         self.client_turn_off_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOff')
 
         self.client_turn_on_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/Vacuum')
+        
         self.client_turn_off_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOff')
 
+        self.client_set_component_properties = self._node.create_client(ami_srv.SetComponentProperties, '/assembly_manager/set_component_properties')
+        
         self._current_force_sensor_data = Float64MultiArray()
 
         self.object_scene_un= UnInitializedScene()
@@ -213,21 +220,25 @@ class PmRobotUtils():
             time.sleep(0.5)
 
     def object_scene_callback(self, msg:ami_msg.ObjectScene)-> str:
-        self._node.get_logger().info("Object scene updated.")
+        #self._node.get_logger().info("Object scene updated.")
         self.object_scene_un.scene = msg
     
-    def set_force_sensor_bias(self)->bool:
+    def set_force_sensor_bias(self):
+        """
+        Set the force sensor bias. This should be done when the robot is in its zero position and no forces are acting on the sensor.
+        Returns:
+            None
+        Raises:
+            PmRobotError: If the service is not available or the request fails.
+        """
+
         if not self.client_set_force_sensor_bias.wait_for_service(1):
-            self._node.get_logger().error(f"Service {self.client_set_force_sensor_bias.srv_name} not available!")
-            return False
+            raise PmRobotError(f"Client '{self.client_set_force_sensor_bias.srv_name}' not available!")
+
         request = ForceSensorBias.Request() 
-
         request.bias = True
-
         response:ForceSensorBias.Response = self.client_set_force_sensor_bias.call(request)
         self._node.get_logger().info(f"Force Sensor Bias set!")
-
-        return True
 
     def get_cam_file_name_bottom(self)->str:
         mode = self.get_mode()
@@ -1012,7 +1023,7 @@ class PmRobotUtils():
         if not response.success:
             raise PmRobotError(f"Failed to extend dispenser: {response.message}")
 
-    def set_frame_properties(self, frame_name:str, properties:ami_srv.SetFrameProperties.Request):
+    def set_frame_properties(self, frame_name:str, properties:ami_srv.SetFrameProperties.Request)-> ami_srv.SetFrameProperties.Response:
         """
         Docstring for set_frame_properties
         
@@ -1032,9 +1043,183 @@ class PmRobotUtils():
 
         response:ami_srv.SetFrameProperties.Response = self.client_set_frame_properties.call(req)
 
-        if not response.success:
-            raise PmRobotError(f"Failed to set frame properties for frame: {frame_name}")
+        return response
+    
+    def set_component_properties(self, 
+                                 component_name:str, 
+                                 properties:ami_srv.SetComponentProperties.Request)-> ami_srv.SetComponentProperties.Response:
+        """
+        Docstring for set_component_properties
         
+        :param self: Description
+        :param component_name: Description
+        :type component_name: str
+        :param properties: Description
+        :type properties: ami_srv.SetComponentProperties.Request
+        raises PmRobotError: 
+        """
+        if not self.client_set_component_properties.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_set_component_properties.srv_name}' not available")
+        
+        req = ami_srv.SetComponentProperties.Request()
+        req.component_name = component_name
+        req.properties = properties
+
+        response:ami_srv.SetComponentProperties.Response = self.client_set_component_properties.call(req)
+
+        return response
+
+    def check_frame_mes(
+        self,
+        request: pm_skill_srv.CheckFrameMeasurable.Request,
+        offset_m: float,
+        move_client
+        ) -> pm_skill_srv.CheckFrameMeasurable.Response:
+
+        response = pm_skill_srv.CheckFrameMeasurable.Response()
+        try:
+            self.assembly_scene_analyzer.wait_for_initial_scene_update()
+
+            if not self.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
+                raise PmRobotError(f"Frame '{request.frame_name}' is not from the scene")
+
+            # ------------------------
+            # Move request
+            # ------------------------
+            move_request = MoveToFrame.Request()
+            move_request.target_frame = request.frame_name
+            move_request.execute_movement = False
+
+            if not move_client.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError(f"Service '{move_client.srv_name}' not available")
+
+            move_response: MoveToFrame.Response = move_client.call(move_request)
+
+            self._node.get_logger().error(f"Move response: {str(move_response)}"
+                                          )
+            if not move_response.success:
+                raise PmRobotError(f"Failed to move to frame '{request.frame_name}'")
+
+            # ------------------------
+            # Line of sight service
+            # ------------------------
+            if not self.client_check_line_of_sight.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError(
+                    f"Service '{self.client_check_line_of_sight.srv_name}' not available"
+                )
+
+            world_pose_target: TransformStamped = get_transform_for_frame_in_world(
+                request.frame_name,
+                self.tf_buffer,
+                self._node.get_logger()
+            )
+
+            # Apply laser offset
+            move_response.calculated_endeffector_pose.position.z += offset_m
+
+            line_of_sight_t = multiply_ros_transforms(
+                a=inverse_ros_transform(world_pose_target, output_type=Transform),
+                b=move_response.calculated_endeffector_pose,
+                output_type=Transform
+            )
+
+            line_of_sight_request = ami_srv.CheckLineOfSight.Request()
+            line_of_sight_request.frame_name = request.frame_name
+            line_of_sight_request.transform_from_frame = line_of_sight_t
+
+            check_response: ami_srv.CheckLineOfSight.Response = (
+                self.client_check_line_of_sight.call(line_of_sight_request)
+            )
+
+            response.success = check_response.success
+
+        except PmRobotError as e:
+            response.success = False
+            response.message = str(e)
+            self._node.get_logger().error(response.message)
+
+        return response
+    
+    def check_frame_mes_bot(
+        self,
+        request: pm_skill_srv.CheckFrameMeasurable.Request,
+        target_tcp_frame:str,
+        offset_m: float,
+        ) -> pm_skill_srv.CheckFrameMeasurable.Response:
+
+        response = pm_skill_srv.CheckFrameMeasurable.Response()
+        try:
+            self.assembly_scene_analyzer.wait_for_initial_scene_update()
+
+            if not self.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
+                raise PmRobotError(f"Frame '{request.frame_name}' is not from the scene")
+
+            # ------------------------
+            # Move request
+            # ------------------------
+            move_request = MoveToFrame.Request()
+            move_request.target_frame = target_tcp_frame
+            move_request.execute_movement = False
+            move_request.endeffector_frame_override = request.frame_name
+            
+            if not self.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError(f"Service '{self.client_move_robot_cam1_to_frame.srv_name}' not available")
+
+            move_response: MoveToFrame.Response = self.client_move_robot_cam1_to_frame.call(move_request)
+
+            if not move_response.success:
+                raise PmRobotError(f"Failed to move to frame '{request.frame_name}'")
+
+            # ------------------------
+            # Line of sight service
+            # ------------------------
+            if not self.client_check_line_of_sight.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError(
+                    f"Service '{self.client_check_line_of_sight.srv_name}' not available"
+                )
+
+            world_tcp_pose: TransformStamped = get_transform_for_frame_in_world(
+                target_tcp_frame,
+                self.tf_buffer,
+                self._node.get_logger()
+            )
+
+            world_tcp_pose.transform.translation.z -= offset_m
+
+            relative_transform: TransformStamped = get_transform_for_frame(frame_name=request.frame_name, 
+                                                                           parent_frame=PmRobotTcps.TCP_CAMERA_TOP.value,
+                                                                           tf_buffer=self.tf_buffer, 
+                                                                           logger=self._node.get_logger())
+
+            move_response.calculated_endeffector_pose.orientation = Quaternion()
+
+            result_transform = multiply_ros_transforms(move_response.calculated_endeffector_pose, 
+                                                       relative_transform, 
+                                                       output_type=Transform)
+
+            line_of_sight_t = multiply_ros_transforms(
+                a = inverse_ros_transform(result_transform, output_type=Transform),
+                b = world_tcp_pose,
+                output_type=Transform
+            )
+
+            line_of_sight_request = ami_srv.CheckLineOfSight.Request()
+            line_of_sight_request.frame_name = request.frame_name
+            line_of_sight_request.transform_from_frame = line_of_sight_t
+
+            check_response: ami_srv.CheckLineOfSight.Response = (
+                self.client_check_line_of_sight.call(line_of_sight_request)
+            )
+
+            response.success = check_response.success
+
+        except PmRobotError as e:
+            response.success = False
+            response.message = str(e)
+            self._node.get_logger().error(response.message)
+
+        return response
+    
     @staticmethod
     def _transform_to_dict(transform):
         ''' 

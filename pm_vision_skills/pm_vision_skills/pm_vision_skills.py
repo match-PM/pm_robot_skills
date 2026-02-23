@@ -9,6 +9,7 @@ from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTrans
 from pm_vision_interfaces.srv import ExecuteVision
 import pm_vision_interfaces.msg as vision_msg
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion
+import pm_skills_interfaces.srv as pm_skill_srv
 
 from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcessClass
 from assembly_scene_publisher.py_modules.scene_errors import *
@@ -37,6 +38,9 @@ class VisionSkillsNode(Node):
 
         self.srv_measure = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
         self.srv_correct = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
+
+        self.srv_check_frame_measureble_cam_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_top', self.check_frame_mes_cam_top, callback_group=self.callback_group)   
+        self.srv_check_frame_measureble_cam_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_bottom', self.check_frame_mes_cam_bottom, callback_group=self.callback_group)   
 
         #self.srv = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
         #self.srv = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
@@ -314,6 +318,7 @@ class VisionSkillsNode(Node):
                 adapt_frame_request.pose.position.y = world_pose.transform.translation.y
                 adapt_frame_request.pose.position.z = world_pose.transform.translation.z
                 adapt_frame_request.pose.orientation = world_pose.transform.rotation
+                adapt_frame_request.set_vision_measured = True
 
                 if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
                     raise PmRobotError("Service 'ModifyPoseAbsolut' not available.")
@@ -329,11 +334,6 @@ class VisionSkillsNode(Node):
                     self._logger.info(f"Correction has been smaler than {threshold*1e6} um. Remesuring will not be triggered!")
                     return response
             
-            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
-            properties.vision_frame_properties.has_been_measured = True
-            properties.vision_frame_properties.is_vision_frame = True
-            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
-                
         except (RefFrameNotFoundError, PmRobotError) as e:
             self._logger.error(str(e))
             response.success = False
@@ -355,34 +355,58 @@ class VisionSkillsNode(Node):
                 return
             self._logger.info("Processing updated object scene...")
 
-        # Process objects in the scene (both first-time and updated scenes)
-        for obj in msg.objects_in_scene:
-            obj: ami_msg.Object
-            for frame in obj.ref_frames:
-                frame: ami_msg.RefFrame
+        self.pm_robot_utils.object_scene_un.scene = msg
+        
+        try:
+            # Process objects in the scene (both first-time and updated scenes)
+            for obj in msg.objects_in_scene:
+                obj: ami_msg.Object
+                for frame in obj.ref_frames:
+                    frame: ami_msg.RefFrame
+                    if not frame.properties.vision_frame_properties.is_vision_frame:
+                        continue
+                    VisionProcessClass.create_process_file(
+                                f"Assembly_Manager/{obj.obj_name}", frame.frame_name, logger=self._logger
+                                )
+
+                    
+                    VisionProcessClass.create_process_file(
+                        f"Assembly_Manager/{obj.obj_name}", frame.frame_name+'_sim', logger=self._logger
+                    )                
+
+            # Process reference frames in the scene
+            for frame in msg.ref_frames_in_scene:
                 if not frame.properties.vision_frame_properties.is_vision_frame:
                     continue
                 VisionProcessClass.create_process_file(
-                    f"Assembly_Manager/{obj.obj_name}", frame.frame_name, logger=self._logger
+                    "Assembly_Manager/Frames", frame.frame_name, logger=self._logger
                 )
                 VisionProcessClass.create_process_file(
-                    f"Assembly_Manager/{obj.obj_name}", frame.frame_name+'_sim', logger=self._logger
-                )                
+                    "Assembly_Manager/Frames", frame.frame_name+'_sim', logger=self._logger
+                )
+        except Exception as e:
+            self._logger.error(f"Error auto creating vision process files: {str(e)}")
 
-        # Process reference frames in the scene
-        for frame in msg.ref_frames_in_scene:
-            if not frame.properties.vision_frame_properties.is_vision_frame:
-                continue
-            VisionProcessClass.create_process_file(
-                "Assembly_Manager/Frames", frame.frame_name, logger=self._logger
-            )
-            VisionProcessClass.create_process_file(
-                "Assembly_Manager/Frames", frame.frame_name+'_sim', logger=self._logger
-            )
 
-        # Update the stored object scene
-        self.pm_robot_utils.object_scene_un.scene = msg
-                               
+    def check_frame_mes_cam_top(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
+        CAMERA_TOP_OFFSET = 90*1e-3 # in m, distance from confocal top to laser point
+
+        res = self.pm_robot_utils.check_frame_mes(request = request,
+                                                        offset_m=CAMERA_TOP_OFFSET,
+                                                         move_client = self.pm_robot_utils.client_move_robot_cam1_to_frame)
+        response = res
+
+        return response
+
+    def check_frame_mes_cam_bottom(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
+        CAMERA_BOTTOM_OFFSET =40*1e-3 # in m, distance from confocal bottom to laser point
+
+        res = self.pm_robot_utils.check_frame_mes_bot(request = request,
+                                                        target_tcp_frame = self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+                                                        offset_m=CAMERA_BOTTOM_OFFSET)
+        response = res
+
+        return response
 
 def main(args=None):
     rclpy.init(args=args)

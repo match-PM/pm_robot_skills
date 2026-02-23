@@ -1,3 +1,4 @@
+from urllib import response
 import rclpy
 import copy
 import time
@@ -17,7 +18,6 @@ import assembly_manager_interfaces.msg as ami_msg
 import pm_moveit_interfaces.srv as pm_moveit_srv
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from assembly_scene_publisher.py_modules.scene_errors import *
-from assembly_manager_interfaces.msg import RefFrameProperties
 from pm_msgs.srv import EmptyWithSuccess
 from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerScene
 
@@ -37,6 +37,7 @@ from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundErr
                                                               AssemblyFrameNotFoundError)
 
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
+from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
 
 class PmSkills(Node):
     
@@ -90,6 +91,10 @@ class PmSkills(Node):
 
         self.srv_iter_align_gonio_right = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_right', self.iterative_align_gonio_right, callback_group=self.callback_group_me)
         self.srv_iter_align_gonio_left = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_left', self.iterative_align_gonio_left, callback_group=self.callback_group_me)
+
+        self.srv_check_frame_measureble_confocal_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_confocal_top', self.check_frame_mes_confocal_top, callback_group=self.callback_group_me)
+        self.srv_check_frame_measureble_laser_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_laser_top', self.check_frame_mes_laser_top, callback_group=self.callback_group_me)   
+        self.srv_check_frame_measureble_confocal_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_confocal_bottom', self.check_frame_mes_confocal_bottom, callback_group=self.callback_group_me)   
 
         # clienets
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
@@ -462,10 +467,10 @@ class PmSkills(Node):
             if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
                 raise PmRobotError("Gripper is not empty! Can not grip new component!")
 
+            if self.pm_robot_utils.assembly_scene_analyzer.check_component_assembled(request.component_name):
+                raise PmRobotError(f"Component '{request.component_name}' is already assembled! Can not grip it!")
+            
             gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame_of_component(request.component_name)
-
-            if gripping_frame is None:
-                raise PmRobotError(f"No gripping frame found for object '{request.component_name}'")
             
             self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
             
@@ -558,12 +563,20 @@ class PmSkills(Node):
             if not attach_component_success:
                 raise PmRobotError(f"Failed to attach component '{request.component_name}' to gripper")
             
+            properties = ami_msg.ComponentProperties()
+            properties.is_gripped = True
+
+            set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(request.component_name, properties)
+
+            if not set_properties_response.success:
+                raise PmRobotError(f"Failed to set component properties for component '{request.component_name}' after gripping!")  
+            
             response.success = True
 
             response.message = f"Component '{request.component_name}' gripped successfully!"
             self.logger.info(response.message)
 
-        except PmRobotError as e:
+        except (PmRobotError, ComponentNotFoundError, GrippingFrameNotFoundError) as e:
             response.success = False
             response.message = str(e)
             self.logger.error(response.message)
@@ -855,10 +868,19 @@ class PmSkills(Node):
 
             self.pm_robot_utils.set_gripper_component_collision(component_name=gripped_component, 
                                                     state=True)
-                
+            
+            properties = ami_msg.ComponentProperties()
+            properties.is_gripped = False
+            properties.is_assembled = True
+
+            set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(request.component_name, properties)
+
+            if not set_properties_response.success:
+                raise PmRobotError(f"Failed to set component properties for component '{request.component_name}' after gripping!")  
+            
             response.success = True
             response.message = f"Component '{gripped_component}' released successfully!"
-                    
+            
         except (PmRobotError, 
                 ComponentNotFoundError, 
                 RefFrameNotFoundError, 
@@ -1038,7 +1060,7 @@ class PmSkills(Node):
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
         for component in list_of_components:
             self.logger.error(f"ComponentTTTTT: {component}")
-            if not self.pm_robot_utils.assembly_scene_analyzer.is_component_assembled(component):
+            if not self.pm_robot_utils.assembly_scene_analyzer.check_component_assembled(component):
 
                 response = self.grip_component_callback(pm_skill_srv.GripComponent.Request(component_name=component), pm_skill_srv.GripComponent.Response())
                 if not response.success:
@@ -1247,6 +1269,7 @@ class PmSkills(Node):
             adapt_frame_request.pose.position.y = world_pose.transform.translation.y
             adapt_frame_request.pose.position.z = world_pose.transform.translation.z
             adapt_frame_request.pose.orientation = world_pose.transform.rotation
+            adapt_frame_request.set_laser_measured = True
             
             if frame_from_scene:
                 if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
@@ -1258,11 +1281,6 @@ class PmSkills(Node):
                 result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
             else:
                 result_adapt = ami_srv.ModifyPoseAbsolut.Response()
-
-            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
-            properties.laser_frame_properties.has_been_measured = True
-            properties.laser_frame_properties.is_laser_frame = True
-            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
 
             response.success = result_adapt.success
 
@@ -1336,7 +1354,8 @@ class PmSkills(Node):
             adapt_frame_request.pose.position.y = world_pose.transform.translation.y
             adapt_frame_request.pose.position.z = world_pose.transform.translation.z
             adapt_frame_request.pose.orientation = world_pose.transform.rotation
-            
+            adapt_frame_request.set_laser_measured = True
+
             if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
                 raise PmRobotError(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
 
@@ -1346,11 +1365,6 @@ class PmSkills(Node):
 
             response.success = result_adapt.success
             response.correction_values.z = response_mes.correction_values.z
-
-            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
-            properties.laser_frame_properties.has_been_measured = True
-            properties.laser_frame_properties.is_laser_frame = True
-            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
 
         except (PmRobotError,RefFrameNotFoundError) as e:
             response.success = False
@@ -1418,7 +1432,8 @@ class PmSkills(Node):
             adapt_frame_request.pose.position.y = world_pose.transform.translation.y
             adapt_frame_request.pose.position.z = world_pose.transform.translation.z
             adapt_frame_request.pose.orientation = world_pose.transform.rotation
-            
+            adapt_frame_request.set_laser_measured = True
+
             if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
                 raise PmRobotError(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
                     
@@ -1426,11 +1441,6 @@ class PmSkills(Node):
             
             response.success = result_adapt.success
             response.correction_values.z = response_mes.correction_values.z
-            
-            properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties_copy(request.frame_name)
-            properties.laser_frame_properties.has_been_measured = True
-            properties.laser_frame_properties.is_laser_frame = True
-            self.pm_robot_utils.set_frame_properties(frame_name=request.frame_name, properties=properties)
 
         except (PmRobotError,RefFrameNotFoundError) as e:
             response.success = False
@@ -1529,7 +1539,38 @@ class PmSkills(Node):
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.align_gonio_left_client.call(req)
             return response.success, response.message
-            
+    
+    def check_frame_mes_confocal_top(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
+
+        CONFOCAL_LASER_OFFSET = 8*1e-3 # in m, distance from confocal top to laser point
+
+        res = self.pm_robot_utils.check_frame_mes(request = request,
+                                                         offset_m=CONFOCAL_LASER_OFFSET,
+                                                         move_client= self.pm_robot_utils.client_move_robot_laser_to_frame)
+        response = res
+        
+        return response
+
+
+    def check_frame_mes_laser_top(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
+        CONFOCAL_LASER_OFFSET = 3*1e-3 # in m, distance from confocal top to laser point
+
+        res = self.pm_robot_utils.check_frame_mes(request = request,
+                                                         offset_m=CONFOCAL_LASER_OFFSET,
+                                                         move_client = self.pm_robot_utils.client_move_robot_laser_to_frame)
+        response = res
+
+        return response
+
+    def check_frame_mes_confocal_bottom(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
+        CONFOCAL_LASER_OFFSET =40*1e-3 # in m, distance from confocal top to laser point
+
+        res = self.pm_robot_utils.check_frame_mes_bot(request = request,
+                                                        target_tcp_frame = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM,
+                                                        offset_m=CONFOCAL_LASER_OFFSET)
+        response = res
+
+        return response
 
 def main(args=None):
     rclpy.init(args=args)
