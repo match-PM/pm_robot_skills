@@ -2,12 +2,16 @@ import rclpy
 import copy
 import time
 import random
+import threading
+import cv2
 
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 import math
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 import pm_skills_interfaces.srv as pm_skill_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, MoveRelative
 from example_interfaces.srv import SetBool, Trigger
@@ -112,8 +116,284 @@ class PmSkills(Node):
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-    
-    
+
+        ###### ROI Services and clients ######
+        self.sharpness_finder_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/find_sharpness", self.find_sharpness, callback_group=self.callback_group_me)
+        # send_xyz_trajectory_goal_relative
+    def go_to_top(self):
+        self.pm_robot_utils.get_current_joint_state('Z_Axis_Joint')
+        if(self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -10, time=2.0)):
+            self.go_to_top()
+        else:
+            self.logger.info("Reached top position.")
+            return True
+    def find_sharpness(self, request: pm_skill_srv.CorrectFrame.Request, response: pm_skill_srv.CorrectFrame.Response):
+        # z axis is gravity-aligned in this stack: negative delta moves robot up.
+        initial_step_size_m = 10.0e-3
+        min_step_size_m = 10.0e-6
+        step_reduction_factor = 0.5
+        step_size_m = initial_step_size_m
+        move_time_s = 2.0
+        max_iterations = 1000
+        min_improvement_abs = 1e-14
+        min_improvement_ratio = 0.002
+
+        self.logger.info("Finding the sharpness frame")
+  
+        try:
+            def _measure_sharpness() -> float:
+                image = self.getCamImage()
+                rois = self.roi_form_image(image)
+                return float(self.tenengrad_for_roi(rois))
+
+            best_sharpness = _measure_sharpness()
+            best_offset_z = 0.0
+
+            self.logger.info(f"Initial sharpness value: {best_sharpness}")
+
+            for _ in range(max_iterations):
+                min_improvement = max(min_improvement_abs, abs(best_sharpness) * min_improvement_ratio)
+                improved = False
+
+                for direction in (-1.0, 1.0):
+                    step = direction * step_size_m
+                    move_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(
+                        0.0, 0.0, step, time=move_time_s
+                    )
+                    if not move_success:
+                        self.logger.warning(f"Failed to move robot by {step} m for sharpness measurement.")
+                        continue
+
+                    current_sharpness = _measure_sharpness()
+                    self.logger.info(
+                        f"Sharpness value: {current_sharpness} (step={step_size_m} m, direction={direction})"
+                    )
+
+                    if current_sharpness > (best_sharpness + min_improvement):
+                        best_sharpness = current_sharpness
+                        best_offset_z += step
+                        improved = True
+                        break
+
+                    rollback_success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(
+                        0.0, 0.0, -step, time=move_time_s
+                    )
+                    if not rollback_success:
+                        response.success = False
+                        response.message = (
+                            "Sharpness search failed: could not rollback after non-improving step."
+                        )
+                        self.logger.error(response.message)
+                        return response
+
+                if improved:
+                    continue
+
+                if step_size_m <= min_step_size_m:
+                    response.success = True
+                    response.message = f"Found local maximum sharpness: {best_sharpness}"
+                    response.correction_values.x = 0.0
+                    response.correction_values.y = 0.0
+                    response.correction_values.z = best_offset_z
+                    return response
+
+                step_size_m = max(step_size_m * step_reduction_factor, min_step_size_m)
+                self.logger.info(f"Reducing sharpness search step size to {step_size_m} m")
+
+            response.success = False
+            response.message = (
+                f"Sharpness search did not converge in {max_iterations} iterations. "
+                f"Best sharpness: {best_sharpness}"
+            )
+        #     response.correction_values.x = 0.0
+        #     response.correction_values.y = 0.0
+        #     response.correction_values.z = best_offset_z
+            return response
+        except Exception as exc:
+            response.success = False
+            response.message = f"Sharpness search failed: {exc}"
+            self.logger.error(response.message)
+            return response
+
+    ##give the image from the camera topic
+    def getCamImage(self, topic: str = "/Image_Cam1_raw", timeout_sec: float = 5.0):
+        self.logger.info(f"Waiting for one image on '{topic}'")
+
+        bridge = CvBridge()
+        done = threading.Event()
+        result = {"image": None, "error": None}
+
+        def _image_callback(msg: Image):
+            if done.is_set():
+                return
+            try:
+                result["image"] = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            except Exception as exc:
+                result["error"] = f"Failed to convert image from '{topic}': {exc}"
+            finally:
+                done.set()
+
+        image_sub = self.create_subscription(
+            Image,
+            topic,
+            _image_callback,
+            10,
+            callback_group=self.callback_group_re,
+        )
+
+        try:
+            if not done.wait(timeout=timeout_sec):
+                raise TimeoutError(f"No image received on '{topic}' within {timeout_sec}s")
+            if result["error"] is not None:
+                raise RuntimeError(result["error"])
+            return result["image"]
+        finally:
+            self.destroy_subscription(image_sub)
+
+
+    # given an image, find the roi for sharpness calculation and return a list of rois
+    def roi_form_image(self,image):
+        hight_img, wight_img, _ = image.shape
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # Try multiple binary variants to make contour detection robust.
+        binaries = []
+        _, bin_inv_fixed = cv2.threshold(gray_blur, 50, 255, cv2.THRESH_BINARY_INV)
+        binaries.append(bin_inv_fixed)
+
+        _, bin_otsu_inv = cv2.threshold(
+            gray_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        binaries.append(bin_otsu_inv)
+
+        _, bin_otsu = cv2.threshold(
+            gray_blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        binaries.append(bin_otsu)
+
+        img_area = float(hight_img * wight_img)
+        c = None
+        best_area = -1.0
+        fallback_c = None
+        fallback_area = -1.0
+        for binary in binaries:
+            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                continue
+            for candidate in contours:
+                area = cv2.contourArea(candidate)
+                if area <= 0:
+                    continue
+
+                if area > fallback_area:
+                    fallback_area = area
+                    fallback_c = candidate
+
+                bx, by, bw, bh = cv2.boundingRect(candidate)
+                bbox_area = float(bw * bh)
+                touches_all_edges = (
+                    bx <= 0
+                    and by <= 0
+                    and (bx + bw) >= wight_img
+                    and (by + bh) >= hight_img
+                )
+                almost_full_frame = bbox_area >= (0.98 * img_area)
+                if touches_all_edges or almost_full_frame:
+                    continue
+
+                if area > best_area:
+                    best_area = area
+                    c = candidate
+
+        if c is None:
+            c = fallback_c
+
+        if c is None:
+            #use full image so sharpness can still be computed.
+            return [image]
+
+        x, y, w, h = cv2.boundingRect(c)
+
+        top_margin = int(w / 10)
+        right_margin = int(h / 10)
+        bottom_margin = int(w / 10)
+        left_margin = int(h / 10)
+
+        x1 = max(x - left_margin, 0)
+        y1 = max(y - top_margin, 0)
+        x2 = min(x + w + right_margin, wight_img - 1)
+        y2 = min(y + h + bottom_margin, hight_img - 1)
+
+        rois = []
+
+        touches_left = x <= 0
+        touches_top = y <= 0
+        touches_right = (x + w) >= wight_img
+        touches_bottom = (y + h) >= hight_img
+
+        # Add only the side ROIs that are not touching the image border.
+        if not touches_left:
+            roi2 = image[y1:y2, max(x - right_margin, 0):x + right_margin]
+            if roi2.size > 0:
+                rois.append(roi2)
+
+        if not touches_bottom:
+            roi5 = image[y + h - bottom_margin:y2, x + right_margin:x + w - left_margin]
+            if roi5.size > 0:
+                rois.append(roi5)
+
+        if not touches_top:
+            roi3 = image[y1:y + top_margin, x + right_margin:min(x + w + right_margin, wight_img)]
+            if roi3.size > 0:
+                rois.append(roi3)
+
+        if not touches_right:
+            roi4 = image[y + bottom_margin:y2, x + w - left_margin:x2]
+            if roi4.size > 0:
+                rois.append(roi4)
+
+        if not rois:
+            # Fallback so sharpness can still be computed when no side ROI exists.
+            return [image]
+
+        return rois
+
+    ##function to calculate the sharpness of the image in the roi and return the minimum sharpness value among the rois
+    def tenengrad_for_roi(self, rois):
+        sharp_values = []
+        for roi in rois:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+            tenengrad = np.sqrt(sobelx**2 + sobely**2)
+            sharp_values.append(np.mean(tenengrad))
+        value = 0.0
+        for sharp in sharp_values:
+            value += sharp
+        value /= len(sharp_values)
+        return value
+
+
+    # # function to gdetect the sharpness of the image in the roi and return the minimum sharpness value among the rois
+    def tenengrad_for_roi(self, rois):
+        sharp_values = []
+        for roi in rois:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+            tenengrad = np.sqrt(sobelx**2 + sobely**2)
+            sharp_values.append(np.mean(tenengrad))
+        value = 0.0
+        for sharp in sharp_values:
+            value += sharp
+        value /= len(sharp_values)
+        return value
+
+
+
+
+
     def force_sensing_move_callback(self, request:pm_msg_srv.GripperForceMove.Request, response:pm_msg_srv.GripperForceMove.Response):
 
         self.get_logger().info('Received ForceSensingMove request.')
