@@ -873,10 +873,10 @@ class PmSkills(Node):
             properties.is_gripped = False
             properties.is_assembled = True
 
-            set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(request.component_name, properties)
+            set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(gripped_component, properties)
 
             if not set_properties_response.success:
-                raise PmRobotError(f"Failed to set component properties for component '{request.component_name}' after gripping!")  
+                raise PmRobotError(f"Failed to set component properties for component '{gripped_component}' after releasing!")  
             
             response.success = True
             response.message = f"Component '{gripped_component}' released successfully!"
