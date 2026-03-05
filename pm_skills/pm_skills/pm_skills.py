@@ -1361,7 +1361,7 @@ class PmSkills(Node):
 
             result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
 
-            result_adapt = ami_srv.ModifyPoseAbsolut.Response()
+            # result_adapt = ami_srv.ModifyPoseAbsolut.Response()
 
             response.success = result_adapt.success
             response.correction_values.z = response_mes.correction_values.z
