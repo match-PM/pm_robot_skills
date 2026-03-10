@@ -267,7 +267,10 @@ class PmSkills(Node):
                             return response
                         initial_approach = False
 
-                    measure_response = self.correct_frame_with_laser(measure_request, measure_response)
+                    if request.confocal_laser:
+                        measure_response = self.correct_frame_with_confocal_top(measure_request, measure_response)
+                    else:
+                        measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
                     if not measure_response.success:
                         raise PmRobotError(f"Correcting frame '{frame}' failed!")
@@ -381,8 +384,11 @@ class PmSkills(Node):
                         response.message = f"Moving laser to frame '{frame}' for initial approach failed: {move_msg}"
                         return response
                     initial_approach = False
-
-                measure_response = self.correct_frame_with_laser(measure_request, measure_response)
+                
+                if request.confocal_laser:
+                    measure_response = self.correct_frame_with_confocal_top(measure_request, measure_response)
+                else:
+                    measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
                 if not measure_response.success:
                     self.logger.error(f"Correcting frame '{frame}' failed!")
