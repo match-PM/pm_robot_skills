@@ -29,7 +29,6 @@ import matplotlib.pyplot as plt
 # import get_package_share_directory
 from ament_index_python.packages import get_package_share_directory
 
-from ros_sequential_action_programmer.submodules.pm_robot_modules.widget_pm_robot_config import VacuumGripperConfig, ParallelGripperConfig
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
 import time
 import os
