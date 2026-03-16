@@ -48,8 +48,10 @@ class PmSkills(Node):
     RELEASE_LIFT_DISTANCE = 0.05
     GRIP_APPROACH_OFFSET = 0.05
     #GRIP_SENSING_START_OFFSET = 0.0005
-    GRIP_SENSING_START_OFFSET = 0.0005
-    GRIP_SENSING_END_OFFSET = -0.0005
+    GRIP_SENSING_START_OFFSET = 0.000500  # 500 um
+    GRIP_SENSING_END_OFFSET = -0.0005   # -500 um
+    GRIP_SENSING_END_ROUGH = 0.00020    # 80 um
+
     ASSEMBLY_FRAME_INDICATOR = 'assembly_frame_Description'
     TARGET_FRAME_INDICATOR = 'target_frame_Description'
     GRIPPING_OFFSET = 0.0001
@@ -124,7 +126,18 @@ class PmSkills(Node):
         self.get_logger().info('Received ForceSensingMove request.')
 
         self.pm_robot_utils.set_force_sensor_bias()
-        time.sleep(1)
+        time.sleep(2.0)
+        
+        # Check force sensor values after bias reset
+        current_force_values = self.pm_robot_utils._current_force_sensor_data.data
+        self.get_logger().info(f'Force sensor values after bias reset: {current_force_values}')
+        
+        force_thrshold = [abs(request.max_f_xyz[0]), abs(request.max_f_xyz[1]), abs(request.max_f_xyz[2])]
+
+        if abs(current_force_values[0]) > force_thrshold[0] or abs(current_force_values[1]) > force_thrshold[1] or abs(current_force_values[2]) > force_thrshold[2]:
+            response.error = f'Initial force values exceed threshold of {force_thrshold} N: X={current_force_values[0]}, Y={current_force_values[1]}, Z={current_force_values[2]}'
+            raise PmRobotError(f"{response.error}")
+        
         # Validate the request parameters. If any max force is > than 10, set threshold_exceeded to True and return failure.
         threshold_value = 10.0  # N
         max_step_size = 100  # micrometers
@@ -144,6 +157,7 @@ class PmSkills(Node):
             return response
 
         step_size = request.step_size*1e-6  # Convert step size from micrometers to meters
+
         # start_x = request.initial_joints_xyzt[0]
         # start_y = request.initial_joints_xyzt[1]
         # start_z = request.initial_joints_xyzt[2]
@@ -160,7 +174,7 @@ class PmSkills(Node):
 
         length_x = target_x - start_x
         length_y = target_y - start_y
-        length_z = target_z- start_z
+        length_z = target_z - start_z
         # Calculate the length of the vector from start to target position
         length = math.sqrt(length_x**2 + length_y**2 + length_z**2)
 
@@ -181,12 +195,12 @@ class PmSkills(Node):
         step_size_x = step_size * length_x / length
         step_size_y = step_size * length_y / length
         step_size_z = step_size * length_z / length
-
+        counter = 0
         while current_position != target_position:
             # Check if the force sensor data exceeds the thresholds
             for i, (force, max_force, axis) in enumerate(zip(self.pm_robot_utils._current_force_sensor_data.data, [abs(request.max_f_xyz[0]), abs(request.max_f_xyz[1]), abs(request.max_f_xyz[2])], ['X', 'Y', 'Z'])):
                 if abs(force) > max_force:
-                    self.get_logger().warn(f'Force in {axis} direction exceeded threshold: {force} > {max_force}')
+                    self.get_logger().warn(f'Force in {axis} direction exceeded threshold: {force:.3f} > {max_force:.3f}')
                     response.success = True
                     response.completed = True
                     return response
@@ -197,7 +211,7 @@ class PmSkills(Node):
                 current_position[2] + step_size_z,
             ]
 
-            self.get_logger().info(f'Moving to position: {step_target}')
+            self.get_logger().info(f'Moving to position: {step_target}. Step {counter}. With step size: {[round(step_size_x*1e6, 5), round(step_size_y*1e6, 5), round(step_size_z*1e6, 5)]} um')
 
             # Move to the next step position
             success = self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
@@ -225,6 +239,7 @@ class PmSkills(Node):
             if distance_to_target < step_size:
                 self.get_logger().info('Reached the target position.')
                 break
+            counter += 1
 
         self.get_logger().info('Target position reached. Nothing found.')
         response.success = True
@@ -501,7 +516,6 @@ class PmSkills(Node):
             if not move_tool_to_part_offset_success:
                 raise PmRobotError(f"Failed to move gripper to part '{request.component_name}' at offset distance: {move_offset_msg}")
             
-            should_move_up_at_error = True
 
             self.logger.info(f"Moving to grip sensing start position!")
 
@@ -510,9 +524,21 @@ class PmSkills(Node):
             if not move_tool_to_part_success:
                 raise PmRobotError(f"Failed to move gripper to part '{request.component_name}': {move_part_msg}")
 
+            should_move_up_at_error = True
 
             self.pm_robot_utils.set_gripper_component_collision(component_name=request.component_name, 
                                                                 state=False)
+            
+            # This is a position that is above the gripping point for a rough approach
+            planning_req_rough = pm_moveit_srv.MoveToFrame.Request()
+            planning_req_rough.target_frame = gripping_frame
+            planning_req_rough.execute_movement = False
+            planning_req_rough.translation.z = self.GRIP_SENSING_END_ROUGH
+
+            planning_res_rough:pm_moveit_srv.MoveToFrame.Response = self.move_robot_tool_client.call(planning_req_rough)
+
+            if planning_res_rough.success is False:
+                raise PmRobotError(f"Planning of END_ROUGH_OFFSET position failed!")
             
             # calculating the lower position
             planning_req = pm_moveit_srv.MoveToFrame.Request()
@@ -524,6 +550,27 @@ class PmSkills(Node):
             
             if planning_res.success is False:
                 raise PmRobotError(f"Planning of END_OFFSET position failed!")
+            
+
+            # Iterative approach  
+            force_sensing_rough_request = pm_msg_srv.GripperForceMove.Request()
+            force_sensing_rough_response = pm_msg_srv.GripperForceMove.Response()
+
+            force_sensing_rough_request.step_size = float(100) # in um
+            force_sensing_rough_request.target_joints_xyz = [planning_res_rough.joint_values[0], planning_res_rough.joint_values[1], planning_res_rough.joint_values[2]]
+            force_sensing_rough_request.max_f_xyz = [1.0, 1.0, 1.0] # in N
+
+            self.logger.info(f"Starting rough approach with force sensing (step size: {force_sensing_rough_request.step_size} um. Approaching gripping point at {self.GRIP_SENSING_END_ROUGH*1e6} um above it)")
+            
+            force_sensing_rough_response = self.force_sensing_move_callback(force_sensing_rough_request, force_sensing_rough_response)
+            
+            if not force_sensing_rough_response.success:
+                raise PmRobotError(f"Rough approach force sensing failed!")
+            
+            if force_sensing_rough_response.completed:
+                raise PmRobotError(f"Rough approach already exceeded the force limits! Make sure the gripping frame has been measured correctly!")
+            else:
+                self.logger.info(f"Rough approach completed without exceeding force limits, proceeding to fine approach.")
 
             self.logger.warn(f"joints {str(planning_res.joint_names)}")
             self.logger.warn(f"joints {str(planning_res.joint_values)}")
@@ -536,12 +583,17 @@ class PmSkills(Node):
             force_sensing_request.target_joints_xyz = [planning_res.joint_values[0], planning_res.joint_values[1], planning_res.joint_values[2]]
             force_sensing_request.max_f_xyz = [1.0, 1.0, 1.0] # in N
 
+            self.logger.info(f"Starting fine approach with force sensing (step size: {force_sensing_request.step_size} um. ")
+
             force_sensing_response = self.force_sensing_move_callback(force_sensing_request, force_sensing_response)
             
             if not force_sensing_response.success:
                 raise PmRobotError(f"Force sensing failed!")
             
-            # # enable vacuum
+            if not force_sensing_response.completed:
+                raise PmRobotError(f"Fine approach did not detect contact! Make sure the gripping frame has been measured correctly and that the force thresholds are set appropriately!")
+            
+            # enable vacuum
             enable_success = self.pm_robot_utils.set_tool_vaccum(True)
 
             if not enable_success:
@@ -1190,11 +1242,11 @@ class PmSkills(Node):
 
                 if request.use_iterative_sensing:
 
-                    time.sleep(1)
+                    # time.sleep(1)
 
                     initial_z = self.pm_robot_utils.get_current_joint_state(PmRobotUtils.Z_Axis_JOINT_NAME)
 
-                    time.sleep(1)
+                    # time.sleep(1)
 
                     # move up
                     self._logger.warn(f"MOVING UP")

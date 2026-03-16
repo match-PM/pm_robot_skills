@@ -382,26 +382,32 @@ class PmRobotUtils():
     def _check_for_valid_laser_measurement(self):
         # down movement
         if self.get_mode() == self.REAL_MODE:
-            values =[]
-            time.sleep(0.2)
-            time_sleep = 0.4
-            values.append(self.get_laser_measurement(unit='um'))
-            time.sleep(time_sleep)
-            values.append(self.get_laser_measurement(unit='um'))
-            time.sleep(time_sleep)
-            values.append(self.get_laser_measurement(unit='um'))
-            time.sleep(time_sleep)
-            values.append(self.get_laser_measurement(unit='um'))
-            time.sleep(time_sleep)
-            values.append(self.get_laser_measurement(unit='um'))
+            # values =[]
+            # time.sleep(0.2)
+            # time_sleep = 0.4
+            # values.append(self.get_laser_measurement(unit='um'))
+            # time.sleep(time_sleep)
+            # values.append(self.get_laser_measurement(unit='um'))
+            # time.sleep(time_sleep)
+            # values.append(self.get_laser_measurement(unit='um'))
+            # time.sleep(time_sleep)
+            # values.append(self.get_laser_measurement(unit='um'))
+            # time.sleep(time_sleep)
+            # values.append(self.get_laser_measurement(unit='um'))
 
-            if all(v == values[0] for v in values):
-                #self._node.get_logger().warn(f"Laser Measurement Valid - False")
-                return False
-            else:
-                #self._node.get_logger().warn(f"Laser Measurement Valid - True")
-                return True
+            # if all(v == values[0] for v in values):
+            #     #self._node.get_logger().warn(f"Laser Measurement Valid - False")
+            #     return False
+            # else:
+            #     #self._node.get_logger().warn(f"Laser Measurement Valid - True")
+            #     return True
             
+            if self.get_laser_measurement(unit='um') > -9998.99:
+                return True
+            else:
+                self._node.get_logger().warn(f"Laser Measurement Valid - False")
+                return False
+
         elif self.get_mode() == self.UNITY_MODE:
             value = self.get_laser_measurement(unit='um')
             if (value > 299.0) or(value  < -299.0):
