@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 import math
-from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
+from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform, Point
 import pm_skills_interfaces.srv as pm_skill_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, MoveRelative
 from example_interfaces.srv import SetBool, Trigger
@@ -20,9 +20,11 @@ from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTrans
 from assembly_scene_publisher.py_modules.scene_errors import *
 from pm_msgs.srv import EmptyWithSuccess
 from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerScene
-
+from pm_robot_modules.submodules.pm_dispense_path_generator import DispenseSequenceGenerator
+import re
+from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
+from typing import List, Tuple
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
-
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 from pm_msgs.srv import UVCuringSkill
@@ -87,6 +89,8 @@ class PmSkills(Node):
         
         self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
         self.correct_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_confocal_bottom", self.correct_frame_with_confocal_bottom, callback_group=self.callback_group_me)
+
+        self.disp_at_path_srv = self.create_service(pm_msg_srv.DispenseAtPath, self.get_name()+'/dispense_2k_at_path', self.dispense_2k_at_path, callback_group=self.callback_group_me)
 
         self.measure_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_top", self.measure_frame_with_confocal_top, callback_group=self.callback_group_me)
         self.correct_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_confocal_top", self.correct_frame_with_confocal_top, callback_group=self.callback_group_me)
@@ -1629,6 +1633,137 @@ class PmSkills(Node):
         response = res
 
         return response
+
+    def dispense_2k_at_path(self, request: pm_msg_srv.DispenseAtPath.Request, response:pm_msg_srv.DispenseAtPath.Response):
+
+        try:
+            disp_gen = DispenseSequenceGenerator()
+            disp_gen.load_from_file(request.sequence_file_path)
+
+            self.logger.info(f"Loaded dispense sequence from file '{request.sequence_file_path}'!")
+
+            if not (self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0)):
+                raise PmRobotError(f"Service '{self.pm_robot_utils.client_move_robot_cam1_to_frame.srv_name}' not available!")
+            
+            move_request = pm_moveit_srv.MoveToFrame.Request()
+            move_request.execute_movement = False
+            move_request.target_frame = request.target_frame_disp
+
+            response_move: pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+
+            start_joints = Point() 
+            start_joints.x = response_move.joint_values[0]
+            start_joints.y = response_move.joint_values[1]
+            start_joints.z = response_move.joint_values[2]
+
+            transform = self.tf_buffer.lookup_transform("world", request.target_frame_disp, rclpy.time.Time())
+            
+            start_pose = Pose()
+            start_pose.position.x = transform.transform.translation.x
+            start_pose.position.y = transform.transform.translation.y
+            start_pose.position.z = transform.transform.translation.z
+            start_pose.orientation = transform.transform.rotation
+
+            g_code = disp_gen.generate_g_code(start_pose=start_pose,
+                                            start_joint_values=start_joints)
+            
+            self._test_gcode(g_code, start_frame=request.target_frame_disp)
+
+
+            self.logger.info(f"Generated G-code:\n{g_code}")
+            response.success = True     
+
+        except (PmRobotError,
+            LookupException,
+            ConnectivityException,
+            ExtrapolationException) as e: 
+            response.success = False
+            response.message = f"Error during dispensing at path: {e}"
+            self.logger.error(response.message)
+
+        finally:
+            
+            success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0,0,-0.05,time=0.5) # move up after dispensing to be safe
+            if not success:
+                response.message = response.message + f"Failed to move up after dispensing! Please check the robot state!"
+                self.logger.error(response.message)
+                response.success = False
+
+        return response
+
+    def _test_gcode(self, g_code: str, start_frame:str):
+
+        def extract_xyzf_from_gcode_meters(gcode: str) -> List[Tuple[float, float, float, float]]:
+            """
+            Extract X, Y, Z coordinates + speed (F) from G-code and convert to meters.
+
+            Special handling:
+                - G30: dip → go to position, then return to previous position
+
+            Returns:
+                List of tuples (x, y, z, speed)
+                - position in meters
+                - speed unchanged
+            """
+
+            # Capture G-code + X Y Z + optional F
+            pattern = r"(G\d+).*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)\s+Z([-+]?\d*\.?\d+)(?:\s+F([-+]?\d*\.?\d+))?"
+            
+            matches = re.findall(pattern, gcode)
+
+            result = []
+            last_point: Optional[Tuple[float, float, float]] = None
+            last_speed: float = 0.0
+
+            for cmd, x, y, z, f in matches:
+                point = (
+                    float(x) * 0.001,
+                    float(y) * 0.001,
+                    float(z) * 0.001
+                )
+
+                speed = float(f) if f else last_speed
+
+                if cmd == "G30":
+                    # Move to dip position
+                    result.append((point[0], point[1], point[2], speed))
+
+                    # Return to previous position
+                    if last_point is not None:
+                        result.append((last_point[0], last_point[1], last_point[2], last_speed))
+
+                else:
+                    result.append((point[0], point[1], point[2], speed))
+                    last_point = point
+                    last_speed = speed
+
+            return result
+    
+        move_off_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=start_frame,
+                                                                        z_offset=0.01)
+        
+        if not move_off_success:
+            raise PmRobotError(f"Failed to move off surface for g-code testing on frame '{start_frame}'")
+        
+        move_succes = self.pm_robot_utils.move_camera_top_to_frame(frame_name=start_frame)
+
+        if not move_succes:
+            raise PmRobotError(f"Failed to move to start frame '{start_frame}' for g-code testing")
+
+        coords = extract_xyzf_from_gcode_meters(g_code)
+
+        for x, y, z, f in coords:
+            if f <= 0:
+                self.logger.warn(f"Non-positive speed {f} in G-code, using default speed 0.01 m/s")
+                f = 10
+
+            # convert mm/s to time
+            speed_mm_s = 10 
+            time = speed_mm_s/f
+            self.logger.info(f"Moving to X:{x}, Y:{y}, Z:{z} from frame '{start_frame}'")
+            move_success = self.pm_robot_utils.send_xyz_trajectory_goal_absolut(x, y, z, time=time)
+            if not move_success:
+                raise PmRobotError(f"Failed to move to X:{x}, Y:{y}, Z:{z} relative to frame '{start_frame}' during g-code testing")
 
 def main(args=None):
     rclpy.init(args=args)
