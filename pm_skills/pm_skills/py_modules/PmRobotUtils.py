@@ -5,7 +5,7 @@ import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
-from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
+import pm_skills_interfaces.srv as skills_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame, AlignGonio, MoveRelative
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision

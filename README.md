@@ -95,34 +95,34 @@ This will start the following nodes:
 
 #### Laser-Based Measurements and Corrections
 
-- **`/pm_skills/measure_with_laser`** (`CorrectFrame`)
+- **`/pm_skills/measure_with_laser`** (`CorrectFrameLaser`)
   - Measures frame position using laser sensor
   - Parameters: frame_name (str), use_iterative_sensing (bool), remeasure_after_correction (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
 
-- **`/pm_skills/correct_frame_with_laser`** (`CorrectFrame`)
+- **`/pm_skills/correct_frame_with_laser`** (`CorrectFrameLaser`)
   - Corrects frame position based on laser measurement
   - Parameters: frame_name (str), use_iterative_sensing (bool), remeasure_after_correction (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
 
 #### Confocal Microscope Measurements
 
-- **`/pm_skills/measure_frame_with_confocal_bottom`** (`CorrectFrame`)
+- **`/pm_skills/measure_frame_with_confocal_bottom`** (`CorrectFrameLaser`)
   - Measures frame using bottom confocal microscope
   - Parameters: frame_name (str), use_iterative_sensing (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
 
-- **`/pm_skills/correct_frame_with_confocal_bottom`** (`CorrectFrame`)
+- **`/pm_skills/correct_frame_with_confocal_bottom`** (`CorrectFrameLaser`)
   - Corrects frame based on bottom confocal measurement
   - Parameters: frame_name (str), use_iterative_sensing (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
 
-- **`/pm_skills/measure_frame_with_confocal_top`** (`CorrectFrame`)
+- **`/pm_skills/measure_frame_with_confocal_top`** (`CorrectFrameLaser`)
   - Measures frame using top confocal microscope
   - Parameters: frame_name (str), use_iterative_sensing (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
 
-- **`/pm_skills/correct_frame_with_confocal_top`** (`CorrectFrame`)
+- **`/pm_skills/correct_frame_with_confocal_top`** (`CorrectFrameLaser`)
   - Corrects frame based on top confocal measurement
   - Parameters: frame_name (str), use_iterative_sensing (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
@@ -165,12 +165,12 @@ This will start the following nodes:
 
 #### Vision-Based Measurements
 
-- **`/pm_skills/vision_measure_frame`** (`MeasureFrame`)
+- **`/pm_skills/vision_measure_frame`** (`MeasureFrameVision`)
   - Measures frame position using camera vision
   - Parameters: frame_name (str), vision_process_file_name (str)
   - Returns: success (bool), message (str), correction_values (Vector3)
 
-- **`/pm_skills/vision_correct_frame`** (`CorrectFrame`)
+- **`/pm_skills/vision_correct_frame`** (`CorrectFrameVision`)
   - Corrects frame based on vision measurement
   - Parameters: frame_name (str), use_iterative_sensing (bool)
   - Returns: success (bool), message (str), correction_values (Vector3)
@@ -249,7 +249,8 @@ pm_robot_skills/
 │   ├── srv/
 │   │   ├── GripComponent.srv
 │   │   ├── PlaceComponent.srv
-│   │   ├── CorrectFrame.srv
+│   │   ├── CorrectFrameVision.srv
+│   │   ├── CorrectFrameLaser.srv
 │   │   ├── IterativeGonioAlign.srv
 │   │   ├── CheckFrameMeasurable.srv
 │   │   └── ... (other service definitions)

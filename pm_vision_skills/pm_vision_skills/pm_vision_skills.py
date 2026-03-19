@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
-from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
+import pm_skills_interfaces.srv as skills_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision
@@ -36,14 +36,11 @@ class VisionSkillsNode(Node):
 
         self._logger.info(f"Node '{self.get_name()}' started...")
 
-        self.srv_measure = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
-        self.srv_correct = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
+        self.srv_measure = self.create_service(skills_srv.MeasureFrameVision, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
+        self.srv_correct = self.create_service(skills_srv.CorrectFrameVision, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
 
-        self.srv_check_frame_measureble_cam_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_top', self.check_frame_mes_cam_top, callback_group=self.callback_group)   
-        self.srv_check_frame_measureble_cam_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_bottom', self.check_frame_mes_cam_bottom, callback_group=self.callback_group)   
-
-        #self.srv = self.create_service(MeasureFrame, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
-        #self.srv = self.create_service(CorrectFrame, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
+        self.srv_check_frame_measureble_cam_top = self.create_service(skills_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_top', self.check_frame_mes_cam_top, callback_group=self.callback_group)   
+        self.srv_check_frame_measureble_cam_bottom = self.create_service(skills_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_bottom', self.check_frame_mes_cam_bottom, callback_group=self.callback_group)   
     
         self.tf_buffer = Buffer()
         
@@ -55,11 +52,29 @@ class VisionSkillsNode(Node):
         self.pm_robot_utils.start_object_scene_subscribtion()   
 
 
-    def measure_frame(self, request:MeasureFrame.Request, response:MeasureFrame.Response):
+    def measure_frame(self, 
+                      request:skills_srv.MeasureFrameVision.Request, 
+                      response:skills_srv.MeasureFrameVision.Response):
+        
+        # get compenent id if possible
+        comp_id = None
+
+        try:
+            component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
+            component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
+            comp_id = component.uuid
+        except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+            message = str(e)
+            raise PmRobotError(message)
 
         vision_request = ExecuteVision.Request()
         vision_request.process_filename = request.vision_process_file_name
-        vision_request.process_uid = request.frame_name
+
+        if comp_id is not None:
+            vision_request.process_uid = f"Component ID: {comp_id}, Frame: {request.frame_name}"
+        else:
+            vision_request.process_uid = f"Frame: {request.frame_name}"
+
         vision_request.image_display_time = 15
 
         if request.frame_name == '':
@@ -69,9 +84,9 @@ class VisionSkillsNode(Node):
             return response
         
         if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
-            self._logger.error("Service 'ExecuteVision' not available...")
             response.success= False
             response.message = "Service 'ExecuteVision' not available!"
+            self._logger.error(f"{response.message}")
             return response
         
         self._logger.info("Service 'ExecuteVision' is available...")
@@ -166,6 +181,8 @@ class VisionSkillsNode(Node):
             
             result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
 
+            response.vision_response = result.vision_response
+
             if not result.success:
                 self._logger.error("Vision process failed...")
                 response.success= False
@@ -256,7 +273,9 @@ class VisionSkillsNode(Node):
        
         return response
     
-    def correct_frame(self, request:CorrectFrame.Request, response:CorrectFrame.Response):
+    def correct_frame(self, 
+                      request:skills_srv.CorrectFrameVision.Request, 
+                      response:skills_srv.CorrectFrameVision.Response):
         try:
             self.pm_robot_utils.wait_for_initial_scene_update()
             
@@ -274,7 +293,7 @@ class VisionSkillsNode(Node):
             # self._logger.warn(f"Object name: {_obj_name}")
             # self._logger.warn(f"Frame name: {_frame_name}")
 
-            measure_frame_request = MeasureFrame.Request()
+            measure_frame_request = skills_srv.MeasureFrameVision.Request()
             measure_frame_request.frame_name =request.frame_name
 
             if self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
@@ -287,7 +306,7 @@ class VisionSkillsNode(Node):
             else:
                 measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{request.frame_name}{extention}.json"
 
-            response_em = MeasureFrame.Response()
+            response_em = skills_srv.MeasureFrameVision.Response()
 
             self._logger.warn(f"Requesting measure frame for frame: {request.frame_name}...using process file: {measure_frame_request.vision_process_file_name}")
             
@@ -299,10 +318,11 @@ class VisionSkillsNode(Node):
 
             for _ in range(iter):
                 
-                result:MeasureFrame.Response = self.measure_frame(measure_frame_request, response_em)
+                result:skills_srv.MeasureFrameVision.Response = self.measure_frame(measure_frame_request, response_em)
 
                 response.correction_values = result.result_vector
-                
+                response.vision_response = result.vision_response
+
                 if not result.success:
                     raise PmRobotError("Measurement for correction failed.")
                 

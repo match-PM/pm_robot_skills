@@ -83,17 +83,17 @@ class PmSkills(Node):
         #self.confocal_laser_service = self.create_service(pm_skill_srv.ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
         #self.vision_service = self.create_service(pm_skill_srv.ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
 
-        self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
-        self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
+        self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
+        self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
         self.force_sensing_move_srv = self.create_service(pm_msg_srv.GripperForceMove, self.get_name()+'/gripper_force_sensing', self.force_sensing_move_callback, callback_group=self.callback_group_me)
         
-        self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
-        self.correct_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_confocal_bottom", self.correct_frame_with_confocal_bottom, callback_group=self.callback_group_me)
+        self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
+        self.correct_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_confocal_bottom", self.correct_frame_with_confocal_bottom, callback_group=self.callback_group_me)
 
         self.disp_at_path_srv = self.create_service(pm_msg_srv.DispenseAtPath, self.get_name()+'/dispense_2k_at_path', self.dispense_2k_at_path, callback_group=self.callback_group_me)
 
-        self.measure_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/measure_frame_with_confocal_top", self.measure_frame_with_confocal_top, callback_group=self.callback_group_me)
-        self.correct_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrame, "pm_skills/correct_frame_with_confocal_top", self.correct_frame_with_confocal_top, callback_group=self.callback_group_me)
+        self.measure_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_frame_with_confocal_top", self.measure_frame_with_confocal_top, callback_group=self.callback_group_me)
+        self.correct_frame_with_confocal_top_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_confocal_top", self.correct_frame_with_confocal_top, callback_group=self.callback_group_me)
 
         self.srv_iter_align_gonio_right = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_right', self.iterative_align_gonio_right, callback_group=self.callback_group_me)
         self.srv_iter_align_gonio_left = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_left', self.iterative_align_gonio_left, callback_group=self.callback_group_me)
@@ -272,8 +272,8 @@ class PmSkills(Node):
             
                 for frame in request.frames_to_measure:
                     self.logger.info(f"Measuring frame '{frame}'")
-                    measure_request = pm_skill_srv.CorrectFrame.Request()
-                    measure_response = pm_skill_srv.CorrectFrame.Response()
+                    measure_request = pm_skill_srv.CorrectFrameLaser.Request()
+                    measure_response = pm_skill_srv.CorrectFrameLaser.Response()
                     measure_request.frame_name = frame
                     measure_request.use_iterative_sensing = True
 
@@ -390,8 +390,8 @@ class PmSkills(Node):
 
             for frame in request.frames_to_measure:
                 self.logger.info(f"Measuring frame '{frame}'")
-                measure_request = pm_skill_srv.CorrectFrame.Request()
-                measure_response = pm_skill_srv.CorrectFrame.Response()
+                measure_request = pm_skill_srv.CorrectFrameLaser.Request()
+                measure_response = pm_skill_srv.CorrectFrameLaser.Response()
                 measure_request.frame_name = frame
                 measure_request.use_iterative_sensing = True
 
@@ -1229,8 +1229,8 @@ class PmSkills(Node):
     
       
     def measure_with_laser_callback(self, 
-                                    request:pm_skill_srv.CorrectFrame.Request, 
-                                    response:pm_skill_srv.CorrectFrame.Response):
+                                    request:pm_skill_srv.CorrectFrameLaser.Request, 
+                                    response:pm_skill_srv.CorrectFrameLaser.Response):
         try:
             move_laser_to_frame_success, move_msg = self.move_laser_to_frame(request.frame_name)
             
@@ -1303,20 +1303,20 @@ class PmSkills(Node):
 
         return response
 
-    def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+    def correct_frame_with_laser(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
         try:
             self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
             frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
 
-            measure_frame_request = pm_skill_srv.CorrectFrame.Request()
-            measure_frame_response = pm_skill_srv.CorrectFrame.Response()
+            measure_frame_request = pm_skill_srv.CorrectFrameLaser.Request()
+            measure_frame_response = pm_skill_srv.CorrectFrameLaser.Response()
             
             measure_frame_request.frame_name = request.frame_name
             measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
             measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
             
-            response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
+            response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
             
             if not response_mes.success:
                 raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed!")
@@ -1353,7 +1353,7 @@ class PmSkills(Node):
 
         return response
     
-    def measure_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+    def measure_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
         
         tcp_name = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM  # we need to move the frame attached to the robot to the tcp. We use the move camera method for that
 
@@ -1384,7 +1384,7 @@ class PmSkills(Node):
 
         return response
 
-    def correct_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+    def correct_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
         
         try:
             self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
@@ -1392,14 +1392,14 @@ class PmSkills(Node):
             if not(self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)):
                 raise RefFrameNotFoundError(f"Frame '{request.frame_name}' is not from assembly scene!")
 
-            measure_frame_request = pm_skill_srv.CorrectFrame.Request()
-            measure_frame_response = pm_skill_srv.CorrectFrame.Response()
+            measure_frame_request = pm_skill_srv.CorrectFrameLaser.Request()
+            measure_frame_response = pm_skill_srv.CorrectFrameLaser.Response()
             
             measure_frame_request.frame_name = request.frame_name
             measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
             measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
             
-            response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
+            response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
             
             #self._logger.warn(f"REs {str(response_mes)}")
 
@@ -1435,7 +1435,7 @@ class PmSkills(Node):
 
         return response
 
-    def measure_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+    def measure_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
 
         move_confocal_top_to_frame_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(request.frame_name)
         
@@ -1462,7 +1462,7 @@ class PmSkills(Node):
         response.message = f"Measurement: {confocal_measurement}"
         return response
 
-    def correct_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrame.Request, response:pm_skill_srv.CorrectFrame.Response):
+    def correct_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
 
         try:
             self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
@@ -1470,14 +1470,14 @@ class PmSkills(Node):
             if not self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
                 raise RefFrameNotFoundError(f"Frame '{request.frame_name}' is not from assembly scene!")
 
-            measure_frame_request = pm_skill_srv.CorrectFrame.Request()
-            measure_frame_response = pm_skill_srv.CorrectFrame.Response()
+            measure_frame_request = pm_skill_srv.CorrectFrameLaser.Request()
+            measure_frame_response = pm_skill_srv.CorrectFrameLaser.Response()
             
             measure_frame_request.frame_name = request.frame_name
             measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
             measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
             
-            response_mes:pm_skill_srv.CorrectFrame.Response = self.measure_frame_with_confocal_top(measure_frame_request, measure_frame_response)
+            response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_frame_with_confocal_top(measure_frame_request, measure_frame_response)
             
             self._logger.warn(f"REs {str(response_mes)}")
 

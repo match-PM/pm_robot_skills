@@ -13,6 +13,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(pm_vision_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ConfocalLaser.srv"
@@ -21,11 +22,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/VacuumGripper.srv"
   "srv/GripComponent.srv"
   "srv/PlaceComponent.srv"
-  "srv/MeasureFrame.srv"
-  "srv/CorrectFrame.srv"
+  "srv/MeasureFrameVision.srv"
+  "srv/MeasureFrameLaser.srv"
+  "srv/CorrectFrameVision.srv"
+  "srv/CorrectFrameLaser.srv"
   "srv/IterativeGonioAlign.srv"
   "srv/CheckFrameMeasurable.srv"
-  DEPENDENCIES geometry_msgs 
+  DEPENDENCIES geometry_msgs pm_vision_interfaces
 )
 
 if(BUILD_TESTING)

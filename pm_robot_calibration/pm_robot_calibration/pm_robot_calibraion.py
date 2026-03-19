@@ -6,7 +6,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
-from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
+import pm_skills_interfaces.srv as skills_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision, CalibrateAngle, CalibratePixelPerUm
@@ -91,16 +91,14 @@ class PmRobotCalibrationNode(Node):
         self.gripper_frames_spawned = False
         # clients
         self.client_spawn_frames = self.create_client(SpawnFramesFromDescription, '/assembly_manager/spawn_frames_from_description')
-        self.client_measure_frame_cam = self.create_client(MeasureFrame, '/pm_skills/vision_measure_frame')
-        self.client_correct_frame_vision = self.create_client(CorrectFrame, '/pm_skills/vision_correct_frame')
+        self.client_measure_frame_cam = self.create_client(skills_srv.MeasureFrameVision, '/pm_skills/vision_measure_frame')
+        self.client_correct_frame_vision = self.create_client(skills_srv.CorrectFrameVision, '/pm_skills/vision_correct_frame')
         self.client_modify_pose_from_frame = self.create_client(ami_srv.ModifyPoseFromFrame, '/assembly_manager/modify_frame_from_frame')
         self.client_calibrate_camera_pixel = self.create_client(CalibratePixelPerUm, '/pm_vision_manager/SetCameraPixelPerUm')
         self.client_calibrate_camera_angle = self.create_client(CalibrateAngle, '/pm_vision_manager/SetCameraAngle')
-        self.client_correct_frame_confocal_bottom = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_confocal_bottom')
-        self.client_correct_frame_with_laser = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_laser')
-        self.client_correct_frame_with_confocal_top = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_confocal_top')
-
-        #self.client_correct_frame_confocal_bottom = self.create_client(CorrectFrame, '/pm_skills/measure_frame_with_confocal_bottom')
+        self.client_correct_frame_confocal_bottom = self.create_client(skills_srv.CorrectFrameLaser, '/pm_skills/correct_frame_with_confocal_bottom')
+        self.client_correct_frame_with_laser = self.create_client(skills_srv.CorrectFrameLaser, '/pm_skills/correct_frame_with_laser')
+        self.client_correct_frame_with_confocal_top = self.create_client(skills_srv.CorrectFrameLaser, '/pm_skills/correct_frame_with_confocal_top')
 
         self.client_move_calibration_target_forward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveForward')
         self.client_move_calibration_target_backward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveBackward')
@@ -2141,9 +2139,9 @@ class PmRobotCalibrationNode(Node):
             self._logger.error('Vision measure frame service not available...')
             return False, None
         
-        request = MeasureFrame.Request()
+        request = skills_srv.MeasureFrameVision.Request()
         request.frame_name = frame_id
-        response:MeasureFrame.Response = self.client_measure_frame_cam.call(request)
+        response:skills_srv.MeasureFrameVision.Response = self.client_measure_frame_cam.call(request)
         
         return response.success, response.result_vector
     
@@ -2153,9 +2151,9 @@ class PmRobotCalibrationNode(Node):
             self._logger.error('Vision correct frame service not available...')
             return False
         
-        request = CorrectFrame.Request()
+        request = skills_srv.CorrectFrameVision.Request()
         request.frame_name = frame_id
-        response:CorrectFrame.Response = self.client_correct_frame_vision.call(request)
+        response:skills_srv.CorrectFrameVision.Response = self.client_correct_frame_vision.call(request)
         
         return response.success
     
@@ -2166,9 +2164,9 @@ class PmRobotCalibrationNode(Node):
             self._logger.error(f"Client '{self.client_correct_frame_confocal_bottom.srv_name}' not available...")
             return False
         
-        request = CorrectFrame.Request()
+        request = skills_srv.CorrectFrameLaser.Request()
         request.frame_name = frame_id
-        response:CorrectFrame.Response = self.client_correct_frame_confocal_bottom.call(request)
+        response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_confocal_bottom.call(request)
         
         return response.success
     
