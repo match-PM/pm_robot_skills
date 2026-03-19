@@ -23,7 +23,7 @@ from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerSce
 from pm_robot_modules.submodules.pm_dispense_path_generator import DispenseSequenceGenerator
 import re
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 from scipy.spatial.transform import Rotation as R
 import numpy as np
