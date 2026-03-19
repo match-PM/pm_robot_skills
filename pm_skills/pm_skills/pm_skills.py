@@ -1234,6 +1234,20 @@ class PmSkills(Node):
         try:
             move_laser_to_frame_success, move_msg = self.move_laser_to_frame(request.frame_name)
             
+            # get compenent id if possible
+            comp_id = "None"
+            component_name = "Not a component frame"
+            try:
+                component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
+                component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
+                comp_id = component.uuid
+            except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+                message = str(e)
+                raise PmRobotError(message)
+
+            response.component_name = component_name
+            response.component_uuid = comp_id
+
             offset = 0.0
             
             if not move_laser_to_frame_success:
@@ -1318,6 +1332,9 @@ class PmSkills(Node):
             
             response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
             
+            response.component_name = response_mes.component_name
+            response.component_uuid = response_mes.component_uuid
+
             if not response_mes.success:
                 raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed!")
             
@@ -1356,6 +1373,20 @@ class PmSkills(Node):
     def measure_frame_with_confocal_bottom(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
         
         tcp_name = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM  # we need to move the frame attached to the robot to the tcp. We use the move camera method for that
+
+        # get compenent id if possible
+        comp_id = "None"
+        component_name = "Not a component frame"
+        try:
+            component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
+            component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
+            comp_id = component.uuid
+        except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+            message = str(e)
+            raise PmRobotError(message)
+
+        response.component_name = component_name
+        response.component_uuid = comp_id
 
         move_frame_to_confocal_bottom_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(   frame_name = tcp_name,
                                                                                                 endeffector_override=request.frame_name)
@@ -1401,6 +1432,9 @@ class PmSkills(Node):
             
             response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_frame_with_confocal_bottom(measure_frame_request, measure_frame_response)
             
+            response.component_name = response_mes.component_name
+            response.component_uuid = response_mes.component_uuid
+
             #self._logger.warn(f"REs {str(response_mes)}")
 
             if not response_mes.success:
@@ -1438,7 +1472,20 @@ class PmSkills(Node):
     def measure_frame_with_confocal_top(self, request:pm_skill_srv.CorrectFrameLaser.Request, response:pm_skill_srv.CorrectFrameLaser.Response):
 
         move_confocal_top_to_frame_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(request.frame_name)
-        
+
+        comp_id = "None"
+        component_name = "Not a component frame"
+        try:
+            component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
+            component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
+            comp_id = component.uuid
+        except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+            message = str(e)
+            raise PmRobotError(message)
+
+        response.component_name = component_name
+        response.component_uuid = comp_id
+
         offset = 0.0
         
         if not move_confocal_top_to_frame_success:
@@ -1478,6 +1525,9 @@ class PmSkills(Node):
             measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
             
             response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_frame_with_confocal_top(measure_frame_request, measure_frame_response)
+            
+            response.component_name = response_mes.component_name
+            response.component_uuid = response_mes.component_uuid
             
             self._logger.warn(f"REs {str(response_mes)}")
 

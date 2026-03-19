@@ -57,23 +57,29 @@ class VisionSkillsNode(Node):
                       response:skills_srv.MeasureFrameVision.Response):
         
         # get compenent id if possible
-        comp_id = None
-
+        comp_id = "None"
+        component_name = "Not a component frame"
+        is_from_component = False
         try:
             component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
             component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
             comp_id = component.uuid
+            is_from_component = True
         except (ComponentNotFoundError, RefFrameNotFoundError) as e:
             message = str(e)
             raise PmRobotError(message)
 
+        response.component_name = component_name
+        response.component_uuid = comp_id
+
         vision_request = ExecuteVision.Request()
         vision_request.process_filename = request.vision_process_file_name
 
-        if comp_id is not None:
+        if is_from_component:
             vision_request.process_uid = f"Component ID: {comp_id}, Frame: {request.frame_name}"
         else:
             vision_request.process_uid = f"Frame: {request.frame_name}"
+
 
         vision_request.image_display_time = 15
 
@@ -322,7 +328,8 @@ class VisionSkillsNode(Node):
 
                 response.correction_values = result.result_vector
                 response.vision_response = result.vision_response
-
+                response.component_name = result.component_name
+                response.component_uuid = result.component_uuid
                 if not result.success:
                     raise PmRobotError("Measurement for correction failed.")
                 
