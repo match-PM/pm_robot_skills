@@ -555,29 +555,30 @@ class PmSkills(Node):
             if planning_res.success is False:
                 raise PmRobotError(f"Planning of END_OFFSET position failed!")
             
-
+            if not self.pm_robot_utils.is_unity_running():
             # Iterative approach  
-            force_sensing_rough_request = pm_msg_srv.GripperForceMove.Request()
-            force_sensing_rough_response = pm_msg_srv.GripperForceMove.Response()
+                force_sensing_rough_request = pm_msg_srv.GripperForceMove.Request()
+                force_sensing_rough_response = pm_msg_srv.GripperForceMove.Response()
 
-            force_sensing_rough_request.step_size = float(100) # in um
-            force_sensing_rough_request.target_joints_xyz = [planning_res_rough.joint_values[0], planning_res_rough.joint_values[1], planning_res_rough.joint_values[2]]
-            force_sensing_rough_request.max_f_xyz = [1.0, 1.0, 1.0] # in N
+                force_sensing_rough_request.step_size = float(100) # in um
+                force_sensing_rough_request.target_joints_xyz = [planning_res_rough.joint_values[0], planning_res_rough.joint_values[1], planning_res_rough.joint_values[2]]
+                force_sensing_rough_request.max_f_xyz = [1.0, 1.0, 1.0] # in N
 
-            self.logger.info(f"Starting rough approach with force sensing (step size: {force_sensing_rough_request.step_size} um. Approaching gripping point at {self.GRIP_SENSING_END_ROUGH*1e6} um above it)")
-            
-            force_sensing_rough_response = self.force_sensing_move_callback(force_sensing_rough_request, force_sensing_rough_response)
-            
-            if not force_sensing_rough_response.success:
-                raise PmRobotError(f"Rough approach force sensing failed!")
-            
-            if force_sensing_rough_response.completed:
-                raise PmRobotError(f"Rough approach already exceeded the force limits! Make sure the gripping frame has been measured correctly!")
-            else:
-                self.logger.info(f"Rough approach completed without exceeding force limits, proceeding to fine approach.")
+                self.logger.info(f"Starting rough approach with force sensing (step size: {force_sensing_rough_request.step_size} um. Approaching gripping point at {self.GRIP_SENSING_END_ROUGH*1e6} um above it)")
+                
+                force_sensing_rough_response = self.force_sensing_move_callback(force_sensing_rough_request, force_sensing_rough_response)
+                
+                if not force_sensing_rough_response.success:
+                    raise PmRobotError(f"Rough approach force sensing failed!")
+                
+                if force_sensing_rough_response.completed:
+                    raise PmRobotError(f"Rough approach already exceeded the force limits! Make sure the gripping frame has been measured correctly!")
+                else:
+                    self.logger.info(f"Rough approach completed without exceeding force limits, proceeding to fine approach.")
 
-            self.logger.warn(f"joints {str(planning_res.joint_names)}")
-            self.logger.warn(f"joints {str(planning_res.joint_values)}")
+                self.logger.warn(f"joints {str(planning_res.joint_names)}")
+                self.logger.warn(f"joints {str(planning_res.joint_values)}")
+
 
             # Iterative approach  
             force_sensing_request = pm_msg_srv.GripperForceMove.Request()
