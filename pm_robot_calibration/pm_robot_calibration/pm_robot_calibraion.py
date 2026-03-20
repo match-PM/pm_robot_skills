@@ -6,7 +6,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
-from pm_skills_interfaces.srv import MeasureFrame, CorrectFrame
+import pm_skills_interfaces.srv as skills_srv
 from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision, CalibrateAngle, CalibratePixelPerUm
@@ -29,7 +29,6 @@ import matplotlib.pyplot as plt
 # import get_package_share_directory
 from ament_index_python.packages import get_package_share_directory
 
-from ros_sequential_action_programmer.submodules.pm_robot_modules.widget_pm_robot_config import VacuumGripperConfig, ParallelGripperConfig
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
 import time
 import os
@@ -92,16 +91,14 @@ class PmRobotCalibrationNode(Node):
         self.gripper_frames_spawned = False
         # clients
         self.client_spawn_frames = self.create_client(SpawnFramesFromDescription, '/assembly_manager/spawn_frames_from_description')
-        self.client_measure_frame_cam = self.create_client(MeasureFrame, '/pm_skills/vision_measure_frame')
-        self.client_correct_frame_vision = self.create_client(CorrectFrame, '/pm_skills/vision_correct_frame')
+        self.client_measure_frame_cam = self.create_client(skills_srv.MeasureFrameVision, '/pm_skills/vision_measure_frame')
+        self.client_correct_frame_vision = self.create_client(skills_srv.CorrectFrameVision, '/pm_skills/vision_correct_frame')
         self.client_modify_pose_from_frame = self.create_client(ami_srv.ModifyPoseFromFrame, '/assembly_manager/modify_frame_from_frame')
         self.client_calibrate_camera_pixel = self.create_client(CalibratePixelPerUm, '/pm_vision_manager/SetCameraPixelPerUm')
         self.client_calibrate_camera_angle = self.create_client(CalibrateAngle, '/pm_vision_manager/SetCameraAngle')
-        self.client_correct_frame_confocal_bottom = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_confocal_bottom')
-        self.client_correct_frame_with_laser = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_laser')
-        self.client_correct_frame_with_confocal_top = self.create_client(CorrectFrame, '/pm_skills/correct_frame_with_confocal_top')
-
-        #self.client_correct_frame_confocal_bottom = self.create_client(CorrectFrame, '/pm_skills/measure_frame_with_confocal_bottom')
+        self.client_correct_frame_confocal_bottom = self.create_client(skills_srv.CorrectFrameLaser, '/pm_skills/correct_frame_with_confocal_bottom')
+        self.client_correct_frame_with_laser = self.create_client(skills_srv.CorrectFrameLaser, '/pm_skills/correct_frame_with_laser')
+        self.client_correct_frame_with_confocal_top = self.create_client(skills_srv.CorrectFrameLaser, '/pm_skills/correct_frame_with_confocal_top')
 
         self.client_move_calibration_target_forward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveForward')
         self.client_move_calibration_target_backward = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/Camera_Calibration_Platelet_Joint/MoveBackward')
@@ -745,12 +742,12 @@ class PmRobotCalibrationNode(Node):
             #rotations = [60, 40, 20, 0]
 
             # move gripper close to camera to calibration start position
-            move_to_start_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+            move_to_start_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                                 endeffector_override=self.pm_robot_utils.TCP_TOOL,
                                                                                 z_offset=0.05)
             
             if not move_to_start_success:
-                raise PmRobotError("Failed to move to start position...")
+                raise PmRobotError(f"Failed to move to start position: {move_msg}")
 
             # convert to rad
             rotations = [r * np.pi / 180.0 for r in rotations]
@@ -1040,16 +1037,16 @@ class PmRobotCalibrationNode(Node):
                 raise PmRobotError("Service 'ExecuteVision' not available...")
 
             frame_name = f'{unique_identifier}Vision_Dynamic'
-            move_success_offset = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name,
+            move_success_offset, move_offset_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name,
                                                                                             z_offset=0.05)
 
             if not move_success_offset:
-                raise PmRobotError(f"Could not move the camera to frame {frame_name}...")
+                raise PmRobotError(f"Could not move the camera to frame {frame_name}: {move_offset_msg}")
             
-            move_success = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name)
+            move_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=frame_name)
 
             if not move_success:
-                raise PmRobotError(f"Could not move the camera to frame {frame_name}...")
+                raise PmRobotError(f"Could not move the camera to frame {frame_name}: {move_msg}")
 
             # Measure the frame
             result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
@@ -1578,19 +1575,19 @@ class PmRobotCalibrationNode(Node):
         try:
             self._logger.warn(f"Starting calibration 'calibrate_confocal_top_xy_on_camera_bottom'...")
 
-            move_success = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+            move_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                           z_offset=0.05)
 
             if not move_success:
-                raise PmRobotError("Failed to move confocal top to frame")
+                raise PmRobotError(f"Failed to move confocal top to frame: {move_msg}")
             
             self.set_calibration_platelet_forward()
             
-            move_success = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+            move_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                           z_offset=0.002)
 
             if not move_success:
-                raise PmRobotError("Failed to move confocal top to frame")
+                raise PmRobotError(f"Failed to move confocal top to frame: {move_msg}")
             
             if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
                             
@@ -1967,12 +1964,12 @@ class PmRobotCalibrationNode(Node):
             if not self.pm_robot_utils.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
                 raise PmRobotError('Camera move service not available...')
             
-            move_success = self.pm_robot_utils.move_confocal_top_to_frame(frame_name=frame_name,
+            move_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name=frame_name,
                                                                           x_offset=x_offset,
                                                                           y_offset=y_offset)
 
             if not move_success:
-                raise PmRobotError("Failed to move laser to frame")
+                raise PmRobotError(f"Failed to move laser to frame: {move_msg}")
            
             if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
                 
@@ -2053,17 +2050,17 @@ class PmRobotCalibrationNode(Node):
         try:
             self._logger.warn(f"Starting calibration 'calibrate_calibration_cube_z_on_confocal_top'...")
 
-            move_confocal_success = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
+            move_confocal_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
                                                                                    z_offset=0.05)
             
             if not move_confocal_success:
-                raise PmRobotError(f"Moving confocal top to frame failed!")
+                raise PmRobotError(f"Moving confocal top to frame failed: {move_msg}")
 
-            move_confocal_success = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
+            move_confocal_success, move_msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name='Calibration_Cube_Bottom',
                                                                                    z_offset=0.002)
 
             if not move_confocal_success:
-                raise PmRobotError(f"Moving confocal top to frame failed!")
+                raise PmRobotError(f"Moving confocal top to frame failed: {move_msg}")
 
             step_inc = 0.5
             x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_confocal_top_measurement,
@@ -2142,9 +2139,9 @@ class PmRobotCalibrationNode(Node):
             self._logger.error('Vision measure frame service not available...')
             return False, None
         
-        request = MeasureFrame.Request()
+        request = skills_srv.MeasureFrameVision.Request()
         request.frame_name = frame_id
-        response:MeasureFrame.Response = self.client_measure_frame_cam.call(request)
+        response:skills_srv.MeasureFrameVision.Response = self.client_measure_frame_cam.call(request)
         
         return response.success, response.result_vector
     
@@ -2154,9 +2151,9 @@ class PmRobotCalibrationNode(Node):
             self._logger.error('Vision correct frame service not available...')
             return False
         
-        request = CorrectFrame.Request()
+        request = skills_srv.CorrectFrameVision.Request()
         request.frame_name = frame_id
-        response:CorrectFrame.Response = self.client_correct_frame_vision.call(request)
+        response:skills_srv.CorrectFrameVision.Response = self.client_correct_frame_vision.call(request)
         
         return response.success
     
@@ -2167,9 +2164,9 @@ class PmRobotCalibrationNode(Node):
             self._logger.error(f"Client '{self.client_correct_frame_confocal_bottom.srv_name}' not available...")
             return False
         
-        request = CorrectFrame.Request()
+        request = skills_srv.CorrectFrameLaser.Request()
         request.frame_name = frame_id
-        response:CorrectFrame.Response = self.client_correct_frame_confocal_bottom.call(request)
+        response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_confocal_bottom.call(request)
         
         return response.success
     
