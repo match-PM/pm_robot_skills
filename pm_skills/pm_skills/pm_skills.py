@@ -138,7 +138,7 @@ class PmSkills(Node):
         
         force_thrshold = [abs(request.max_f_xyz[0]), abs(request.max_f_xyz[1]), abs(request.max_f_xyz[2])]
 
-        if abs(current_force_values[0]) > force_thrshold[0] or abs(current_force_values[1]) > force_thrshold[1] or abs(current_force_values[2]) > force_thrshold[2]:
+        if not self.pm_robot_utils.is_unity_running() and (abs(current_force_values[0]) > force_thrshold[0] or abs(current_force_values[1]) > force_thrshold[1] or abs(current_force_values[2]) > force_thrshold[2]):
             response.error = f'Initial force values exceed threshold of {force_thrshold} N: X={current_force_values[0]}, Y={current_force_values[1]}, Z={current_force_values[2]}'
             raise PmRobotError(f"{response.error}")
         
@@ -148,7 +148,7 @@ class PmSkills(Node):
         max_steps = 1000  # maximum number of steps
 
 
-        if abs(request.max_f_xyz[0]) > threshold_value or abs(request.max_f_xyz[1]) > threshold_value or abs(request.max_f_xyz[2]) > threshold_value:
+        if not self.pm_robot_utils.is_unity_running() and (abs(request.max_f_xyz[0]) > threshold_value or abs(request.max_f_xyz[1]) > threshold_value or abs(request.max_f_xyz[2]) > threshold_value):
             self.get_logger().error('Max force exceeded the threshold of 10N.')
             response.success = False
             response.error = 'Max force exceeded the threshold of 10N.'
@@ -261,7 +261,7 @@ class PmSkills(Node):
             # the request never changes
             align_request = pm_moveit_srv.AlignGonio.Request()
             align_request.execute_movement = True
-            align_request.endeffector_frame_override = request.gonio_endeffector_frame
+            align_request.endeffector_frame_override = request.component_alignment_frame
             align_request.target_frame = request.target_alignment_frame
 
             iterations = request.num_iterations
@@ -296,10 +296,10 @@ class PmSkills(Node):
 
                 # calculating the angle difference
                 try:
-                    transform: Transform = self.pm_robot_utils.get_transform_for_frame(request.gonio_endeffector_frame, 
+                    transform: Transform = self.pm_robot_utils.get_transform_for_frame(request.component_alignment_frame, 
                                                                             request.target_alignment_frame)
                     
-                    current_gonio_angles: Transform = self.pm_robot_utils.get_transform_for_frame(request.gonio_endeffector_frame, 
+                    current_gonio_angles: Transform = self.pm_robot_utils.get_transform_for_frame(request.component_alignment_frame, 
                                                                                                     'world')
                 except ValueError as e:
                     self.logger.error(f"Error: {e}")
@@ -332,7 +332,7 @@ class PmSkills(Node):
                 align_response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_right.call(align_request)
 
                 if not align_response.success:
-                    raise PmRobotError(f"Aligning goniometer failed!")
+                    raise PmRobotError(f"Aligning goniometer failed! {align_response.message}")
                 
                 time.sleep(1)  # wait for the robot to settle
 
@@ -353,7 +353,7 @@ class PmSkills(Node):
             move_relative_response: MoveRelative.Response = self.pm_robot_utils.client_move_laser_relative.call(move_relative_request)
 
             if not move_relative_response.success:
-                raise PmRobotError(f"Endmove relative failed!")
+                raise PmRobotError(f"Endmove relative failed! {move_relative_response.message}")
 
             response.success = True
             response.message = "Iterative gonio right alignment completed successfully!"
@@ -378,7 +378,7 @@ class PmSkills(Node):
         # the request never changes
         align_request = pm_moveit_srv.AlignGonio.Request()
         align_request.execute_movement = True
-        align_request.endeffector_frame_override = request.gonio_endeffector_frame
+        align_request.endeffector_frame_override = request.component_alignment_frame
         align_request.target_frame = request.target_alignment_frame
 
         iterations = request.num_iterations
@@ -417,7 +417,7 @@ class PmSkills(Node):
                 
             # calculating the angle difference 
             try:
-                transform: Transform = self.pm_robot_utils.get_transform_for_frame(request.gonio_endeffector_frame, 
+                transform: Transform = self.pm_robot_utils.get_transform_for_frame(request.component_alignment_frame, 
                                                                         request.target_alignment_frame)
             except ValueError as e:
                 self.logger.error(f"Error: {e}")
@@ -444,7 +444,7 @@ class PmSkills(Node):
             if not align_response.success:
                 self.logger.error(f"Aligning goniometer left failed!")
                 response.success = False
-                response.message = "Aligning goniometer left failed!"
+                response.message = "Aligning goniometer left failed! " + align_response.message
                 return response
             
             time.sleep(1)  # wait for the robot to settle
@@ -467,7 +467,7 @@ class PmSkills(Node):
         if not move_relative_response.success:
             self.logger.error(f"Endmove relative failed!")
             response.success = False
-            response.message = "Endmove relative failed!"
+            response.message = "Endmove relative failed! " + move_relative_response.message
             return response
         
         response.success = True
@@ -1039,11 +1039,15 @@ class PmSkills(Node):
                     return response
             
             # get target component
+            target_component = None
             for component_frame in assembly_and_target_frames:
                 if self.TARGET_FRAME_INDICATOR in component_frame[1]:
                     target_component = component_frame[0]
                     self.logger.info(f"target component: '{target_component}'")
                     break
+
+            if target_component is None:
+                raise ValueError(f"No target component found in assembly_and_target_frames (indicator: '{self.TARGET_FRAME_INDICATOR}')")
 
             response_attachment = self.attach_component_to_component(self.pm_robot_utils.assembly_scene_analyzer.get_gripped_component(), target_component)
             if not response_attachment:
@@ -1688,6 +1692,8 @@ class PmSkills(Node):
     def dispense_2k_at_path(self, request: pm_msg_srv.DispenseAtPath.Request, response:pm_msg_srv.DispenseAtPath.Response):
 
         try:
+            if not request.sequence_file_path:
+                raise PmRobotError("sequence_file_path is empty!")
             disp_gen = DispenseSequenceGenerator()
             disp_gen.load_from_file(request.sequence_file_path)
 
@@ -1727,7 +1733,9 @@ class PmSkills(Node):
         except (PmRobotError,
             LookupException,
             ConnectivityException,
-            ExtrapolationException) as e: 
+            ExtrapolationException,
+            FileNotFoundError,
+            Exception) as e:
             response.success = False
             response.message = f"Error during dispensing at path: {e}"
             self.logger.error(response.message)

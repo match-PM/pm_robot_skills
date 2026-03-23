@@ -765,11 +765,11 @@ class PmRobotUtils():
         try:
             
             transform_st:TransformStamped = self.tf_buffer.lookup_transform(parent_frame, frame_name, rclpy.time.Time(),rclpy.duration.Duration(seconds=1.0))
-            self._node.get_logger().debug(f"Frame '{frame_name}' found in TF!")
+            self._node.get_logger().debug(f"Frame '{frame_name}' and '{parent_frame}' found in TF!")
 
         except Exception as e:
             transform_st = None
-            raise ValueError(f"Frame '{frame_name}' does not exist in TF! {str(e)}")
+            raise ValueError(f"Frame '{frame_name}' or '{parent_frame}' does not exist in TF! {str(e)}")
         
         transform = Transform()
         transform.translation.x = transform_st.transform.translation.x

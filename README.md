@@ -131,12 +131,12 @@ This will start the following nodes:
 
 - **`/pm_skills/iterative_align_gonio_right`** (`IterativeGonioAlign`)
   - Iteratively aligns right goniometer to target orientation
-  - Parameters: gonio_endeffector_frame (str), target_alignment_frame (str), num_iterations (int), frames_to_measure (list[str])
+  - Parameters: component_alignment_frame (str), target_alignment_frame (str), num_iterations (int), frames_to_measure (list[str])
   - Returns: success (bool), message (str)
 
 - **`/pm_skills/iterative_align_gonio_left`** (`IterativeGonioAlign`)
   - Iteratively aligns left goniometer to target orientation
-  - Parameters: gonio_endeffector_frame (str), target_alignment_frame (str), num_iterations (int), frames_to_measure (list[str])
+  - Parameters: component_alignment_frame (str), target_alignment_frame (str), num_iterations (int), frames_to_measure (list[str])
   - Returns: success (bool), message (str)
 
 #### Sensor and Frame Checking
