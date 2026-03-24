@@ -1,4 +1,6 @@
 
+from platform import node
+
 from rclpy.node import Node
 import sys
 import rclpy
@@ -12,7 +14,7 @@ from pm_vision_interfaces.srv import ExecuteVision
 import pm_vision_interfaces.msg as vision_msg
 from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
 from example_interfaces.srv import SetBool
-
+from controller_manager_msgs.srv import SwitchController
 from pm_vision_manager.va_py_modules.vision_assistant_class import VisionProcessClass
 
 import assembly_manager_interfaces.srv as ami_srv
@@ -113,7 +115,7 @@ class PmRobotUtils():
         self.client_create_ref_frame = self._node.create_client(ami_srv.CreateRefFrame, '/assembly_manager/create_ref_frame')
         self.client_recalculate_assembly_instruction = self._node.create_client(ami_srv.CalculateAssemblyInstructions, '/assembly_manager/calculate_assembly_instructions')
         self.client_set_frame_properties = self._node.create_client(ami_srv.SetFrameProperties, '/assembly_manager/set_frame_properties')
-
+        self.client_switch_controller = self._node.create_client(SwitchController, '/controller_manager/switch_controller')
         self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
 
         self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
@@ -1226,6 +1228,23 @@ class PmRobotUtils():
 
         return response
     
+    def set_controller_activation(self, controller_name:str, activate:bool):
+        if not self.client_switch_controller.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_switch_controller.srv_name}' not available")
+        
+        req = SwitchController.Request()
+        if activate:
+            req.activate_controllers = [controller_name]
+        else:
+            req.deactivate_controllers = [controller_name]
+
+        req.strictness = 1
+
+        response:SwitchController.Response = self.client_switch_controller.call(req)
+
+        if not response.ok:
+            raise PmRobotError(f"Failed to set controller activation for '{controller_name}' to '{activate}'.")
+        
     @staticmethod
     def _transform_to_dict(transform):
         ''' 
