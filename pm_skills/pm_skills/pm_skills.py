@@ -292,7 +292,7 @@ class PmSkills(Node):
                         measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
                     if not measure_response.success:
-                        raise PmRobotError(f"Correcting frame '{frame}' failed!")
+                        raise PmRobotError(f"Correcting frame '{frame}' failed! {measure_response.message}")
 
                 # calculating the angle difference
                 try:
@@ -398,9 +398,9 @@ class PmSkills(Node):
                 if initial_approach:
                     move_success, move_msg = self.move_laser_to_frame(frame, z_offset=0.02)
                     if not move_success:
-                        self.logger.error(f"Moving laser to frame '{frame}' for initial approach failed!")
                         response.success = False
                         response.message = f"Moving laser to frame '{frame}' for initial approach failed: {move_msg}"
+                        self.logger.error(response.message)
                         return response
                     initial_approach = False
                 
@@ -410,9 +410,9 @@ class PmSkills(Node):
                     measure_response = self.correct_frame_with_laser(measure_request, measure_response)
 
                 if not measure_response.success:
-                    self.logger.error(f"Correcting frame '{frame}' failed!")
                     response.success = False
-                    response.message = f"Correcting frame '{frame}' failed!"
+                    response.message = f"Correcting frame '{frame}' failed! {measure_response.message}"
+                    self.logger.error(response.message)
                     return response
                 
             # calculating the angle difference 
@@ -442,9 +442,9 @@ class PmSkills(Node):
             align_response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_left.call(align_request)
 
             if not align_response.success:
-                self.logger.error(f"Aligning goniometer left failed!")
                 response.success = False
                 response.message = "Aligning goniometer left failed! " + align_response.message
+                self.logger.error(response.message)
                 return response
             
             time.sleep(1)  # wait for the robot to settle
@@ -465,9 +465,9 @@ class PmSkills(Node):
         move_relative_response: MoveRelative.Response = self.pm_robot_utils.client_move_laser_relative.call(move_relative_request)
 
         if not move_relative_response.success:
-            self.logger.error(f"Endmove relative failed!")
             response.success = False
             response.message = "Endmove relative failed! " + move_relative_response.message
+            self.logger.error(response.message)
             return response
         
         response.success = True
@@ -1341,7 +1341,7 @@ class PmSkills(Node):
             response.component_uuid = response_mes.component_uuid
 
             if not response_mes.success:
-                raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed!")
+                raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed! Reason: {response_mes.message}")
             
             world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
