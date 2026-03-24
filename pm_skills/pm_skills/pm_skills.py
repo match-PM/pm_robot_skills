@@ -30,14 +30,13 @@ import numpy as np
 from pm_msgs.srv import UVCuringSkill
 import pm_msgs.srv as pm_msg_srv
 from assembly_scene_publisher.py_modules.geometry_functions import quaternion_multiply
-
 from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
                                                               RefFrameNotFoundError, 
                                                               RefPlaneNotFoundError, 
                                                               ComponentNotFoundError,
                                                               TargetFrameNotFoundError,
                                                               AssemblyFrameNotFoundError)
-
+from ament_index_python.packages import get_package_share_directory
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
 from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
 
@@ -1724,8 +1723,24 @@ class PmSkills(Node):
             g_code = disp_gen.generate_g_code(start_pose=start_pose,
                                             start_joint_values=start_joints)
             
-            self._test_gcode(g_code, start_frame=request.target_frame_disp)
+            disp_gen.save_g_code_to_file(start_pose=start_pose,
+                                            start_joint_values=start_joints,
+                                            file_path=get_package_share_directory("pm_skills") + "/example_g_code")
 
+            if not self.pm_robot_utils.get_mode() == self.pm_robot_utils.GAZEBO_MODE:
+
+                self.logger.warn(f"Switching off controller!")
+
+                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", activate = False) 
+
+                time.sleep(10.0) # wait for controller switch
+
+                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True) 
+
+                self.logger.warn(f"Switching on controller!")
+            else:
+                # only for gazebo
+                self._test_gcode(g_code, start_frame=request.target_frame_disp)
 
             self.logger.info(f"Generated G-code:\n{g_code}")
             response.success = True     
