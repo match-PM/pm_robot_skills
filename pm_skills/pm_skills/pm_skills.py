@@ -113,6 +113,10 @@ class PmSkills(Node):
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
         self.uv_cure_clinet = self.create_client(UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
+
+        self.dispense_2k_unity_client = self.create_client(EmptyWithSuccess, '/unity_skills/dispense_2k_unity')
+        self.dispenser_2k_forward_client = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N2K_Dispenser_Joint/MoveForward')
+        self.dispenser_2k_backward_client = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N2K_Dispenser_Joint/MoveBackward')
         
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
 
@@ -1727,7 +1731,7 @@ class PmSkills(Node):
                                             start_joint_values=start_joints,
                                             file_path=get_package_share_directory("pm_skills") + "/example_g_code")
 
-            if not self.pm_robot_utils.get_mode() == self.pm_robot_utils.GAZEBO_MODE:
+            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
 
                 self.logger.warn(f"Switching off controller!")
 
@@ -1738,6 +1742,30 @@ class PmSkills(Node):
                 self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True) 
 
                 self.logger.warn(f"Switching on controller!")
+            elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
+                self.logger.warn(f"Unity mode detected!")
+
+                dispenser_2k_pneumatic_request = EmptyWithSuccess.Request()
+                dispenser_2k_pneumatic_response = self.dispenser_2k_forward_client.call(dispenser_2k_pneumatic_request)
+
+                if not dispenser_2k_pneumatic_response.success:
+                    raise PmRobotError(f"Failed to move dispenser forward: {dispenser_2k_pneumatic_response.message}")
+
+                self.logger.warn(f"Switching off controller!")
+
+                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", activate = False) 
+
+                time.sleep(3.0) # wait for controller switch
+
+                # Call the Unity-specific dispensing service
+                unity_request = EmptyWithSuccess.Request()
+                unity_response = self.dispense_2k_unity_client.call(unity_request)
+                time.sleep(10.0)
+                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True) 
+                time.sleep(5.0) # wait for controller switch
+
+                if not unity_response.success:
+                    raise PmRobotError(f"Unity dispensing service failed: {unity_response.message}")
             else:
                 # only for gazebo
                 self._test_gcode(g_code, start_frame=request.target_frame_disp)
@@ -1757,6 +1785,12 @@ class PmSkills(Node):
 
         finally:
             
+            dispenser_2k_pneumatic_request = EmptyWithSuccess.Request()
+            dispenser_2k_pneumatic_response = self.dispenser_2k_backward_client.call(dispenser_2k_pneumatic_request)
+
+            if not dispenser_2k_pneumatic_response.success:
+                raise PmRobotError(f"Failed to move dispenser backward: {dispenser_2k_pneumatic_response.message}")
+
             success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0,0,-0.05,time=0.5) # move up after dispensing to be safe
             if not success:
                 response.message = response.message + f"Failed to move up after dispensing! Please check the robot state!"
