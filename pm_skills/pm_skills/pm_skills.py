@@ -981,7 +981,7 @@ class PmSkills(Node):
         sim_time = self.pm_robot_utils.is_gazebo_running() or self.pm_robot_utils.is_unity_running()
         self.logger.info(f"Gazebo Simulation: {sim_time}")
 
-        assembly_and_target_frames = self.pm_robot_utils.assembly_scene_analyzer.get_assembly_and_target_frames()      
+        assembly_and_target_frames = self.pm_robot_utils.assembly_scene_analyzer.get_all_assembly_and_target_frames()      
 
         try:
             if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():

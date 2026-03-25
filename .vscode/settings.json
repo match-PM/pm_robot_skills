@@ -39,5 +39,5 @@
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
-    "cmake.sourceDirectory": "/home/mll/ros2_ws/src/pm_robot_skills/pm_skills_interfaces"
+    "cmake.sourceDirectory": "/home/match-pm/ros2_ws/src/pm_robot_skills/pm_skills_interfaces"
 }
