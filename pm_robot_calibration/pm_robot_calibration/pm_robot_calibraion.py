@@ -29,7 +29,9 @@ import matplotlib.pyplot as plt
 # import get_package_share_directory
 from ament_index_python.packages import get_package_share_directory
 
-from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
+
 import time
 import os
 import datetime

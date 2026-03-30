@@ -16,6 +16,8 @@
   <test_depend>python3-pytest</test_depend>
 
   <build_depend>pm_skills_interfaces</build_depend>
+  <build_depend>pm_msgs</build_depend>
+
   <exec_depend>pm_skills_interfaces</exec_depend>
 
   <export>

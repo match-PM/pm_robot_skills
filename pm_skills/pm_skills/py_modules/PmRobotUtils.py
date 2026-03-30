@@ -40,6 +40,7 @@ from builtin_interfaces.msg import Duration as MsgDuration
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
 from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement, EmptyWithSuccess, ReferenceCubeState
+import pm_msgs.srv as pm_msg_srv
 from pm_uepsilon_confocal_msgs.srv import GetValue
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
@@ -53,10 +54,8 @@ from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundErr
                                                               ComponentNotFoundError)
 # create new error
 
-class PmRobotError(Exception):
-    def __init__(self, message="Error occured controlling the robot."):
-        self.message = message
-        super().__init__(self.message)
+from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
+from pm_robot_primitive_skills.py_modules.PrimitiveSkillsUtils import PrimitiveSkillsUtils
 
 class PmRobotTcps(Enum):
     TCP_LASER = 'Laser_Toolhead_TCP'
@@ -67,12 +66,7 @@ class PmRobotTcps(Enum):
     TCP_CAMERA_BOTTOM = 'Cam1_Toolhead_TCP'
     TCP_CONFOCAL_BOTTOM = 'TCP_Confocal_Sensor_Bottom'
     
-class PmRobotUtils():
-
-    REAL_MODE = 0
-    UNITY_MODE = 1
-    GAZEBO_MODE = 2
-    
+class PmRobotUtils(PrimitiveSkillsUtils):
     X_Axis_JOINT_NAME = 'X_Axis_Joint'
     Y_Axis_JOINT_NAME = 'Y_Axis_Joint'
     Z_Axis_JOINT_NAME = 'Z_Axis_Joint'
@@ -92,6 +86,7 @@ class PmRobotUtils():
     TCP_1K_DISPENSER = '1K_Dispenser_TCP'
 
     def __init__(self, node:Node):
+        super().__init__(node)
         self._node = node
         self.client_execute_vision = self._node.create_client(ExecuteVision, '/pm_vision_manager/ExecuteVision')
         self.client_move_robot_cam1_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_cam1_to_frame')
@@ -117,16 +112,11 @@ class PmRobotUtils():
         self.client_set_frame_properties = self._node.create_client(ami_srv.SetFrameProperties, '/assembly_manager/set_frame_properties')
         self.client_switch_controller = self._node.create_client(SwitchController, '/controller_manager/switch_controller')
         self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
+        self.client_uv_cure = self._node.create_client(pm_msg_srv.UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
 
         self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.client_turn_off_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.client_check_line_of_sight = self._node.create_client(ami_srv.CheckLineOfSight, '/assembly_manager/check_line_of_sight')
-
-        self._open_protection_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Protection_Joint/MoveBackward')
-        self._close_protection_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Protection_Joint/MoveForward')
-
-        self._retract_dispenser_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Joint/MoveBackward')
-        self._extend_dispenser_real_srv = self._node.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N1K_Dispenser_Joint/MoveForward')
 
         self.client_turn_on_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/Vacuum')
         self.client_turn_off_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOff')
@@ -137,8 +127,8 @@ class PmRobotUtils():
 
         self.client_set_component_properties = self._node.create_client(ami_srv.SetComponentProperties, '/assembly_manager/set_component_properties')
         
-        self._current_force_sensor_data = Float64MultiArray()
-
+        self.client_dispense_at_points = self._node.create_client(pm_msg_srv.DispenseAtPoints, '/pm_robot_primitive_skills/dispense_at_frames')
+        
         self.object_scene_un= UnInitializedScene()
 
         self.assembly_scene_analyzer = AssemblySceneAnalyzerAdv(self.object_scene_un, self._node.get_logger())
@@ -152,10 +142,7 @@ class PmRobotUtils():
                                 self.joint_state_callback,
                                 10
                                 )
-        
-        self.client_force_sensor = self._node.create_subscription(Float64MultiArray, '/pm_sensor_controller/ForceSensor/Stream',self.force_sensor_callback, 10)
-
-        
+                
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -184,36 +171,6 @@ class PmRobotUtils():
                                                                       10,   
                                                                       callback_group=ReentrantCallbackGroup())
 
-    def is_gazebo_running(self)->bool:
-        """Check if the Gazebo node is active."""
-        node_names = self._node.get_node_names()
-        if 'gazebo' in node_names:
-            return True
-        return False
-    
-    def is_unity_running(self)->bool:
-        """Check if the Unity node is active."""
-        node_names = self._node.get_node_names()
-        if 'ROS2UnityCam1Publisher' in node_names:
-            return True
-        return False
-    
-    def get_mode(self)->int:
-        """Get the current mode of the robot."""
-        """
-        Returns:
-        0 - REAL_MODE
-        1 - UNITY_MODE
-        2 - GAZEBO_MODE
-        """
-
-        if self.is_gazebo_running():
-            return self.GAZEBO_MODE
-        elif self.is_unity_running():
-            return self.UNITY_MODE
-        else:
-            return self.REAL_MODE
-    
         
     def wait_for_initial_scene_update(self):
         while self.object_scene_un.scene is None:
@@ -251,7 +208,7 @@ class PmRobotUtils():
             return 'pm_robot_bottom_cam_2_Unity.yaml'
         else:
             return 'NOT_AVAILABLE'
-            
+
     def get_cam_file_name_top(self)->str:
         mode = self.get_mode()
 
@@ -319,7 +276,8 @@ class PmRobotUtils():
         point.positions = [float(current_x + x_joint_rel),
                             float(current_y + y_joint_rel), 
                             float(current_z + z_joint_rel)]
-                
+        
+        
         point.time_from_start = self.float_to_ros_duration(time)
         goal.trajectory.points.append(point)
         success = self._send_goal_xyz(goal)
@@ -510,127 +468,76 @@ class PmRobotUtils():
         Returns:
             float: _description_
         """
-        call_async = False
-
+        
         if not self.client_get_laser_mes.wait_for_service(timeout_sec=1.0):
-            self._node.get_logger().error("Service '/pm_sensor_controller/Laser/GetMeasurement' not available")
-            raise PmRobotError("Service '/pm_sensor_controller/Laser/GetMeasurement' not available")
+            raise PmRobotError(f"Service '{self.client_get_laser_mes.srv_name}' not available")
         
         req = LaserGetMeasurement.Request()
 
-        if call_async:
-            future = self.client_get_laser_mes.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-            if future.result() is None:
-                self._node.get_logger().error('Service call failed %r' % (future.exception(),))
-                raise PmRobotError('Service call failed %r' % (future.exception(),))
-            response= future.result()
-            
-        else:
-            response:LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
+        response:LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
         
         multiplier = self._get_multiplier(unit)
 
         return response.measurement * multiplier
     
     def get_confocal_top_measurement(self, unit:str = "m")->float:
-        req = GetValue.Request()
-
-        if self.get_mode() == self.REAL_MODE:
-            if not self.client_get_confocal_top_measurement.wait_for_service(timeout_sec=1.0):
-                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
-                return None
-            
-            response:GetValue.Response = self.client_get_confocal_top_measurement.call(req)
-        
-        elif self.get_mode() == self.UNITY_MODE:
-            pass
-
-        else:
-            return None
-        
-        #self._node.get_logger().warn(f"value {response.data} um")
+        """
+        Method to get the confocal top measurement from the confocal sensor
+        Returns:
+            float: confocal top measurement
+        Raises:
+            PmRobotError: If the service is not available or the mode is not supported.
+        """
+        response = self.get_confocal_top_mes()
 
         multiplier =  self._get_multiplier(unit)
 
-        result = response.data * multiplier
+        if self.get_mode() == self.REAL_MODE:
+            result = response.data * multiplier
         
-        #self._node.get_logger().warn(f"value {result} m")
+        elif self.get_mode() == self.UNITY_MODE:
+            result = response.data * multiplier
 
+        else:
+            raise PmRobotError(f"Getting confocal top measurement not implemented for mode {self.get_mode()}")
+        
         return result
 
     def check_confocal_top_measurement_in_range(self)->bool:
-        req = GetValue.Request()
+        response = self.get_confocal_top_mes()
 
-        if self.get_mode() == self.REAL_MODE:
-            if not self.client_get_confocal_top_measurement.wait_for_service(timeout_sec=1.0):
-                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
-                return None
-            
-            response:GetValue.Response = self.client_get_confocal_top_measurement.call(req)
-            #self._node.get_logger().warn(f"{response.success}")
-
-            return response.success
-        
-        elif self.get_mode() == self.UNITY_MODE:
-            return False
-
-        else:
-            return False
+        return response.success
     
     def get_confocal_bottom_measurement(self, unit:str = "m")->float:
-        req = GetValue.Request()
+        """
+        Method to get the confocal bottom measurement from the confocal sensor
+        Returns:
+            float: confocal bottom measurement
+        Raises:
+            PmRobotError: If the service is not available or the mode is not supported.
+        """
+        response = self.get_confocal_bottom_mes()
 
-        call_async = False
+        multiplier =  self._get_multiplier(unit)
 
         if self.get_mode() == self.REAL_MODE:
-
-            if not self.client_get_confocal_bottom_measurement.wait_for_service(timeout_sec=1.0):
-                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
-                return None
-            
-            if call_async:
-                future = self.client_get_confocal_bottom_measurement.call_async(req)
-                rclpy.spin_until_future_complete(self, future)
-                if future.result() is None:
-                    self._node.get_logger().error('Service call failed %r' % (future.exception(),))
-                    return None
-                response= future.result()
-
-            else:
-                response:GetValue.Response = self.client_get_confocal_bottom_measurement.call(req)
+            result = response.data * multiplier
         
         elif self.get_mode() == self.UNITY_MODE:
-            pass
+            result = response.data * multiplier
 
         else:
-            return None
+            raise PmRobotError(f"Getting confocal bottom measurement not implemented for mode {self.get_mode()}")
         
-        multiplier = self._get_multiplier(unit)
-
-        return response.data * multiplier
+        return result
 
     def check_confocal_bottom_measurement_in_range(self)->bool:
-        req = GetValue.Request()
-
-        if self.get_mode() == self.REAL_MODE:
-            if not self.client_get_confocal_bottom_measurement.wait_for_service(timeout_sec=1.0):
-                self._node.get_logger().error("Service '/uepsilon_two_channel_controller/IFC2422/ch1/distance/srv' not available!")
-                return None
-            
-            response:GetValue.Response = self.client_get_confocal_bottom_measurement.call(req)
-
-            return response.success
         
-        elif self.get_mode() == self.UNITY_MODE:
-            return False
+        response = self.get_confocal_bottom_mes()
 
-        else:
-            return False
-        
-    def force_sensor_callback(self, msg: Float64MultiArray):
-        self._current_force_sensor_data = msg
+        return response.success
 
+    
     def set_collision(self, link_1, link_2, should_check):
         """
         Set collision checking between two links.
@@ -989,48 +896,6 @@ class PmRobotUtils():
 
         return None, None, None
 
-    def open_protection(self):
-
-        if not self._open_protection_real_srv.wait_for_service(timeout_sec=1.0):
-            raise PmRobotError(f"Service '{self._open_protection_real_srv.srv_name}' not available.")
-
-        req = EmptyWithSuccess.Request()
-        response:EmptyWithSuccess.Response = self._open_protection_real_srv.call(req)
-
-        if not response.success:
-            raise PmRobotError(f"Failed to open protection: {response.message}")
-
-    def close_protection(self):
-        if not self._close_protection_real_srv.wait_for_service(timeout_sec=1.0):
-            raise PmRobotError(f"Service '{self._close_protection_real_srv.srv_name}' not available.")
-
-        req = EmptyWithSuccess.Request()
-        response:EmptyWithSuccess.Response = self._close_protection_real_srv.call(req)
-        if not response.success:
-            raise PmRobotError(f"Failed to close protection: {response.message}")
-
-    def retract_dispenser(self):
-
-        if not self._retract_dispenser_real_srv.wait_for_service(timeout_sec=1.0):
-            raise PmRobotError(f"Service '{self._retract_dispenser_real_srv.srv_name}' not available.")
-
-        req = EmptyWithSuccess.Request()
-        response: EmptyWithSuccess.Response = self._retract_dispenser_real_srv.call(req)
-
-        if not response.success:
-            raise PmRobotError(f"Failed to retract dispenser: {response.message}")
-
-    def extend_dispenser(self):
-
-        if not self._extend_dispenser_real_srv.wait_for_service(timeout_sec=1.0):
-            raise PmRobotError(f"Service '{self._extend_dispenser_real_srv.srv_name}' not available.")
-
-        req = EmptyWithSuccess.Request()
-        response:EmptyWithSuccess.Response = self._extend_dispenser_real_srv.call(req)
-
-        if not response.success:
-            raise PmRobotError(f"Failed to extend dispenser: {response.message}")
-
     def set_frame_properties(self, frame_name:str, properties:ami_srv.SetFrameProperties.Request)-> ami_srv.SetFrameProperties.Response:
         """
         Docstring for set_frame_properties
@@ -1277,6 +1142,7 @@ class PmRobotUtils():
     def _get_multiplier(self, unit:str)->float:
         """
         Get the multiplier for the unit.
+        It should only be used if the initial measurement is in um, which is the case for the laser and confocal measurements.
         
         Args:
             unit (str): Unit of measurement.

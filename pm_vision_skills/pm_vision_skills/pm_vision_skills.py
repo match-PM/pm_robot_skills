@@ -19,7 +19,8 @@ import assembly_manager_interfaces.msg as ami_msg
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
 import time
 
-from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 
 from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
                                                               RefFrameNotFoundError, 

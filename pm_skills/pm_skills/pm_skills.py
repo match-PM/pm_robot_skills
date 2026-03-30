@@ -1,4 +1,4 @@
-from urllib import response
+from urllib import request, response
 import rclpy
 import copy
 import time
@@ -29,6 +29,7 @@ from scipy.spatial.transform import Rotation as R
 import numpy as np
 from pm_msgs.srv import UVCuringSkill
 import pm_msgs.srv as pm_msg_srv
+import pm_msgs.msg as pm_msg
 from assembly_scene_publisher.py_modules.geometry_functions import quaternion_multiply
 from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
                                                               RefFrameNotFoundError, 
@@ -37,7 +38,9 @@ from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundErr
                                                               TargetFrameNotFoundError,
                                                               AssemblyFrameNotFoundError)
 from ament_index_python.packages import get_package_share_directory
-from pm_skills.py_modules.PmRobotUtils import PmRobotUtils, PmRobotError
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
+
 from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
 
 class PmSkills(Node):
@@ -101,6 +104,11 @@ class PmSkills(Node):
         self.srv_check_frame_measureble_laser_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_laser_top', self.check_frame_mes_laser_top, callback_group=self.callback_group_me)   
         self.srv_check_frame_measureble_confocal_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_confocal_bottom', self.check_frame_mes_confocal_bottom, callback_group=self.callback_group_me)   
 
+        self.srv_dispense_at_points = self.create_service(pm_msg_srv.DispenseAtPoints, self.get_name()+'/dispense_at_frames', self.dispense_at_frames_callback, callback_group=self.callback_group_me)
+        
+        self.srv_dispense_at_points_adv = self.create_service(pm_msg_srv.DispenseAtPoints, self.get_name()+'/dispense_at_frames_adv', self.dispense_at_frames_adv_callback, callback_group=self.callback_group_me)
+        self.srv_uv_cure_adv = self.create_service(pm_msg_srv.UVCuringSkill, self.get_name()+'/uv_cure', self.uv_cure_adv_callback, callback_group=self.callback_group_me)
+
         # clienets
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.move_robot_tool_client = self.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
@@ -112,12 +120,9 @@ class PmSkills(Node):
         self.vacuum_gripper_on_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.vacuum_gripper_pressure_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Pressure')
-        self.uv_cure_clinet = self.create_client(UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
 
         self.dispense_2k_unity_client = self.create_client(EmptyWithSuccess, '/unity_skills/dispense_2k_unity')
-        self.dispenser_2k_forward_client = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N2K_Dispenser_Joint/MoveForward')
-        self.dispenser_2k_backward_client = self.create_client(EmptyWithSuccess, '/pm_pneumatic_controller/N2K_Dispenser_Joint/MoveBackward')
-        
+
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
 
         self.adapt_frame_client = self.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
@@ -960,18 +965,18 @@ class PmSkills(Node):
         return response
 
 
-    def assemble_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+    # def assemble_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+    #     self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
-        global_stationary_component = self.pm_robot_utils.assembly_scene_analyzer.get_global_stationary_component()
-        assemble_list = self.pm_robot_utils.assembly_scene_analyzer.get_components_to_assemble()
-        first_component = self.pm_robot_utils.assembly_scene_analyzer.find_matches_for_component(global_stationary_component, only_unassembled=False)
+    #     global_stationary_component = self.pm_robot_utils.assembly_scene_analyzer.get_global_stationary_component()
+    #     assemble_list = self.pm_robot_utils.assembly_scene_analyzer.get_components_to_assemble()
+    #     first_component = self.pm_robot_utils.assembly_scene_analyzer.find_matches_for_component(global_stationary_component, only_unassembled=False)
 
-        self.assembly_loop(first_component)
+    #     self.assembly_loop(first_component)
         
-        response.success = True
+    #     response.success = True
 
-        return response
+    #     return response
 
     def vaccum_gripper_on_callback(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         """Mimics the vacuum gripper funtionality by activating the vacuum and changing the parent frame"""
@@ -1070,83 +1075,28 @@ class PmSkills(Node):
                 
         return response
 
-    def dispenser_callback(self, request, response):
-        """TO DO: Add docstring"""
-
-        self.logger.info(f"Starting {request.dispenser}")
-
-        # Simulating dispension time by adding delay
-        wait_duration = request.dispense_time
-        if wait_duration > 0.0:
-            time.sleep(wait_duration)
-            response.success = True
-        else:
-            self.logger.warn("Invaild dispense Duration!")
-            response.success = False
-            response.message = "Invalid dispense duration!"
             
-        self.logger.info(f"Done {request.dispenser}")
-        return response
+    # def assembly_loop(self, list_of_components:list[str]):
+    #     self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+    #     for component in list_of_components:
+    #         self.logger.error(f"ComponentTTTTT: {component}")
+    #         if not self.pm_robot_utils.assembly_scene_analyzer.check_component_assembled(component):
 
-    def confocal_laser_callback(self, request, response):
-        """TO DO: Add docstring"""
-
-        self.logger.info(f"Starting laser: {request.laser}")
-
-        # Generating random number for meassurement    
-        result = ((random.randrange(0, 6)) / 10.0) - 0.3
-
-        response.result = str(f"{result} mm.")
-        response.success = True
-
-        return response
-    
-    def vision_callback(self, request, response):
-        self.logger.info(f'Loading {request.process_filename} as process file.')
-        self.logger.info(f'Starting process {request.process_uid}')
-        self.logger.info(f"Loading {request.camera_config_filename} as camera configuration file.")
-
-        if request.image_display_time > 0.0:
-            self.logger.info('Image aquisiton is running')
-            time.sleep(request.image_display_time)
-            response.success = True
-        else: 
-            self.logger.warn('Invalid image display time!')
-            response.success = False
-            # Note: ExecuteVision.srv does not have a message field
-
-        if request.run_cross_validation:
-            self.logger.info("Running cross validtation.")
-
-        response.results_dict = "Result dict"
-        self.logger.info(f'Saving results ...')
-        response.results_path = "Results path."
-        response.points = [random.random()*100 for _ in range(4)]
-        response.process_uid = str(random.randint(1000,50000))
-
-        return response
-            
-    def assembly_loop(self, list_of_components:list[str]):
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
-        for component in list_of_components:
-            self.logger.error(f"ComponentTTTTT: {component}")
-            if not self.pm_robot_utils.assembly_scene_analyzer.check_component_assembled(component):
-
-                response = self.grip_component_callback(pm_skill_srv.GripComponent.Request(component_name=component), pm_skill_srv.GripComponent.Response())
-                if not response.success:
-                    self.logger.error(f"Failed to grip component '{component}'")
-                    return False
+    #             response = self.grip_component_callback(pm_skill_srv.GripComponent.Request(component_name=component), pm_skill_srv.GripComponent.Response())
+    #             if not response.success:
+    #                 self.logger.error(f"Failed to grip component '{component}'")
+    #                 return False
                 
-                response = self.place_component_callback(pm_skill_srv.PlaceComponent.Request(), pm_skill_srv.PlaceComponent.Response())
-                if not response.success:
-                    self.logger.error(f"Failed to place component '{component}'")
-                    return False
+    #             response = self.place_component_callback(pm_skill_srv.PlaceComponent.Request(), pm_skill_srv.PlaceComponent.Response())
+    #             if not response.success:
+    #                 self.logger.error(f"Failed to place component '{component}'")
+    #                 return False
                 
-            list_of_component= self.pm_robot_utils.assembly_scene_analyzer.find_matches_for_component(component,only_unassembled=False)
-            self.logger.warn(f"List of components: {list_of_component}")
-            self.assembly_loop(list_of_component)
+    #         list_of_component= self.pm_robot_utils.assembly_scene_analyzer.find_matches_for_component(component,only_unassembled=False)
+    #         self.logger.warn(f"List of components: {list_of_component}")
+    #         self.assembly_loop(list_of_component)
 
-        return True
+    #     return True
     
     def simtime_callback(self, msg:std_msg.Bool):
         if msg.data:
@@ -1742,14 +1692,11 @@ class PmSkills(Node):
                 self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True) 
 
                 self.logger.warn(f"Switching on controller!")
+
             elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
                 self.logger.warn(f"Unity mode detected!")
 
-                dispenser_2k_pneumatic_request = EmptyWithSuccess.Request()
-                dispenser_2k_pneumatic_response = self.dispenser_2k_forward_client.call(dispenser_2k_pneumatic_request)
-
-                if not dispenser_2k_pneumatic_response.success:
-                    raise PmRobotError(f"Failed to move dispenser forward: {dispenser_2k_pneumatic_response.message}")
+                self.pm_robot_utils.extend_2k_dispenser()
 
                 self.logger.warn(f"Switching off controller!")
 
@@ -1785,11 +1732,7 @@ class PmSkills(Node):
 
         finally:
             
-            dispenser_2k_pneumatic_request = EmptyWithSuccess.Request()
-            dispenser_2k_pneumatic_response = self.dispenser_2k_backward_client.call(dispenser_2k_pneumatic_request)
-
-            if not dispenser_2k_pneumatic_response.success:
-                raise PmRobotError(f"Failed to move dispenser backward: {dispenser_2k_pneumatic_response.message}")
+            self.pm_robot_utils.retract_2k_dispenser()
 
             success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0,0,-0.05,time=0.5) # move up after dispensing to be safe
             if not success:
@@ -1873,6 +1816,133 @@ class PmSkills(Node):
             if not move_success:
                 raise PmRobotError(f"Failed to move to X:{x}, Y:{y}, Z:{z} relative to frame '{start_frame}' during g-code testing")
 
+    def dispense_at_frames_callback(self, request: pm_msg_srv.DispenseAtPoints.Request, response:pm_msg_srv.DispenseAtPoints.Response):
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+
+        try:
+            if len(request.dispense_points) == 0:
+                raise PmRobotError("Dispense points list is empty!")
+            
+            dispenser_prepared = False
+
+            for dispense_point in request.dispense_points:
+            
+                prop = ami_msg.RefFrameProperties()
+                prop.glue_pt_frame_properties.dispense_offset_mm = dispense_point.dispense_z_offset_mm
+                prop.glue_pt_frame_properties.is_glue_point = True
+                prop.glue_pt_frame_properties.time_ms = dispense_point.time_ms
+                prop.glue_pt_frame_properties.has_been_placed = True
+
+                dispense_point: pm_msg.DispensePoint
+                move_to_frame_request = pm_moveit_srv.MoveToFrame.Request()
+                
+                move_to_frame_request.target_frame = dispense_point.frame_name
+                move_to_frame_request.execute_movement = True
+                
+                
+                if not dispenser_prepared:
+                    self.pm_robot_utils.prepare_dispenser(move_to_frame_request)
+                    dispenser_prepared = True
+
+                self.pm_robot_utils.dispense_at_frame(move_to_frame_request, 
+                                                dispense_point.frame_name,
+                                                time=dispense_point.time_ms,
+                                                dispense_z_offset_mm=dispense_point.dispense_z_offset_mm)
+
+                self.pm_robot_utils.set_frame_properties(dispense_point.frame_name, prop)
+                        
+            self.pm_robot_utils.retract_dispenser()
+            time.sleep(0.5)
+            self.pm_robot_utils.close_protection()
+            
+            response.success = True
+
+        except PmRobotError as e:
+            self.get_logger().error(f"Error during dispensing at points: {e.message}")
+            response.success = False
+            response.message = e.message
+        return response
+    
+
+    
+    def dispense_at_frames_adv_callback(self, request: pm_skill_srv.DispenseAtPointsAdv.Request, response:pm_skill_srv.DispenseAtPointsAdv.Response):
+        dispense_request = pm_msg_srv.DispenseAtPoints.Request()
+        dispense_response = pm_msg_srv.DispenseAtPoints.Response()
+
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        try:
+            # populate the request
+            for dispense_point in request.dispense_points:
+                dispense_point_msg = pm_msg.DispensePoint()
+                dispense_point_msg.frame_name = dispense_point
+
+                properties = self.pm_robot_utils.assembly_scene_analyzer.get_frame_properties(dispense_point).glue_pt_frame_properties
+
+                if not properties.is_glue_point:
+                    raise PmRobotError(f"Frame '{dispense_point}' is not a glue point frame according to the assembly scene analyzer!")
+
+                dispense_point_msg.time_ms = properties.time_ms
+                dispense_point_msg.dispense_z_offset_mm = properties.dispense_offset_mm
+
+                if dispense_point_msg.time_ms <= 0:
+                    raise PmRobotError(f"Frame '{dispense_point}' has invalid dispense time '{dispense_point_msg.time_ms}' ms. Time must be positive and non-zero!")
+            
+                if dispense_point_msg.dispense_z_offset_mm <= 0:
+                    raise PmRobotError(f"Frame '{dispense_point}' has invalid dispense offset '{dispense_point_msg.dispense_z_offset_mm}' mm. Offset must be positive and non-zero!")
+
+                # THIS IS OPTIONAL DECIDE FOR BEHAVIOUR
+                # if properties.has_been_placed:
+                #     self._logger.warn(f"Frame '{dispense_point}' has already been marked as placed. Skipping dispensing at this frame to avoid double dispensing!")
+                #     continue
+
+                dispense_request.dispense_points.append(dispense_point_msg)
+
+            response_disp = self.dispense_at_frames_callback(dispense_request, dispense_response)
+
+            response.success = response_disp.success
+            response.message = response_disp.message
+
+        except (PmRobotError, RefFrameNotFoundError) as e:
+            self.get_logger().error(f"Error during advanced dispensing at points: {e.message}")
+            response.success = False
+            response.message = str(e)
+        return response
+
+
+    def uv_cure_adv_callback(self, request: pm_msg_srv.UVCuringSkill.Request, response:pm_msg_srv.UVCuringSkill.Response):
+        """
+        Advanced UV curing skill that not only performs the UV curing action but also updates the assembly scene analyzer's frame properties for glue points. 
+        This ensures that after curing, the system is aware of which glue points have been cured, allowing for better decision-making in subsequent steps of the assembly process.
+        """
+        
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        try:
+
+            if not self.pm_robot_utils.client_uv_cure.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError(f"Service '{self.pm_robot_utils.client_uv_cure.srv_name}' not available!")
+
+            res: pm_msg_srv.UVCuringSkill.Response = self. pm_robot_utils.client_uv_cure.call(request)
+            
+            if not res.success:
+                response.message = res.message
+                raise PmRobotError(f"UV curing service call failed: {res.message}")
+            
+            all_frames = self.pm_robot_utils.assembly_scene_analyzer.get_all_component_frames()
+
+            for frame in all_frames:
+                frame: ami_msg.RefFrame
+                g_properties = frame.properties.glue_pt_frame_properties
+                    
+                if g_properties.is_glue_point and g_properties.has_been_placed:
+                    g_properties.has_been_cured = True
+                    self.pm_robot_utils.set_frame_properties(frame.frame_name, frame.properties)
+
+        except (PmRobotError, RefFrameNotFoundError) as e:
+            self.get_logger().error(f"Error during advanced UV curing: {e.message}")
+            response.success = False
+            response.message = str(e)
+        return response
+    
 def main(args=None):
     rclpy.init(args=args)
 
