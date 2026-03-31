@@ -1927,10 +1927,10 @@ class PmSkills(Node):
                 response.message = res.message
                 raise PmRobotError(f"UV curing service call failed: {res.message}")
             
-            all_frames = self.pm_robot_utils.assembly_scene_analyzer.get_all_component_frames()
+            all_frame_names = self.pm_robot_utils.assembly_scene_analyzer.get_all_component_frames()
 
-            for frame in all_frames:
-                frame: ami_msg.RefFrame
+            for frame_name in all_frame_names:
+                frame = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(frame_name)
                 g_properties = frame.properties.glue_pt_frame_properties
                     
                 if g_properties.is_glue_point and g_properties.has_been_placed:
