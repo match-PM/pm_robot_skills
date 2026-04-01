@@ -835,6 +835,7 @@ class PmSkills(Node):
                 ComponentNotFoundError, 
                 RefFrameNotFoundError, 
                 AssemblyFrameNotFoundError,
+                AssemblyInstructionNotFoundError,
                 TargetFrameNotFoundError) as e:
             if should_move_up_at_error:
                 move_relatively_success, lift_msg = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
@@ -1936,6 +1937,9 @@ class PmSkills(Node):
                 if g_properties.is_glue_point and g_properties.has_been_placed:
                     g_properties.has_been_cured = True
                     self.pm_robot_utils.set_frame_properties(frame.frame_name, frame.properties)
+
+            response.success = True
+            response.message = "UV curing completed successfully and glue point frame properties updated."
 
         except (PmRobotError, RefFrameNotFoundError) as e:
             self.get_logger().error(f"Error during advanced UV curing: {e.message}")
