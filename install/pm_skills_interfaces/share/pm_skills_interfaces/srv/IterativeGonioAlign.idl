@@ -1,0 +1,25 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/IterativeGonioAlign.srv
+// generated code does not contain a copyright notice
+
+
+module pm_skills_interfaces {
+  module srv {
+    struct IterativeGonioAlign_Request {
+      boolean confocal_laser;
+
+      string target_alignment_frame;
+
+      string gonio_endeffector_frame;
+
+      int32 num_iterations;
+
+      sequence<string> frames_to_measure;
+    };
+    struct IterativeGonioAlign_Response {
+      boolean success;
+
+      string message;
+    };
+  };
+};

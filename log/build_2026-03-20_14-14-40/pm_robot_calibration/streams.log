@@ -1,0 +1,37 @@
+[1.536s] Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_robot_calibration build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/install.log --single-version-externally-managed install_data
+[1.907s] running egg_info
+[1.908s] creating ../build/pm_robot_calibration/pm_robot_calibration.egg-info
+[1.908s] writing ../build/pm_robot_calibration/pm_robot_calibration.egg-info/PKG-INFO
+[1.908s] writing dependency_links to ../build/pm_robot_calibration/pm_robot_calibration.egg-info/dependency_links.txt
+[1.909s] writing entry points to ../build/pm_robot_calibration/pm_robot_calibration.egg-info/entry_points.txt
+[1.909s] writing requirements to ../build/pm_robot_calibration/pm_robot_calibration.egg-info/requires.txt
+[1.909s] writing top-level names to ../build/pm_robot_calibration/pm_robot_calibration.egg-info/top_level.txt
+[1.909s] writing manifest file '../build/pm_robot_calibration/pm_robot_calibration.egg-info/SOURCES.txt'
+[1.911s] reading manifest file '../build/pm_robot_calibration/pm_robot_calibration.egg-info/SOURCES.txt'
+[1.912s] writing manifest file '../build/pm_robot_calibration/pm_robot_calibration.egg-info/SOURCES.txt'
+[1.912s] running build
+[1.912s] running build_py
+[1.912s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build
+[1.912s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build/lib
+[1.912s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build/lib/pm_robot_calibration
+[1.913s] copying pm_robot_calibration/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build/lib/pm_robot_calibration
+[1.913s] copying pm_robot_calibration/pm_robot_calibraion.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build/lib/pm_robot_calibration
+[1.913s] running install
+[1.913s] running install_lib
+[1.914s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages/pm_robot_calibration
+[1.914s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build/lib/pm_robot_calibration/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages/pm_robot_calibration
+[1.914s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build/lib/pm_robot_calibration/pm_robot_calibraion.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages/pm_robot_calibration
+[1.915s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages/pm_robot_calibration/__init__.py to __init__.cpython-310.pyc
+[1.916s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages/pm_robot_calibration/pm_robot_calibraion.py to pm_robot_calibraion.cpython-310.pyc
+[1.932s] running install_data
+[1.932s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/ament_index
+[1.932s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/ament_index/resource_index
+[1.932s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/ament_index/resource_index/packages
+[1.932s] copying resource/pm_robot_calibration -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/ament_index/resource_index/packages
+[1.932s] copying package.xml -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration
+[1.932s] running install_egg_info
+[1.935s] Copying ../build/pm_robot_calibration/pm_robot_calibration.egg-info to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages/pm_robot_calibration-0.0.0-py3.10.egg-info
+[1.936s] running install_scripts
+[1.965s] Installing pm_robot_calibraion script to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/pm_robot_calibration
+[1.965s] writing list of installed files to '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/install.log'
+[1.996s] Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration' returned '0': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_robot_calibration build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/install.log --single-version-externally-managed install_data

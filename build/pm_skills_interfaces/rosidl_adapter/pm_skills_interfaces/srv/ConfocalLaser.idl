@@ -1,0 +1,17 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/ConfocalLaser.srv
+// generated code does not contain a copyright notice
+
+
+module pm_skills_interfaces {
+  module srv {
+    struct ConfocalLaser_Request {
+      string laser;
+    };
+    struct ConfocalLaser_Response {
+      boolean success;
+
+      string result;
+    };
+  };
+};

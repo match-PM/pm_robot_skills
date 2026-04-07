@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "pm_skills_interfaces__py",
+		"source" : "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/pm_skills_interfaces__py"
+	}
+}

@@ -1,0 +1,3 @@
+[console_scripts]
+pm_skills = pm_skills.pm_skills:main
+

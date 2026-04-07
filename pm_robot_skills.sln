@@ -1,0 +1,35 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "build", "build", "{DEE5DD87-39C1-BF34-B639-A387DCCF972B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "pm_skills_interfaces", "pm_skills_interfaces", "{D833271E-53E1-8080-07DB-1DB381D50E89}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "pm_skills_interfaces_assembly", "pm_skills_interfaces_assembly", "{9F1E71B3-117E-902D-34A1-A763E4B3E8B1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "pm_skills_interfaces_assembly_dotnetcore", "build\pm_skills_interfaces\pm_skills_interfaces_assembly\pm_skills_interfaces_assembly_dotnetcore.csproj", "{A48FC805-5E21-884E-6896-14043E82FF24}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A48FC805-5E21-884E-6896-14043E82FF24}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A48FC805-5E21-884E-6896-14043E82FF24}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A48FC805-5E21-884E-6896-14043E82FF24}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A48FC805-5E21-884E-6896-14043E82FF24}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D833271E-53E1-8080-07DB-1DB381D50E89} = {DEE5DD87-39C1-BF34-B639-A387DCCF972B}
+		{9F1E71B3-117E-902D-34A1-A763E4B3E8B1} = {D833271E-53E1-8080-07DB-1DB381D50E89}
+		{A48FC805-5E21-884E-6896-14043E82FF24} = {9F1E71B3-117E-902D-34A1-A763E4B3E8B1}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E5303B68-4733-470C-B43F-1D66D9EB00BB}
+	EndGlobalSection
+EndGlobal

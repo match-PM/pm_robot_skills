@@ -1,0 +1,29 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/CorrectFrameLaser.srv
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Vector3.idl"
+
+module pm_skills_interfaces {
+  module srv {
+    struct CorrectFrameLaser_Request {
+      string frame_name;
+
+      @default (value=FALSE)
+      boolean remeasure_after_correction;
+
+      boolean use_iterative_sensing;
+    };
+    struct CorrectFrameLaser_Response {
+      boolean success;
+
+      geometry_msgs::msg::Vector3 correction_values;
+
+      string message;
+
+      string component_name;
+
+      string component_uuid;
+    };
+  };
+};

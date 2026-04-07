@@ -1,0 +1,7 @@
+
+bool success
+geometry_msgs/Vector3 result_vector
+string message
+pm_vision_interfaces/VisionResponse vision_response
+string component_name
+string component_uuid

@@ -1,0 +1,13 @@
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/ConfocalLaser.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/DispenseAdhesive.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/ExecuteVision.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/VacuumGripper.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/GripComponent.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/PlaceComponent.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/MeasureFrameVision.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/MeasureFrameLaser.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/CorrectFrame.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/CorrectFrameVision.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/CorrectFrameLaser.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/IterativeGonioAlign.idl
+/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_adapter/pm_skills_interfaces:srv/CheckFrameMeasurable.idl

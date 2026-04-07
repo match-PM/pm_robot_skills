@@ -1,0 +1,18 @@
+{
+  "package_name": "pm_skills_interfaces",
+  "non_idl_tuples": [
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/ConfocalLaser.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/DispenseAdhesive.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/ExecuteVision.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/VacuumGripper.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/GripComponent.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/PlaceComponent.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/MeasureFrameVision.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/MeasureFrameLaser.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/CorrectFrame.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/CorrectFrameVision.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/CorrectFrameLaser.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/IterativeGonioAlign.srv",
+    "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces:srv/CheckFrameMeasurable.srv"
+  ]
+}

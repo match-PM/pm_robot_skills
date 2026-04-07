@@ -1,0 +1,2 @@
+string component_name
+bool align_orientation

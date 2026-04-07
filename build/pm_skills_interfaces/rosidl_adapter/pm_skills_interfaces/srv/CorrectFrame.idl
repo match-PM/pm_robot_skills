@@ -1,0 +1,20 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/CorrectFrame.srv
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Vector3.idl"
+
+module pm_skills_interfaces {
+  module srv {
+    struct CorrectFrame_Request {
+      uint8 structure_needs_at_least_one_member;
+    };
+    struct CorrectFrame_Response {
+      boolean success;
+
+      geometry_msgs::msg::Vector3 correction_values;
+
+      string message;
+    };
+  };
+};

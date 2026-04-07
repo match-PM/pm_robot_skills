@@ -1,0 +1,3 @@
+string frame_name
+bool remeasure_after_correction false
+bool use_iterative_sensing 

@@ -1,0 +1,29 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/MeasureFrameVision.srv
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Vector3.idl"
+#include "pm_vision_interfaces/msg/VisionResponse.idl"
+
+module pm_skills_interfaces {
+  module srv {
+    struct MeasureFrameVision_Request {
+      string frame_name;
+
+      string vision_process_file_name;
+    };
+    struct MeasureFrameVision_Response {
+      boolean success;
+
+      geometry_msgs::msg::Vector3 result_vector;
+
+      string message;
+
+      pm_vision_interfaces::msg::VisionResponse vision_response;
+
+      string component_name;
+
+      string component_uuid;
+    };
+  };
+};

@@ -1,0 +1,51 @@
+[0.749s] Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills': AMENT_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/install.log --single-version-externally-managed install_data
+[1.049s] running egg_info
+[1.049s] creating ../build/pm_skills/pm_skills.egg-info
+[1.050s] writing ../build/pm_skills/pm_skills.egg-info/PKG-INFO
+[1.050s] writing dependency_links to ../build/pm_skills/pm_skills.egg-info/dependency_links.txt
+[1.050s] writing entry points to ../build/pm_skills/pm_skills.egg-info/entry_points.txt
+[1.050s] writing requirements to ../build/pm_skills/pm_skills.egg-info/requires.txt
+[1.050s] writing top-level names to ../build/pm_skills/pm_skills.egg-info/top_level.txt
+[1.050s] writing manifest file '../build/pm_skills/pm_skills.egg-info/SOURCES.txt'
+[1.052s] reading manifest file '../build/pm_skills/pm_skills.egg-info/SOURCES.txt'
+[1.052s] writing manifest file '../build/pm_skills/pm_skills.egg-info/SOURCES.txt'
+[1.053s] running build
+[1.053s] running build_py
+[1.053s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build
+[1.053s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib
+[1.053s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills
+[1.053s] copying pm_skills/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills
+[1.053s] copying pm_skills/test.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills
+[1.053s] copying pm_skills/test1.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills
+[1.053s] copying pm_skills/pm_skills.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills
+[1.054s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/py_modules
+[1.054s] copying pm_skills/py_modules/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/py_modules
+[1.054s] copying pm_skills/py_modules/PmRobotUtils.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/py_modules
+[1.054s] running install
+[1.054s] running install_lib
+[1.055s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills
+[1.055s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills
+[1.055s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/test.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills
+[1.055s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/test1.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills
+[1.055s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/pm_skills.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills
+[1.056s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/py_modules
+[1.056s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/py_modules/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/py_modules
+[1.056s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build/lib/pm_skills/py_modules/PmRobotUtils.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/py_modules
+[1.057s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/__init__.py to __init__.cpython-310.pyc
+[1.057s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/test.py to test.cpython-310.pyc
+[1.058s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/test1.py to test1.cpython-310.pyc
+[1.058s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/pm_skills.py to pm_skills.cpython-310.pyc
+[1.069s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/py_modules/__init__.py to __init__.cpython-310.pyc
+[1.069s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills/py_modules/PmRobotUtils.py to PmRobotUtils.cpython-310.pyc
+[1.073s] running install_data
+[1.073s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/ament_index
+[1.073s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/ament_index/resource_index
+[1.073s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/ament_index/resource_index/packages
+[1.073s] copying resource/pm_skills -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/ament_index/resource_index/packages
+[1.073s] copying package.xml -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills
+[1.073s] running install_egg_info
+[1.075s] Copying ../build/pm_skills/pm_skills.egg-info to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages/pm_skills-0.0.0-py3.10.egg-info
+[1.076s] running install_scripts
+[1.096s] Installing pm_skills script to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/pm_skills
+[1.096s] writing list of installed files to '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/install.log'
+[1.125s] Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills' returned '0': AMENT_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/install.log --single-version-externally-managed install_data

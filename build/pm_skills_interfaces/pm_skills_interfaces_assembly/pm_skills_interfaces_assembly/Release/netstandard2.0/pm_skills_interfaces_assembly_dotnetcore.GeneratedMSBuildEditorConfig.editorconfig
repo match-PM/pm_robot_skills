@@ -1,0 +1,3 @@
+is_global = true
+build_property.RootNamespace = pm_skills_interfaces_assembly_dotnetcore
+build_property.ProjectDir = /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/pm_skills_interfaces_assembly/

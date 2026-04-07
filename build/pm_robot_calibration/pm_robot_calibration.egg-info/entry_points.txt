@@ -1,0 +1,3 @@
+[console_scripts]
+pm_robot_calibraion = pm_robot_calibration.pm_robot_calibraion:main
+

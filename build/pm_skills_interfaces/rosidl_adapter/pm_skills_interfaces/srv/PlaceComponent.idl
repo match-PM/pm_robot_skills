@@ -1,0 +1,29 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/PlaceComponent.srv
+// generated code does not contain a copyright notice
+
+
+module pm_skills_interfaces {
+  module srv {
+    struct PlaceComponent_Request {
+      boolean align_orientation;
+
+      float x_offset_um;
+
+      float y_offset_um;
+
+      float z_offset_um;
+
+      float rx_offset_deg;
+
+      float ry_offset_deg;
+
+      float rz_offset_deg;
+    };
+    struct PlaceComponent_Response {
+      boolean success;
+
+      string message;
+    };
+  };
+};

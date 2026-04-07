@@ -1,0 +1,16 @@
+package.xml
+setup.cfg
+setup.py
+../build/pm_vision_skills/pm_vision_skills.egg-info/PKG-INFO
+../build/pm_vision_skills/pm_vision_skills.egg-info/SOURCES.txt
+../build/pm_vision_skills/pm_vision_skills.egg-info/dependency_links.txt
+../build/pm_vision_skills/pm_vision_skills.egg-info/entry_points.txt
+../build/pm_vision_skills/pm_vision_skills.egg-info/requires.txt
+../build/pm_vision_skills/pm_vision_skills.egg-info/top_level.txt
+../build/pm_vision_skills/pm_vision_skills.egg-info/zip-safe
+pm_vision_skills/__init__.py
+pm_vision_skills/pm_vision_skills.py
+resource/pm_vision_skills
+test/test_copyright.py
+test/test_flake8.py
+test/test_pep257.py

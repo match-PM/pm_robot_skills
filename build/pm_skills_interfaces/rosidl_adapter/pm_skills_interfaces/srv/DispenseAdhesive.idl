@@ -1,0 +1,19 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/DispenseAdhesive.srv
+// generated code does not contain a copyright notice
+
+
+module pm_skills_interfaces {
+  module srv {
+    struct DispenseAdhesive_Request {
+      string dispenser;
+
+      float dispense_time;
+    };
+    struct DispenseAdhesive_Response {
+      boolean success;
+
+      string message;
+    };
+  };
+};

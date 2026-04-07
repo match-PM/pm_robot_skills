@@ -1,0 +1,24 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from pm_skills_interfaces/srv/MeasureFrameLaser.srv
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Vector3.idl"
+
+module pm_skills_interfaces {
+  module srv {
+    struct MeasureFrameLaser_Request {
+      string frame_name;
+    };
+    struct MeasureFrameLaser_Response {
+      boolean success;
+
+      geometry_msgs::msg::Vector3 result_vector;
+
+      string message;
+
+      string component_name;
+
+      string component_uuid;
+    };
+  };
+};

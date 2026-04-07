@@ -1,0 +1,35 @@
+running egg_info
+creating ../build/pm_vision_skills/pm_vision_skills.egg-info
+writing ../build/pm_vision_skills/pm_vision_skills.egg-info/PKG-INFO
+writing dependency_links to ../build/pm_vision_skills/pm_vision_skills.egg-info/dependency_links.txt
+writing entry points to ../build/pm_vision_skills/pm_vision_skills.egg-info/entry_points.txt
+writing requirements to ../build/pm_vision_skills/pm_vision_skills.egg-info/requires.txt
+writing top-level names to ../build/pm_vision_skills/pm_vision_skills.egg-info/top_level.txt
+writing manifest file '../build/pm_vision_skills/pm_vision_skills.egg-info/SOURCES.txt'
+reading manifest file '../build/pm_vision_skills/pm_vision_skills.egg-info/SOURCES.txt'
+writing manifest file '../build/pm_vision_skills/pm_vision_skills.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build/lib
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build/lib/pm_vision_skills
+copying pm_vision_skills/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build/lib/pm_vision_skills
+copying pm_vision_skills/pm_vision_skills.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build/lib/pm_vision_skills
+running install
+running install_lib
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages/pm_vision_skills
+copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build/lib/pm_vision_skills/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages/pm_vision_skills
+copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build/lib/pm_vision_skills/pm_vision_skills.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages/pm_vision_skills
+byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages/pm_vision_skills/__init__.py to __init__.cpython-310.pyc
+byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages/pm_vision_skills/pm_vision_skills.py to pm_vision_skills.cpython-310.pyc
+running install_data
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/ament_index
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/ament_index/resource_index
+creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/ament_index/resource_index/packages
+copying resource/pm_vision_skills -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/ament_index/resource_index/packages
+copying package.xml -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills
+running install_egg_info
+Copying ../build/pm_vision_skills/pm_vision_skills.egg-info to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages/pm_vision_skills-0.0.0-py3.10.egg-info
+running install_scripts
+Installing pm_vision_skills script to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/pm_vision_skills
+writing list of installed files to '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/install.log'

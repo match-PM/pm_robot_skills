@@ -1,0 +1,4 @@
+bool activate_vacuum
+---
+bool success
+string message

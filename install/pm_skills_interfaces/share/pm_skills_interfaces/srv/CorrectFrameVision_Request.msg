@@ -1,0 +1,2 @@
+string frame_name
+bool remeasure_after_correction false

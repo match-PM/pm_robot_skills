@@ -1,0 +1,35 @@
+[1.487s] Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_launch_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/install.log --single-version-externally-managed install_data
+[1.788s] running egg_info
+[1.791s] creating ../build/pm_launch_skills/pm_launch_skills.egg-info
+[1.791s] writing ../build/pm_launch_skills/pm_launch_skills.egg-info/PKG-INFO
+[1.791s] writing dependency_links to ../build/pm_launch_skills/pm_launch_skills.egg-info/dependency_links.txt
+[1.791s] writing entry points to ../build/pm_launch_skills/pm_launch_skills.egg-info/entry_points.txt
+[1.791s] writing requirements to ../build/pm_launch_skills/pm_launch_skills.egg-info/requires.txt
+[1.791s] writing top-level names to ../build/pm_launch_skills/pm_launch_skills.egg-info/top_level.txt
+[1.791s] writing manifest file '../build/pm_launch_skills/pm_launch_skills.egg-info/SOURCES.txt'
+[1.792s] reading manifest file '../build/pm_launch_skills/pm_launch_skills.egg-info/SOURCES.txt'
+[1.793s] writing manifest file '../build/pm_launch_skills/pm_launch_skills.egg-info/SOURCES.txt'
+[1.793s] running build
+[1.793s] running build_py
+[1.793s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build
+[1.793s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build/lib
+[1.794s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build/lib/pm_launch_skills
+[1.794s] copying pm_launch_skills/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build/lib/pm_launch_skills
+[1.794s] running install
+[1.794s] running install_lib
+[1.795s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages/pm_launch_skills
+[1.795s] copying /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build/lib/pm_launch_skills/__init__.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages/pm_launch_skills
+[1.796s] byte-compiling /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages/pm_launch_skills/__init__.py to __init__.cpython-310.pyc
+[1.796s] running install_data
+[1.796s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/ament_index
+[1.797s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/ament_index/resource_index
+[1.797s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/ament_index/resource_index/packages
+[1.797s] copying resource/pm_launch_skills -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/ament_index/resource_index/packages
+[1.797s] copying package.xml -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills
+[1.797s] creating /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/launch
+[1.797s] copying launch/pm_skills.launch.py -> /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/launch
+[1.797s] running install_egg_info
+[1.801s] Copying ../build/pm_launch_skills/pm_launch_skills.egg-info to /home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages/pm_launch_skills-0.0.0-py3.10.egg-info
+[1.801s] running install_scripts
+[1.828s] writing list of installed files to '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/install.log'
+[1.858s] Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills' returned '0': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_launch_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/install.log --single-version-externally-managed install_data

@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup Condition="$(MSBuildProjectName.Contains('dotnetcore'))">
+    <BaseIntermediateOutputPath>pm_skills_interfaces_assembly\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

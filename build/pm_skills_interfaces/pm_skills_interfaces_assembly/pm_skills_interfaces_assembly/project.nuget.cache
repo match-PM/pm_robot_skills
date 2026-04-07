@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "G1ZwHScI3c4E++cj0hriwrmBbWa0U4JpiAE5oqF50eC2iu4PURomkctkIWoLxBNl2q2wRQLBHCVVDDbS/vkz6A==",
+  "success": true,
+  "projectFilePath": "/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/pm_skills_interfaces_assembly/pm_skills_interfaces_assembly_dotnetcore.csproj",
+  "expectedPackageFiles": [
+    "/home/match-pm/.nuget/packages/microsoft.netcore.platforms/1.1.0/microsoft.netcore.platforms.1.1.0.nupkg.sha512",
+    "/home/match-pm/.nuget/packages/netstandard.library/2.0.3/netstandard.library.2.0.3.nupkg.sha512"
+  ],
+  "logs": []
+}

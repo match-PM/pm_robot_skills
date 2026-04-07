@@ -1,0 +1,338 @@
+[0.122s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build']
+[0.122s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=16, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x7fdf9bbb47f0>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x7fdf9bbb4280>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x7fdf9bbb4280>>, mixin_verb=('build',))
+[0.327s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.327s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.327s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.327s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.327s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.327s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.327s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills'
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.328s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.345s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extensions ['ignore', 'ignore_ament_install']
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extension 'ignore'
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extension 'ignore_ament_install'
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extensions ['colcon_pkg']
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extension 'colcon_pkg'
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extensions ['colcon_meta']
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extension 'colcon_meta'
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extensions ['ros']
+[0.346s] Level 1:colcon.colcon_core.package_identification:_identify(pm_launch_skills) by extension 'ros'
+[0.348s] DEBUG:colcon.colcon_core.package_identification:Package 'pm_launch_skills' with type 'ros.ament_python' and name 'pm_launch_skills'
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extensions ['ignore', 'ignore_ament_install']
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extension 'ignore'
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extension 'ignore_ament_install'
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extensions ['colcon_pkg']
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extension 'colcon_pkg'
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extensions ['colcon_meta']
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extension 'colcon_meta'
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extensions ['ros']
+[0.348s] Level 1:colcon.colcon_core.package_identification:_identify(pm_robot_calibration) by extension 'ros'
+[0.349s] DEBUG:colcon.colcon_core.package_identification:Package 'pm_robot_calibration' with type 'ros.ament_python' and name 'pm_robot_calibration'
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extensions ['ignore', 'ignore_ament_install']
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extension 'ignore'
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extension 'ignore_ament_install'
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extensions ['colcon_pkg']
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extension 'colcon_pkg'
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extensions ['colcon_meta']
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extension 'colcon_meta'
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extensions ['ros']
+[0.349s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills) by extension 'ros'
+[0.350s] DEBUG:colcon.colcon_core.package_identification:Package 'pm_skills' with type 'ros.ament_python' and name 'pm_skills'
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extensions ['ignore', 'ignore_ament_install']
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extension 'ignore'
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extension 'ignore_ament_install'
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extensions ['colcon_pkg']
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extension 'colcon_pkg'
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extensions ['colcon_meta']
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extension 'colcon_meta'
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extensions ['ros']
+[0.350s] Level 1:colcon.colcon_core.package_identification:_identify(pm_skills_interfaces) by extension 'ros'
+[0.351s] DEBUG:colcon.colcon_core.package_identification:Package 'pm_skills_interfaces' with type 'ros.ament_cmake' and name 'pm_skills_interfaces'
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extensions ['ignore', 'ignore_ament_install']
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extension 'ignore'
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extension 'ignore_ament_install'
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extensions ['colcon_pkg']
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extension 'colcon_pkg'
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extensions ['colcon_meta']
+[0.351s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extension 'colcon_meta'
+[0.352s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extensions ['ros']
+[0.352s] Level 1:colcon.colcon_core.package_identification:_identify(pm_vision_skills) by extension 'ros'
+[0.352s] DEBUG:colcon.colcon_core.package_identification:Package 'pm_vision_skills' with type 'ros.ament_python' and name 'pm_vision_skills'
+[0.352s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.352s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.352s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.352s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.352s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.371s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) check parameters
+[0.371s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) discover
+[0.375s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 52 installed packages in /home/match-pm/Documents/ros2-for-unity/install
+[0.376s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 44 installed packages in /home/match-pm/ros2_ws_pm/install
+[0.378s] DEBUG:colcon.colcon_installed_package_information.package_discovery:Found 427 installed packages in /opt/ros/humble
+[0.382s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) using defaults
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'cmake_args' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'cmake_target' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'cmake_clean_cache' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'cmake_clean_first' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'cmake_force_configure' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'ament_cmake_args' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'catkin_cmake_args' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_launch_skills' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.430s] DEBUG:colcon.colcon_core.verb:Building package 'pm_launch_skills' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills', 'merge_install': False, 'path': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills', 'symlink_install': False, 'test_result_base': None}
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'cmake_args' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'cmake_target' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'cmake_clean_cache' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'cmake_clean_first' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'cmake_force_configure' from command line to 'False'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'ament_cmake_args' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'catkin_cmake_args' from command line to 'None'
+[0.430s] Level 5:colcon.colcon_core.verb:set package 'pm_robot_calibration' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.430s] DEBUG:colcon.colcon_core.verb:Building package 'pm_robot_calibration' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration', 'merge_install': False, 'path': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration', 'symlink_install': False, 'test_result_base': None}
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'cmake_args' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'cmake_target' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'cmake_clean_cache' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'cmake_clean_first' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'cmake_force_configure' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'ament_cmake_args' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'catkin_cmake_args' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_skills_interfaces' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.431s] DEBUG:colcon.colcon_core.verb:Building package 'pm_skills_interfaces' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces', 'merge_install': False, 'path': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces', 'symlink_install': False, 'test_result_base': None}
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'cmake_args' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'cmake_target' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'cmake_clean_cache' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'cmake_clean_first' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'cmake_force_configure' from command line to 'False'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'ament_cmake_args' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'catkin_cmake_args' from command line to 'None'
+[0.431s] Level 5:colcon.colcon_core.verb:set package 'pm_vision_skills' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.431s] DEBUG:colcon.colcon_core.verb:Building package 'pm_vision_skills' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills', 'merge_install': False, 'path': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_vision_skills', 'symlink_install': False, 'test_result_base': None}
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'cmake_args' from command line to 'None'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'cmake_target' from command line to 'None'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'cmake_clean_cache' from command line to 'False'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'cmake_clean_first' from command line to 'False'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'cmake_force_configure' from command line to 'False'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'ament_cmake_args' from command line to 'None'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'catkin_cmake_args' from command line to 'None'
+[0.432s] Level 5:colcon.colcon_core.verb:set package 'pm_skills' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.432s] DEBUG:colcon.colcon_core.verb:Building package 'pm_skills' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills', 'merge_install': False, 'path': '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills', 'symlink_install': False, 'test_result_base': None}
+[0.432s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.433s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.433s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces' with build type 'ament_cmake'
+[0.433s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces'
+[0.435s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.435s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.435s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.442s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills' with build type 'ament_python'
+[0.442s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_launch_skills', 'ament_prefix_path')
+[0.442s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/hook/ament_prefix_path.ps1'
+[0.443s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/hook/ament_prefix_path.dsv'
+[0.444s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/hook/ament_prefix_path.sh'
+[0.444s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.444s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.452s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration' with build type 'ament_python'
+[0.452s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_robot_calibration', 'ament_prefix_path')
+[0.453s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/hook/ament_prefix_path.ps1'
+[0.454s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/hook/ament_prefix_path.dsv'
+[0.454s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/hook/ament_prefix_path.sh'
+[0.455s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.455s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.466s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_vision_skills' with build type 'ament_python'
+[0.466s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_vision_skills', 'ament_prefix_path')
+[0.466s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/hook/ament_prefix_path.ps1'
+[0.467s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/hook/ament_prefix_path.dsv'
+[0.468s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/hook/ament_prefix_path.sh'
+[0.468s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.468s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.481s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/match-pm/ros2_ws_pm/install/ros_sequential_action_programmer:/home/match-pm/ros2_ws_pm/install/pneumatic_controller_listener:/home/match-pm/ros2_ws_pm/install/pm_vision_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_manager:/home/match-pm/ros2_ws_pm/install/pm_skills:/home/match-pm/ros2_ws_pm/install/pm_launch_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_app:/home/match-pm/ros2_ws_pm/install/pm_tf_viewer:/home/match-pm/ros2_ws_pm/install/pm_robot_primitive_skills:/home/match-pm/ros2_ws_pm/install/pm_robot_modules:/home/match-pm/ros2_ws_pm/install/pm_robot_control_test:/home/match-pm/ros2_ws_pm/install/pm_robot_dashboard:/home/match-pm/ros2_ws_pm/install/pm_robot_calibration:/home/match-pm/ros2_ws_pm/install/pm_adhesive_displayer:/home/match-pm/ros2_ws_pm/install/gonio_orientation_solver:/home/match-pm/ros2_ws_pm/install/assembly_scene_viewer:/home/match-pm/ros2_ws_pm/install/assembly_scene_publisher:/home/match-pm/ros2_ws_pm/install/assembly_manager:/opt/ros/humble /usr/bin/cmake /home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces -DCMAKE_INSTALL_PREFIX=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces
+[0.856s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills'
+[0.856s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.857s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.184s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration'
+[1.185s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.185s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.488s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_vision_skills'
+[1.488s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.488s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.929s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_launch_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/install.log --single-version-externally-managed install_data
+[1.958s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_vision_skills': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_vision_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/install.log --single-version-externally-managed install_data
+[1.989s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_robot_calibration build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/install.log --single-version-externally-managed install_data
+[2.301s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_launch_skills' returned '0': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_launch_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_launch_skills/install.log --single-version-externally-managed install_data
+[2.304s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills' for CMake module files
+[2.304s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills' for CMake config files
+[2.305s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib'
+[2.305s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/bin'
+[2.305s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/pkgconfig/pm_launch_skills.pc'
+[2.305s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/lib/python3.10/site-packages'
+[2.305s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_launch_skills', 'pythonpath')
+[2.306s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/hook/pythonpath.ps1'
+[2.306s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/hook/pythonpath.dsv'
+[2.306s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/hook/pythonpath.sh'
+[2.307s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/bin'
+[2.307s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(pm_launch_skills)
+[2.307s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/package.ps1'
+[2.308s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/package.dsv'
+[2.308s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/package.sh'
+[2.309s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/package.bash'
+[2.310s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/pm_launch_skills/package.zsh'
+[2.310s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_launch_skills/share/colcon-core/packages/pm_launch_skills)
+[2.326s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills' for CMake module files
+[2.327s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_vision_skills' returned '0': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_vision_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_vision_skills/install.log --single-version-externally-managed install_data
+[2.327s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills' for CMake config files
+[2.327s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib'
+[2.327s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/bin'
+[2.327s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/pkgconfig/pm_vision_skills.pc'
+[2.328s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/lib/python3.10/site-packages'
+[2.328s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_vision_skills', 'pythonpath')
+[2.328s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/hook/pythonpath.ps1'
+[2.328s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/hook/pythonpath.dsv'
+[2.328s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/hook/pythonpath.sh'
+[2.329s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/bin'
+[2.329s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(pm_vision_skills)
+[2.329s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/package.ps1'
+[2.330s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/package.dsv'
+[2.330s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/package.sh'
+[2.330s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/package.bash'
+[2.331s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/pm_vision_skills/package.zsh'
+[2.331s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_vision_skills/share/colcon-core/packages/pm_vision_skills)
+[2.448s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration' for CMake module files
+[2.448s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_robot_calibration' returned '0': PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_robot_calibration build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_robot_calibration/install.log --single-version-externally-managed install_data
+[2.449s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration' for CMake config files
+[2.449s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib'
+[2.449s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/bin'
+[2.450s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/pkgconfig/pm_robot_calibration.pc'
+[2.450s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/lib/python3.10/site-packages'
+[2.450s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_robot_calibration', 'pythonpath')
+[2.450s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/hook/pythonpath.ps1'
+[2.451s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/hook/pythonpath.dsv'
+[2.451s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/hook/pythonpath.sh'
+[2.451s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/bin'
+[2.452s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(pm_robot_calibration)
+[2.452s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/package.ps1'
+[2.452s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/package.dsv'
+[2.453s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/package.sh'
+[2.453s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/package.bash'
+[2.453s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/pm_robot_calibration/package.zsh'
+[2.454s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_robot_calibration/share/colcon-core/packages/pm_robot_calibration)
+[4.217s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/match-pm/ros2_ws_pm/install/ros_sequential_action_programmer:/home/match-pm/ros2_ws_pm/install/pneumatic_controller_listener:/home/match-pm/ros2_ws_pm/install/pm_vision_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_manager:/home/match-pm/ros2_ws_pm/install/pm_skills:/home/match-pm/ros2_ws_pm/install/pm_launch_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_app:/home/match-pm/ros2_ws_pm/install/pm_tf_viewer:/home/match-pm/ros2_ws_pm/install/pm_robot_primitive_skills:/home/match-pm/ros2_ws_pm/install/pm_robot_modules:/home/match-pm/ros2_ws_pm/install/pm_robot_control_test:/home/match-pm/ros2_ws_pm/install/pm_robot_dashboard:/home/match-pm/ros2_ws_pm/install/pm_robot_calibration:/home/match-pm/ros2_ws_pm/install/pm_adhesive_displayer:/home/match-pm/ros2_ws_pm/install/gonio_orientation_solver:/home/match-pm/ros2_ws_pm/install/assembly_scene_viewer:/home/match-pm/ros2_ws_pm/install/assembly_scene_publisher:/home/match-pm/ros2_ws_pm/install/assembly_manager:/opt/ros/humble /usr/bin/cmake /home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills_interfaces -DCMAKE_INSTALL_PREFIX=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces
+[4.219s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/match-pm/ros2_ws_pm/install/ros_sequential_action_programmer:/home/match-pm/ros2_ws_pm/install/pneumatic_controller_listener:/home/match-pm/ros2_ws_pm/install/pm_vision_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_manager:/home/match-pm/ros2_ws_pm/install/pm_skills:/home/match-pm/ros2_ws_pm/install/pm_launch_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_app:/home/match-pm/ros2_ws_pm/install/pm_tf_viewer:/home/match-pm/ros2_ws_pm/install/pm_robot_primitive_skills:/home/match-pm/ros2_ws_pm/install/pm_robot_modules:/home/match-pm/ros2_ws_pm/install/pm_robot_control_test:/home/match-pm/ros2_ws_pm/install/pm_robot_dashboard:/home/match-pm/ros2_ws_pm/install/pm_robot_calibration:/home/match-pm/ros2_ws_pm/install/pm_adhesive_displayer:/home/match-pm/ros2_ws_pm/install/gonio_orientation_solver:/home/match-pm/ros2_ws_pm/install/assembly_scene_viewer:/home/match-pm/ros2_ws_pm/install/assembly_scene_publisher:/home/match-pm/ros2_ws_pm/install/assembly_manager:/opt/ros/humble /usr/bin/cmake --build /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces -- -j16 -l16
+[17.064s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/match-pm/ros2_ws_pm/install/ros_sequential_action_programmer:/home/match-pm/ros2_ws_pm/install/pneumatic_controller_listener:/home/match-pm/ros2_ws_pm/install/pm_vision_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_manager:/home/match-pm/ros2_ws_pm/install/pm_skills:/home/match-pm/ros2_ws_pm/install/pm_launch_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_app:/home/match-pm/ros2_ws_pm/install/pm_tf_viewer:/home/match-pm/ros2_ws_pm/install/pm_robot_primitive_skills:/home/match-pm/ros2_ws_pm/install/pm_robot_modules:/home/match-pm/ros2_ws_pm/install/pm_robot_control_test:/home/match-pm/ros2_ws_pm/install/pm_robot_dashboard:/home/match-pm/ros2_ws_pm/install/pm_robot_calibration:/home/match-pm/ros2_ws_pm/install/pm_adhesive_displayer:/home/match-pm/ros2_ws_pm/install/gonio_orientation_solver:/home/match-pm/ros2_ws_pm/install/assembly_scene_viewer:/home/match-pm/ros2_ws_pm/install/assembly_scene_publisher:/home/match-pm/ros2_ws_pm/install/assembly_manager:/opt/ros/humble /usr/bin/cmake --build /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces -- -j16 -l16
+[17.078s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/match-pm/ros2_ws_pm/install/ros_sequential_action_programmer:/home/match-pm/ros2_ws_pm/install/pneumatic_controller_listener:/home/match-pm/ros2_ws_pm/install/pm_vision_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_manager:/home/match-pm/ros2_ws_pm/install/pm_skills:/home/match-pm/ros2_ws_pm/install/pm_launch_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_app:/home/match-pm/ros2_ws_pm/install/pm_tf_viewer:/home/match-pm/ros2_ws_pm/install/pm_robot_primitive_skills:/home/match-pm/ros2_ws_pm/install/pm_robot_modules:/home/match-pm/ros2_ws_pm/install/pm_robot_control_test:/home/match-pm/ros2_ws_pm/install/pm_robot_dashboard:/home/match-pm/ros2_ws_pm/install/pm_robot_calibration:/home/match-pm/ros2_ws_pm/install/pm_adhesive_displayer:/home/match-pm/ros2_ws_pm/install/gonio_orientation_solver:/home/match-pm/ros2_ws_pm/install/assembly_scene_viewer:/home/match-pm/ros2_ws_pm/install/assembly_scene_publisher:/home/match-pm/ros2_ws_pm/install/assembly_manager:/opt/ros/humble /usr/bin/cmake --install /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces
+[17.279s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(pm_skills_interfaces)
+[17.280s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces' for CMake module files
+[17.281s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/match-pm/ros2_ws_pm/install/ros_sequential_action_programmer:/home/match-pm/ros2_ws_pm/install/pneumatic_controller_listener:/home/match-pm/ros2_ws_pm/install/pm_vision_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_manager:/home/match-pm/ros2_ws_pm/install/pm_skills:/home/match-pm/ros2_ws_pm/install/pm_launch_skills:/home/match-pm/ros2_ws_pm/install/pm_vision_app:/home/match-pm/ros2_ws_pm/install/pm_tf_viewer:/home/match-pm/ros2_ws_pm/install/pm_robot_primitive_skills:/home/match-pm/ros2_ws_pm/install/pm_robot_modules:/home/match-pm/ros2_ws_pm/install/pm_robot_control_test:/home/match-pm/ros2_ws_pm/install/pm_robot_dashboard:/home/match-pm/ros2_ws_pm/install/pm_robot_calibration:/home/match-pm/ros2_ws_pm/install/pm_adhesive_displayer:/home/match-pm/ros2_ws_pm/install/gonio_orientation_solver:/home/match-pm/ros2_ws_pm/install/assembly_scene_viewer:/home/match-pm/ros2_ws_pm/install/assembly_scene_publisher:/home/match-pm/ros2_ws_pm/install/assembly_manager:/opt/ros/humble /usr/bin/cmake --install /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces
+[17.281s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces' for CMake config files
+[17.282s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_skills_interfaces', 'cmake_prefix_path')
+[17.282s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/cmake_prefix_path.ps1'
+[17.283s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/cmake_prefix_path.dsv'
+[17.283s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/cmake_prefix_path.sh'
+[17.284s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib'
+[17.284s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_skills_interfaces', 'ld_library_path_lib')
+[17.284s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/ld_library_path_lib.ps1'
+[17.284s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/ld_library_path_lib.dsv'
+[17.285s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/ld_library_path_lib.sh'
+[17.285s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/bin'
+[17.285s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib/pkgconfig/pm_skills_interfaces.pc'
+[17.285s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib/python3.10/site-packages'
+[17.285s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/bin'
+[17.286s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.ps1'
+[17.286s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.dsv'
+[17.286s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.sh'
+[17.286s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.bash'
+[17.287s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.zsh'
+[17.287s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/colcon-core/packages/pm_skills_interfaces)
+[17.288s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(pm_skills_interfaces)
+[17.288s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces' for CMake module files
+[17.289s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces' for CMake config files
+[17.289s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_skills_interfaces', 'cmake_prefix_path')
+[17.289s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/cmake_prefix_path.ps1'
+[17.290s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/cmake_prefix_path.dsv'
+[17.290s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/cmake_prefix_path.sh'
+[17.290s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib'
+[17.290s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_skills_interfaces', 'ld_library_path_lib')
+[17.291s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/ld_library_path_lib.ps1'
+[17.291s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/ld_library_path_lib.dsv'
+[17.291s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/hook/ld_library_path_lib.sh'
+[17.292s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/bin'
+[17.292s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib/pkgconfig/pm_skills_interfaces.pc'
+[17.292s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib/python3.10/site-packages'
+[17.292s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/bin'
+[17.292s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.ps1'
+[17.293s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.dsv'
+[17.293s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.sh'
+[17.294s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.bash'
+[17.294s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/pm_skills_interfaces/package.zsh'
+[17.294s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/share/colcon-core/packages/pm_skills_interfaces)
+[17.295s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills' with build type 'ament_python'
+[17.295s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_skills', 'ament_prefix_path')
+[17.295s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/hook/ament_prefix_path.ps1'
+[17.296s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/hook/ament_prefix_path.dsv'
+[17.296s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/hook/ament_prefix_path.sh'
+[17.296s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[17.296s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[17.612s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills'
+[17.613s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[17.613s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[18.045s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills': AMENT_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/install.log --single-version-externally-managed install_data
+[18.420s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills' for CMake module files
+[18.421s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/pm_skills' returned '0': AMENT_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages:/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills_interfaces/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/pm_skills build --build-base /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/build install --record /home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills/install.log --single-version-externally-managed install_data
+[18.421s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills' for CMake config files
+[18.422s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib'
+[18.422s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/bin'
+[18.422s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/pkgconfig/pm_skills.pc'
+[18.422s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/lib/python3.10/site-packages'
+[18.422s] Level 1:colcon.colcon_core.shell:create_environment_hook('pm_skills', 'pythonpath')
+[18.423s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/hook/pythonpath.ps1'
+[18.423s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/hook/pythonpath.dsv'
+[18.423s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/hook/pythonpath.sh'
+[18.424s] Level 1:colcon.colcon_core.environment:checking '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/bin'
+[18.424s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(pm_skills)
+[18.424s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/package.ps1'
+[18.424s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/package.dsv'
+[18.425s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/package.sh'
+[18.425s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/package.bash'
+[18.425s] INFO:colcon.colcon_core.shell:Creating package script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/pm_skills/package.zsh'
+[18.425s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/pm_skills/share/colcon-core/packages/pm_skills)
+[18.426s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[18.426s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[18.426s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[18.426s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[18.431s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[18.431s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[18.431s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[18.439s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[18.440s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/local_setup.ps1'
+[18.441s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/_local_setup_util_ps1.py'
+[18.442s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/setup.ps1'
+[18.445s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/local_setup.sh'
+[18.445s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/_local_setup_util_sh.py'
+[18.445s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/setup.sh'
+[18.448s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/local_setup.bash'
+[18.448s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/setup.bash'
+[18.450s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/local_setup.zsh'
+[18.451s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/match-pm/ros2_ws_pm/src/pm_robot_skills/install/setup.zsh'

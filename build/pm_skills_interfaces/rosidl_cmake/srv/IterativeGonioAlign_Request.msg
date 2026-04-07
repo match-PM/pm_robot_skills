@@ -1,0 +1,5 @@
+bool confocal_laser
+string target_alignment_frame
+string gonio_endeffector_frame
+int32 num_iterations
+string[] frames_to_measure

@@ -24,6 +24,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlaceComponent.srv"
   "srv/MeasureFrameVision.srv"
   "srv/MeasureFrameLaser.srv"
+  "srv/CorrectFrame.srv"
   "srv/CorrectFrameVision.srv"
   "srv/CorrectFrameLaser.srv"
   "srv/IterativeGonioAlign.srv"

@@ -1,0 +1,6 @@
+
+bool success
+geometry_msgs/Vector3 correction_values
+string message
+string component_name
+string component_uuid

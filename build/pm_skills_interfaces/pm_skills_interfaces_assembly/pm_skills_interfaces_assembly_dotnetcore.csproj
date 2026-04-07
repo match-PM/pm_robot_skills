@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+   <TargetFramework>netstandard2.0</TargetFramework>
+   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+   <OutputType>library</OutputType>
+   <OutputPath>/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/</OutputPath>
+   <AssemblyName>pm_skills_interfaces_assembly</AssemblyName>
+   <Configuration>Release</Configuration>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/confocal_laser.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/dispense_adhesive.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/execute_vision.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/vacuum_gripper.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/grip_component.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/place_component.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/measure_frame_vision.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/measure_frame_laser.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/correct_frame.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/correct_frame_vision.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/correct_frame_laser.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/iterative_gonio_align.cs" /> <Compile Include="/home/match-pm/ros2_ws_pm/src/pm_robot_skills/build/pm_skills_interfaces/rosidl_generator_cs/pm_skills_interfaces/srv/check_frame_measurable.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="/home/match-pm/Documents/ros2-for-unity/install/lib/dotnet/ros2cs_common.dll" /> <Reference Include="/home/match-pm/Documents/ros2-for-unity/install/lib/dotnet/geometry_msgs_assembly.dll" /> <Reference Include="/home/match-pm/Documents/ros2-for-unity/install/lib/dotnet/std_msgs_assembly.dll" /> <Reference Include="/home/match-pm/ros2_ws_pm/install/pm_vision_interfaces/lib/dotnet/pm_vision_interfaces_assembly.dll" />
+  </ItemGroup>
+
+   <ItemGroup>
+    
+  </ItemGroup>
+
+  <PropertyGroup>
+     <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
+     <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+     <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+     <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
+     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
+  </PropertyGroup>
+</Project>

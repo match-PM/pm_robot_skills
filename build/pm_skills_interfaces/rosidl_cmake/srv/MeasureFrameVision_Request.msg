@@ -1,0 +1,2 @@
+string frame_name
+string vision_process_file_name
