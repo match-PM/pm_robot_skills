@@ -272,11 +272,13 @@ class PmSkills(Node):
             align_request.endeffector_frame_override = request.component_alignment_frame
             align_request.target_frame = request.target_alignment_frame
 
+            log_message = {}
             iterations = request.num_iterations
 
             initial_approach = True
             for iter in range(iterations):
-                self.logger.info(f"STARTING RUN '{iter}/{iterations}")
+                run_number = iter + 1
+                self.logger.info(f"STARTING RUN '{run_number}/{iterations}")
             
                 for frame in request.frames_to_measure:
                     self.logger.info(f"Measuring frame '{frame}'")
@@ -350,7 +352,8 @@ class PmSkills(Node):
                 difference_joint_1 = (joint_1_post - joint_1_pre)*180/np.pi
                 difference_joint_2 = (joint_2_post - joint_2_pre)*180/np.pi
 
-                self.logger.warn(f"Gonio joints moved by {round(difference_joint_1, 5)} and {round(difference_joint_2, 5)} (deg)")
+                log_message[iter] = f"Iteration {run_number}: Gonio joints moved by {round(difference_joint_1, 5)} and {round(difference_joint_2, 5)} (deg)"
+                self.logger.warn(log_message[iter])
 
             self.logger.info(f"Success")
             move_relative_request = MoveRelative.Request()
@@ -364,7 +367,7 @@ class PmSkills(Node):
                 raise PmRobotError(f"Endmove relative failed! {move_relative_response.message}")
 
             response.success = True
-            response.message = "Iterative gonio right alignment completed successfully!"
+            response.message = "Iterative gonio right alignment completed successfully! \n Frames measured: " + ", ".join(request.frames_to_measure) + "\n"+ "\n".join(log_message.values())
 
         except PmRobotError as e:
             self.logger.error(f"Error occurred: {e}")
@@ -393,8 +396,11 @@ class PmSkills(Node):
 
         initial_approach = True
 
+        log_message = {}
+
         for iter in range(iterations):
-            self.logger.info(f"STARTING RUN '{iter}/{iterations}")
+            run_number = iter + 1
+            self.logger.info(f"STARTING RUN '{run_number}/{iterations}")
 
             for frame in request.frames_to_measure:
                 self.logger.info(f"Measuring frame '{frame}'")
@@ -463,7 +469,8 @@ class PmSkills(Node):
             difference_joint_1 = (joint_1_post - joint_1_pre)*180/np.pi
             difference_joint_2 = (joint_2_post - joint_2_pre)*180/np.pi
 
-            self.logger.warn(f"Gonio joints moved by {round(difference_joint_1,5)} and {round(difference_joint_2,5)} (deg)")
+            log_message[iter] = f"Iteration {run_number}: Gonio joints moved by {round(difference_joint_1,5)} and {round(difference_joint_2,5)} (deg)"
+            self.logger.warn(log_message[iter])
 
         self.logger.info(f"Success")
         move_relative_request = MoveRelative.Request()
@@ -479,7 +486,7 @@ class PmSkills(Node):
             return response
         
         response.success = True
-        response.message = "Iterative gonio left alignment completed successfully!"
+        response.message = "Iterative gonio right alignment completed successfully! \n Frames measured: " + ", ".join(request.frames_to_measure) + "\n"+ "\n".join(log_message.values())
 
         return response
 
@@ -646,6 +653,7 @@ class PmSkills(Node):
 
             response.message = f"Component '{request.component_name}' gripped successfully!"
             self.logger.info(response.message)
+            time.sleep(0.5)  # wait for properties to update in the assembly manager
 
         except (PmRobotError, ComponentNotFoundError, GrippingFrameNotFoundError) as e:
             response.success = False
@@ -946,6 +954,8 @@ class PmSkills(Node):
             properties.is_assembled = True
 
             set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(gripped_component, properties)
+
+            time.sleep(0.5) # wait for the properties to be set
 
             if not set_properties_response.success:
                 raise PmRobotError(f"Failed to set component properties for component '{gripped_component}' after releasing!")  
