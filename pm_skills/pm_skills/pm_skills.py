@@ -836,6 +836,16 @@ class PmSkills(Node):
             if not move_component_to_part_success:
                 raise PmRobotError(f"Failed to move gripper to target part '{target_component}': {move_part_msg}")
             
+                      
+            properties = ami_msg.ComponentProperties()
+            properties.is_gripped = True
+            properties.is_placed = True
+
+            set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(gripped_component, properties)
+
+            if not set_properties_response.success:
+                raise PmRobotError(f"Failed to set component properties for component '{gripped_component}' after placing!")  
+            
             response.success = True
             response.message = f"Component '{gripped_component}' placed successfully!"
 
@@ -951,17 +961,15 @@ class PmSkills(Node):
             
             properties = ami_msg.ComponentProperties()
             properties.is_gripped = False
-            properties.is_assembled = True
+            properties.is_placed = True
 
             set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(gripped_component, properties)
-
-            time.sleep(0.5) # wait for the properties to be set
 
             if not set_properties_response.success:
                 raise PmRobotError(f"Failed to set component properties for component '{gripped_component}' after releasing!")  
             
             response.success = True
-            response.message = f"Component '{gripped_component}' released successfully!"
+            response.message = f"Component '{gripped_component}' released successfully. New parent: '{target_component}'!"
             
         except (PmRobotError, 
                 ComponentNotFoundError, 
@@ -1948,6 +1956,20 @@ class PmSkills(Node):
                     g_properties.has_been_cured = True
                     self.pm_robot_utils.set_frame_properties(frame.frame_name, frame.properties)
 
+            placed_components = self.pm_robot_utils.assembly_scene_analyzer.get_placed_components()
+            
+            if not placed_components:
+                raise PmRobotError(f"No placed components found!")
+            
+            properties = ami_msg.ComponentProperties()
+            properties.is_assembled = True
+
+            for placed_component in placed_components:
+                set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(placed_component, properties)
+            
+            if not set_properties_response.success:
+                raise PmRobotError(f"Failed to set component properties for component '{placed_component}' after curing!") 
+            
             response.success = True
             response.message = "UV curing completed successfully and glue point frame properties updated."
 
