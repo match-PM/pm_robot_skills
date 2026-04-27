@@ -85,6 +85,9 @@ class PmSkills(Node):
         #self.confocal_laser_service = self.create_service(pm_skill_srv.ConfocalLaser, "pm_skills/confocal_laser", self.confocal_laser_callback)
         #self.vision_service = self.create_service(pm_skill_srv.ExecuteVision, "pm_skills/execute_vision", self.vision_callback)
 
+        self.move_uv_in_curing_position_service = self.create_service(pm_msg_srv.EmptyWithSuccess, "/pm_skills"+"/move_uv_in_curing_position", self.move_uv_in_curing_position_service_callback,callback_group=self.callback_group_me)
+        self.move_uv_out_of_curing_position_service = self.create_service(pm_msg_srv.EmptyWithSuccess, "/pm_skills"+"/move_uv_out_of_curing_position", self.move_uv_out_of_curing_position_service_callback,callback_group=self.callback_group_me)        
+
         self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
         self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
         self.force_sensing_move_srv = self.create_service(pm_msg_srv.GripperForceMove, self.get_name()+'/gripper_force_sensing', self.force_sensing_move_callback, callback_group=self.callback_group_me)
@@ -132,7 +135,33 @@ class PmSkills(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
     
+
+    def move_uv_in_curing_position_service_callback(self, request:pm_msg_srv.EmptyWithSuccess.Request, response:pm_msg_srv.EmptyWithSuccess.Response):
+        """Moves both UV LEDs in curing position"""
+        try:
+            srv_request = SetBool.Request()
+            srv_request.data = True
+            response.success = self.pm_robot_utils.move_uv_in_curing_position(srv_request)
+             
+        except PmRobotError as e:
+            self.get_logger().error(f"Error moving UV LEDs in curing position: {e.message}")
+            response.success = False
+            response.message = e.message
+        return response
     
+    def move_uv_out_of_curing_position_service_callback(self, request:pm_msg_srv.EmptyWithSuccess.Request, response:pm_msg_srv.EmptyWithSuccess.Response):
+        """Moves both UV LEDs out of curing position"""
+        try:
+            srv_request = SetBool.Request()
+            srv_request.data = False
+            response.success = self.pm_robot_utils.move_uv_in_curing_position(srv_request)
+
+        except PmRobotError as e:
+            self.get_logger().error(f"Error moving UV LEDs out of curing position: {e.message}")
+            response.success = False
+            response.message = e.message
+        return response
+
     def force_sensing_move_callback(self, request:pm_msg_srv.GripperForceMove.Request, response:pm_msg_srv.GripperForceMove.Response):
 
         self.get_logger().info('Received ForceSensingMove request.')
@@ -1963,6 +1992,12 @@ class PmSkills(Node):
             
             properties = ami_msg.ComponentProperties()
             properties.is_assembled = True
+
+            # do not change the is_gripped property during curing
+            if self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
+                properties.is_gripped = False
+            else:
+                properties.is_gripped = True
 
             for placed_component in placed_components:
                 set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(placed_component, properties)
