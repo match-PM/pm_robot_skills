@@ -93,13 +93,10 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.client_move_robot_tool_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
         self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
         self.client_move_robot_1k_dispenser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_1k_dispenser_to_frame')
-
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
         self.client_move_laser_relative = self._node.create_client(MoveRelative, '/pm_moveit_server/move_laser_relative')
-        self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_bottom_measurement')
-        self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_top_measurement')
         self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
         self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
         self.client_set_force_sensor_bias = self._node.create_client(ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
@@ -460,7 +457,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             float: Current joint state.
         """
         return self._current_joint_state_positions.get(joint_name, None)
-
+    
     def get_laser_measurement(self, unit:str = "m")-> float:
         """
         Method to get the laser measurement from the laser sensor
@@ -519,7 +516,8 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         response = self.get_confocal_bottom_mes()
 
         multiplier =  self._get_multiplier(unit)
-
+        
+        
         if self.get_mode() == self.REAL_MODE:
             result = response.data * multiplier
         
