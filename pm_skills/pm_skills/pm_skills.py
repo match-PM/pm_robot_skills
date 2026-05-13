@@ -1387,7 +1387,12 @@ class PmSkills(Node):
             component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
             component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
             comp_id = component.uuid
-        except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+
+        except (ComponentNotFoundError) as e:
+            component_name = "None"
+            comp_id = "None"
+
+        except (RefFrameNotFoundError) as e:
             message = str(e)
             raise PmRobotError(message)
 

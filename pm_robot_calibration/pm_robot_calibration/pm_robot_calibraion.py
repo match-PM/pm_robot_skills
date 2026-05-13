@@ -40,9 +40,7 @@ import math
 import json
 import shutil
 
-from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transform_for_frames, 
-                                                                 is_frame_from_scene, 
-                                                                 get_ref_frame_by_name)
+from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transform_for_frames)
 
 from assembly_scene_publisher.py_modules.geometry_type_functions import (get_relative_transform_for_transforms, get_relative_transform_for_transforms_calibration)
 
@@ -886,6 +884,8 @@ class PmRobotCalibrationNode(Node):
 
     def calibrate_gripper_plane(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
         
+        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
+        
         spawn_success, frames, unique_identifier = self.spawn_frames_for_current_gripper()
         
         result_dict = {}
@@ -911,7 +911,7 @@ class PmRobotCalibrationNode(Node):
                     self.get_logger().error("Failed to correct frame: " + frame)
                     response.success = False
                     return response
-
+                
                 ref_frame: amimsg.RefFrame = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(frame)
 
                 x_value = ref_frame.pose.position.x
@@ -1832,7 +1832,7 @@ class PmRobotCalibrationNode(Node):
 
                 x, y, final_z = self.pm_robot_utils.interative_sensing(measurement_method=self.pm_robot_utils.get_laser_measurement,
                                                 measurement_valid_function = self.pm_robot_utils._check_for_valid_laser_measurement,
-                                                length = (0.0, 0.0, 5.0),
+                                                length = (0.0, 0.0, 8.0),
                                                 step_inc = step_inc,
                                                 total_time = 8.0)
                 
