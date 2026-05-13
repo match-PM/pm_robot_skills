@@ -350,7 +350,7 @@ class PmSkills(Node):
                     return response
                 
             # Schritt 3: Zur Anfahrposition fahren (2mm vor dem Ziel-Frame entlang z-Achse)
-            success, message = self.move_gripper_to_frame(request.target_frame, z_offset=0.002)
+            success, message = self.move_gripper_to_frame(request.target_frame, z_offset=0.002) 
             if not success:
                 response.success = False
                 response.message = f'Fehler beim Anfahren des Ziel-Frames: {message}'
@@ -407,7 +407,7 @@ class PmSkills(Node):
             counter = 0
             detected_position = None
 
-            max_scan_distance_m = 0.02  # 20mm
+            max_scan_distance_m = 0.004  # 2mm
             max_steps = int(max_scan_distance_m / step_size_m)
             max_steps = min(max_steps, 1000)  # Begrenze die maximale Anzahl der Schritte auf 1000, um endlose Schleifen zu vermeiden
 
@@ -454,9 +454,9 @@ class PmSkills(Node):
 
                 self.get_logger().info(
                     f'Schritt {counter}/{max_steps}, '
-                    f'Fx={force_values[0]:.3f} N, '
-                    f'Fy={force_values[1]:.3f} N, '
-                    f'Fz={force_values[2]:.3f} N'
+                    f'Fx={force_values[0]:.3f}, '
+                    f'Fy={force_values[1]:.3f}, '
+                    f'Fz={force_values[2]:.3f}'
                 )
 
                 if not self.pm_robot_utils.is_unity_running():
@@ -469,7 +469,7 @@ class PmSkills(Node):
                             axis = ['X', 'Y', 'Z'][i]
                             self.get_logger().info(
                                 f'Kraft auf {axis}-Achse erkannt: '
-                                f'{force:.3f} N (Grenzwert: {max_f:.3f} N)'
+                                f'{force:.3f} (Grenzwert: {max_f:.3f})'
                             )
 
                             detected_position = self.pm_robot_utils.get_current_joint_state_list([
