@@ -38,6 +38,7 @@ import datetime
 import copy
 import math
 import json
+import shutil
 
 from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transform_for_frames, 
                                                                  is_frame_from_scene, 
@@ -2319,6 +2320,9 @@ class PmRobotCalibrationNode(Node):
 
         self._log_calibration_result(rel_transformation, unit=unit)
 
+        # Archive the original file before modifying it
+        self._archive_joint_config_file(file_path)
+
         calibration_config = {}
         # check if the file exists
         try:
@@ -2385,6 +2389,49 @@ class PmRobotCalibrationNode(Node):
         self._load_last_calibrations_data()
         self._last_calibrations_data[history_entry] = f'{datetime.datetime.now()}'
         self._save_last_calibrations_data()
+
+    def _archive_joint_config_file(self, file_path: str) -> bool:
+        """Archive the original joint config file before modifying it.
+        
+        Creates an archive folder and copies the original file with a timestamp-based name.
+        
+        Args:
+            file_path: Path to the joint configuration file to archive
+            
+        Returns:
+            True if archiving was successful or file didn't exist, False if an error occurred
+        """
+        try:
+            # Only archive if the file exists
+            if not os.path.exists(file_path):
+                return True
+            
+            # Create archive directory
+            file_dir = os.path.dirname(file_path)
+            archive_dir = os.path.join(file_dir, 'archive')
+            
+            if not os.path.exists(archive_dir):
+                os.makedirs(archive_dir)
+            
+            # Get the base filename without extension
+            base_name = os.path.basename(file_path)
+            name_without_ext = os.path.splitext(base_name)[0]
+            file_ext = os.path.splitext(base_name)[1]
+            
+            # Create filename with timestamp
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            archive_filename = f"{name_without_ext}_{timestamp}{file_ext}"
+            archive_path = os.path.join(archive_dir, archive_filename)
+            
+            # Copy the file to archive
+            shutil.copy2(file_path, archive_path)
+            self._logger.info(f"Archived original config file to: {archive_path}")
+            
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"Error archiving joint config file: {e}")
+            return False
 
     def _load_last_calibrations_data(self):
         path = self.calibration_log_dir

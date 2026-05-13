@@ -100,7 +100,6 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.client_move_robot_tool_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
         self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
         self.client_move_robot_1k_dispenser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_1k_dispenser_to_frame')
-
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
@@ -473,7 +472,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             float: Current joint state.
         """
         return self._current_joint_state_positions.get(joint_name, None)
-
+    
     def get_laser_measurement(self, unit:str = "m")-> float:
         """
         Method to get the laser measurement from the laser sensor
@@ -532,7 +531,8 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         response = self.get_confocal_bottom_mes()
 
         multiplier =  self._get_multiplier(unit)
-
+        
+        
         if self.get_mode() == self.REAL_MODE:
             result = response.data * multiplier
         
