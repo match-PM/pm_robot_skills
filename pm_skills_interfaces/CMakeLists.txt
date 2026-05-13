@@ -29,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/IterativeGonioAlign.srv"
   "srv/CheckFrameMeasurable.srv"
   "srv/DispenseAtPointsAdv.srv"
+  "srv/ForceScan.srv"
   DEPENDENCIES geometry_msgs pm_vision_interfaces
 )
 

@@ -91,7 +91,7 @@ class PmSkills(Node):
         self.measue_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_with_laser", self.measure_with_laser_callback, callback_group=self.callback_group_me)
         self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
         self.force_sensing_move_srv = self.create_service(pm_msg_srv.GripperForceMove, self.get_name()+'/gripper_force_sensing', self.force_sensing_move_callback, callback_group=self.callback_group_me)
-        self.force_scan_srv = self.create_service(pm_msg_srv.ForceScan, self.get_name() + "/force_scan", self.force_scan_callback, callback_group=self.callback_group_me)
+        self.force_scan_srv = self.create_service(pm_skill_srv.ForceScan, self.get_name() + "/force_scan", self.force_scan_callback, callback_group=self.callback_group_me)
         
         self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
         self.correct_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_confocal_bottom", self.correct_frame_with_confocal_bottom, callback_group=self.callback_group_me)
@@ -290,7 +290,7 @@ class PmSkills(Node):
         return response
     
     
-    def force_scan_callback(self, request: pm_msg_srv.ForceScan.Request, response: pm_msg_srv.ForceScan.Response):
+    def force_scan_callback(self, request: pm_skill_srv.ForceScan.Request, response: pm_skill_srv.ForceScan.Response):
         """
         Faehrt zuerst 2mm vor den Ziel-Frame (je nach offset-Parameter),
         dann schrittweise in Richtung des Ziel-Frames bis eine Kraft erkannt wird.
