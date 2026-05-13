@@ -1,0 +1,8 @@
+string target_frame
+geometry_msgs/Vector3 direction
+geometry_msgs/Vector3 max_force
+float32 step_size
+---
+bool success
+string message
+geometry_msgs/Pose detected_position
