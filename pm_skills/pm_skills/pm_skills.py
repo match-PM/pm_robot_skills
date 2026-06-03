@@ -451,6 +451,12 @@ class PmSkills(Node):
                     )
 
                     if contact_detected:
+                        self.get_logger().info(
+                            f'''Kraft erkannt, Kraftwerte: 
+                            X = {force_values[0]:.3f}, 
+                            Y = {force_values[1]:.3f}, 
+                            Z = {force_values[2]:.3f}'''
+                        )
                         state = "CONTACT"
                         continue
 
@@ -464,6 +470,13 @@ class PmSkills(Node):
                     self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
                         *last_valid_position,
                         time=0.1
+                    )
+
+                    self.get_logger().info(
+                        f'Kraftkontakt erkannt. Letzte gültige Position: '
+                        f'X={round(last_valid_position[0]*1e3, 3)} mm, '
+                        f'Y={round(last_valid_position[1]*1e3, 3)} mm, '
+                        f'Z={round(last_valid_position[2]*1e3, 3)} mm'
                     )
 
                     current_position = last_valid_position
