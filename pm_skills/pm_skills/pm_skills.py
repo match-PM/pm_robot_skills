@@ -292,10 +292,6 @@ class PmSkills(Node):
     
     def force_scan_callback(self, request: pm_skill_srv.ForceScan.Request, response: pm_skill_srv.ForceScan.Response):
         """
-        Faehrt zuerst 2mm vor den Ziel-Frame (je nach offset-Parameter),
-        dann schrittweise in Richtung des Ziel-Frames bis eine Kraft erkannt wird.
-        Gibt die Weltkoordinaten des TCPs beim Kraftkontakt zurueck.
-
         Request:
             - target_frame (string):    Frame des Bauteils das gemessen werden soll
             - direction (Vector3):      Richtung der Bewegung in Weltkoordinaten (wird normalisiert)
@@ -345,12 +341,20 @@ class PmSkills(Node):
                     abs(request.max_force.y) > max_force_limit or
                     abs(request.max_force.z) > max_force_limit):
                     response.success = False
-                    response.message = f'Kraftgrenzwert ueberschreitet das Maximum von {max_force_limit} N.'
+                    response.message = f'Kraftgrenzwert ueberschreitet das Maximum von {max_force_limit}'
                     self.get_logger().error(response.message)
                     return response
                 
-            # Schritt 3: Zur Anfahrposition fahren (2mm vor dem Ziel-Frame entlang z-Achse)
-            success, message = self.move_gripper_to_frame(request.target_frame, z_offset=0.002)
+            # Schritt 3: Zur Anfahrposition fahren (2mm vor dem Ziel-Frame entlang x-Achse)
+
+            offset = [
+                0.002 if axis > 0
+                else -0.002 if axis < 0
+                else 0.0
+                for axis in direction_normalized
+            ]
+
+            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=offset[0], y_offset=offset[1], z_offset=offset[2]) 
             if not success:
                 response.success = False
                 response.message = f'Fehler beim Anfahren des Ziel-Frames: {message}'
@@ -392,7 +396,7 @@ class PmSkills(Node):
                     abs(current_force_values[2]) > force_threshold[2]):
                     response.success = False
                     response.message = (
-                        f'Anfangskraefte ueberschreiten den Grenzwert {force_threshold} N: '
+                        f'Anfangskraefte ueberschreiten den Grenzwert {force_threshold}: '
                         f'X={current_force_values[0]:.3f}, '
                         f'Y={current_force_values[1]:.3f}, '
                         f'Z={current_force_values[2]:.3f}'
@@ -400,99 +404,109 @@ class PmSkills(Node):
                     self.get_logger().error(response.message)
                     return response
             # Schritt 7: Schrittgroesse in Meter umrechnen
-            step_size_m = request.step_size * 1e-6
-            # max_steps = 1000
+            step_size_m_min = request.step_size * 1e-6
+            step_size_m_search = 0.001 # 1 mm pro Schritt, unabhängig von der angeforderten Schrittgröße, verfeinertung in REFINE
 
             # Schritt 8: Scan-Schleife
             counter = 0
             detected_position = None
 
-            max_scan_distance_m = 0.02  # 20mm
-            max_steps = int(max_scan_distance_m / step_size_m)
+            max_scan_distance_m = 0.004  
+            max_steps = int(max_scan_distance_m / step_size_m_min)
             max_steps = min(max_steps, 1000)  # Begrenze die maximale Anzahl der Schritte auf 1000, um endlose Schleifen zu vermeiden
 
+            # durch REFINE vermutlich nicht nötig bzw. evtl sogar kontraproduktiv, da keine lineare Progression mehr, 
+            # dadurch evtl. abbruch der Schleife bevor min Schrittgröße erreicht wird
+
             self.get_logger().info(
-                f'Step size: {step_size_m*1e6} um | '
+                f'Step size: {step_size_m_search*1e6} um | '
                 f'Max steps: {max_steps}'
             )   
 
-            force_threshold = [
-                abs(request.max_force.x),
-                abs(request.max_force.y),
-                abs(request.max_force.z)
-            ]
+            contact_detected = False
+            detected_position = None
+            last_valid_position = current_position.copy()
+            state = "SEARCH"
 
             while counter < max_steps:
 
-                # Naechste Position berechnen
-                next_position = [
-                    current_position[0] + step_size_m * direction_normalized[0],
-                    current_position[1] + step_size_m * direction_normalized[1],
-                    current_position[2] + step_size_m * direction_normalized[2],
-                ]
+                if state == "SEARCH":
+                    next_position = [
+                        current_position[i] + step_size_m_search * direction_normalized[i]
+                        for i in range(3)
+                    ]
 
-                move_success = self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
-                    next_position[0],
-                    next_position[1],
-                    next_position[2],
-                    time=0.1
-                )
+                    self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
+                        *next_position,
+                        time=0.1
+                    )
 
-                if not move_success:
-                    response.success = False
-                    response.message = f'Bewegung fehlgeschlagen bei Schritt {counter}'
-                    self.get_logger().error(response.message)
-                    self._return_to_start(start_position)
-                    return response
+                    time.sleep(0.2)
 
+                    force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  
 
-                # Kraft pruefen (nicht in Unity-Simulation)
+                    contact_detected = any(
+                        abs(force_values[i]) > force_threshold[i]
+                        for i in range(3)
+                    )
+
+                    if contact_detected:
+                        state = "CONTACT"
+                        continue
+
+                    else:
+                        last_valid_position = next_position
+                        current_position = next_position
+                        counter += 1
+                        continue
+
+                if state == "CONTACT":
+                    self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
+                        *last_valid_position,
+                        time=0.1
+                    )
+
+                    current_position = last_valid_position
+
+                    if step_size_m_search <= step_size_m_min:
+                        state = "STOP"
+                        continue
+
+                    else:
+                        state = "REFINE"
+                        continue
+
+                if state == "REFINE":
+
+                    step_size_m_search = max(step_size_m_search / 2, step_size_m_min)
+
+                    state = "SEARCH"
+                    continue
+
+                if state == "STOP":
+                    detected_position = self.pm_robot_utils.get_current_joint_state_list([
+                        self.pm_robot_utils.X_Axis_JOINT_NAME,
+                        self.pm_robot_utils.Y_Axis_JOINT_NAME,
+                        self.pm_robot_utils.Z_Axis_JOINT_NAME
+                    ]) 
+                    break
                 
-                time.sleep(0.01)  # Kurze Pause, um Sensorwerte zu aktualisieren
 
-                force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  # Nur X, Y, Z
+            # Frame-Korrektur berechnen und anwenden (Radius des Stiftes noch nicht berücksichtigt, da unbekannt, muss noch hinzugefügt werden)
+            scene = self.pm_robot_utils.assembly_scene_analyzer
+            target_pose = scene.get_pose_from_frame(request.target_frame)
 
-                self.get_logger().info(
-                    f'Schritt {counter}/{max_steps}, '
-                    f'Fx={force_values[0]:.3f} N, '
-                    f'Fy={force_values[1]:.3f} N, '
-                    f'Fz={force_values[2]:.3f} N'
+            if detected_position is not None:
+                correction_transform = self.compute_frame_correction(
+                    detected_position,
+                    target_pose
                 )
 
-                if not self.pm_robot_utils.is_unity_running():
-                    for i, (force, max_f) in enumerate(zip(
-                        force_values,
-                        force_threshold
-                    )):
-                        
-                        if abs(force) > max_f:
-                            axis = ['X', 'Y', 'Z'][i]
-                            self.get_logger().info(
-                                f'Kraft auf {axis}-Achse erkannt: '
-                                f'{force:.3f} N (Grenzwert: {max_f:.3f} N)'
-                            )
+                self.pm_robot_utils.assembly_scene_analyzer.modify_frame_with_transform(
+                    request.target_frame,
+                    correction_transform
+                )
 
-                            detected_position = self.pm_robot_utils.get_current_joint_state_list([
-                                self.pm_robot_utils.X_Axis_JOINT_NAME, 
-                                self.pm_robot_utils.Y_Axis_JOINT_NAME, 
-                                self.pm_robot_utils.Z_Axis_JOINT_NAME
-                                ]) 
-                            self.get_logger().info(
-                                f'Kontakt (Joint Space): '
-                                f'X={detected_position[0]:.6f}, '
-                                f'Y={detected_position[1]:.6f}, '
-                                f'Z={detected_position[2]:.6f}'
-                            )
-
-                            break
-
-                    if detected_position is not None:
-                        break
-
-
-                current_position = next_position
-                counter += 1
-            
             # Schritt 9: Antwort setzen
             if detected_position is None:
                 response.success = False
@@ -503,9 +517,9 @@ class PmSkills(Node):
             else:
                 response.success = True
                 response.message = (
-                    f'Kraft erkannt bei Schritt {counter} '
-                    f'({counter * request.step_size} um vom Start)'
+                    f'Kraftkontakt erkannt nach {counter} Schritten'
                 )
+
                 response.detected_position.position.x = detected_position[0]
                 response.detected_position.position.y = detected_position[1]
                 response.detected_position.position.z = detected_position[2]
@@ -530,142 +544,6 @@ class PmSkills(Node):
 
         return response
 
-            # self.get_logger().info(f'ForceScan gestartet. Ziel-Frame: {request.target_frame}')
-
-            # # # Schritt 1: Ziel-Frame in der Welt nachschlagen
-            # try:
-            #     target_transform: TransformStamped = get_transform_for_frame_in_world(
-            #         request.target_frame, self.tf_buffer, self._logger
-            #     )
-            # except Exception as e:
-            #     response.success = False
-            #     response.message = f'Ziel-Frame "{request.target_frame}" nicht gefunden: {e}'
-            #     self.get_logger().error(response.message)
-            #     return response
-
-
-            # # Schritt 4: Anfahrposition berechnen
-            # # 2mm VOR dem Ziel-Frame in entgegengesetzter Scan-Richtung
-            # target_x = target_transform.transform.translation.x
-            # target_y = target_transform.transform.translation.y
-            # target_z = target_transform.transform.translation.z
-
-        #     try:
-        #         target_transform: TransformStamped = get_transform_for_frame_in_world(
-        #             request.target_frame, self.tf_buffer, self.get_logger()
-        #         )
-        #     except Exception as e:
-        #             response.success = False
-        #             response.message = f'Ziel-Frame "{request.target_frame}" nicht gefunden: {e}'
-        #             self.get_logger().error(response.message)
-        #             return response
-            
-        #     target_pos = [
-        #         target_transform.transform.translation.x,
-        #         target_transform.transform.translation.y,
-        #         target_transform.transform.translation.z
-        #     ]
-
-        #     # approach_x = target_x - direction_normalized[0] * APPROACH_OFFSET_M
-        #     # approach_y = target_y - direction_normalized[1] * APPROACH_OFFSET_M
-        #     # approach_z = target_z - direction_normalized[2] * APPROACH_OFFSET_M
-
-        #     # self.get_logger().info(
-        #     #     f'Ziel-Frame Position: '
-        #     #     f'X={round(target_x*1e3, 3)} mm, '
-        #     #     f'Y={round(target_y*1e3, 3)} mm, '
-        #     #     f'Z={round(target_z*1e3, 3)} mm'
-        #     # )
-
-        #     self.get_logger().info(
-        #         f'Anfahrposition (2mm vorher): '
-        #         f'X={round(start_position[0]*1e3, 3)} mm, '
-        #         f'Y={round(start_position[1]*1e3, 3)} mm, '
-        #         f'Z={round(start_position[2]*1e3, 3)} mm'
-        #     )
-
-        #     # Schritt 5: Zur Anfahrposition fahren
-        #     self.get_logger().info('Fahre zur Anfahrposition...')
-        #     approach_success = self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
-        #         start_position[0],
-        #         start_position[1],
-        #         start_position[2],
-        #         time=1.0
-        #     )
-
-        #     if not approach_success:
-        #         response.success = False
-        #         response.message = 'Fahrt zur Anfahrposition fehlgeschlagen!'
-        #         self.get_logger().error(response.message)
-        #         return response
-
-        #     # Startposition fuer spaetere Rueckfahrt merken
-        #     start_position = [start_position[0], start_position[1], start_position[2]]
-        #     current_position = list(start_position)
-
-        #     # Schritt 6: Kraftsensor nullen
-        #     self.pm_robot_utils.set_force_sensor_bias()
-        #     time.sleep(2.0)
-
-        #     # Schritt 7: Anfangskraefte pruefen
-        #     current_force_values = self.pm_robot_utils._current_force_sensor_data.data
-        #     self.get_logger().info(f'Kraftsensor Ausgangswerte: {current_force_values}')
-
-        #     force_threshold = [
-        #         abs(request.max_force.x),
-        #         abs(request.max_force.y),
-        #         abs(request.max_force.z)
-        #     ]
-
-        #     if not self.pm_robot_utils.is_unity_running():
-        #         if (abs(current_force_values[0]) > force_threshold[0] or
-        #             abs(current_force_values[1]) > force_threshold[1] or
-        #             abs(current_force_values[2]) > force_threshold[2]):
-        #             response.success = False
-        #             response.message = (
-        #                 f'Anfangskraefte ueberschreiten den Grenzwert {force_threshold} N: '
-        #                 f'X={current_force_values[0]:.3f}, '
-        #                 f'Y={current_force_values[1]:.3f}, '
-        #                 f'Z={current_force_values[2]:.3f}'
-        #             )
-        #             self.get_logger().error(response.message)
-        #             return response
-
-        #     # Schritt 8: Schrittgroesse in Meter umrechnen
-        #     step_size_m = request.step_size * 1e-6
-        #     max_steps = 1000
-
-        #     # Schritt 9: Scan-Schleife
-
-        #     # Schritt 10: Antwort setzen
-            
-
-        #         # dist_x = detected_position[0] - target_x
-        #         # dist_y = detected_position[1] - target_y
-        #         # dist_z = detected_position[2] - target_z
-        #         # self.get_logger().info(
-        #         #     f'Abstand zum Ziel-Frame: '
-        #         #     f'X={round(dist_x*1e3, 3)} mm, '
-        #         #     f'Y={round(dist_y*1e3, 3)} mm, '
-        #         #     f'Z={round(dist_z*1e3, 3)} mm'
-        #         # )
-
-        #     # Schritt 11: Zurueck zur Startposition (Anfahrposition)
-        #     self.get_logger().info('Fahre zur Startposition zurueck...')
-        #     self._return_to_start(start_position)
-
-        #     self.get_logger().info(response.message)
-
-            
-        #     # response.success = success
-        #     # response.message = message
-
-        # except Exception as e:
-        #     response.success = False
-        #     response.message = f'Fehler: {str(e)}'
-        #     self.get_logger().error(response.message)
-
-        # return response
 
 
     def _return_to_start(self, start_position: list) -> bool:
