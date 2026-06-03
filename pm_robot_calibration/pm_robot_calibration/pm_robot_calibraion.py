@@ -745,7 +745,7 @@ class PmRobotCalibrationNode(Node):
             # move gripper close to camera to calibration start position
             move_to_start_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(frame_name=self.pm_robot_utils.TCP_CAMERA_BOTTOM,
                                                                                 endeffector_override=self.pm_robot_utils.TCP_TOOL,
-                                                                                z_offset=0.05)
+                                                                                z_offset=-0.05)
             
             if not move_to_start_success:
                 raise PmRobotError(f"Failed to move to start position: {move_msg}")
