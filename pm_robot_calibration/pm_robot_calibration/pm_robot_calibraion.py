@@ -738,7 +738,8 @@ class PmRobotCalibrationNode(Node):
 
             #rotations = [0.0, 20, 30, 40, 50, 60, 80]
             #rotations = [90, 65, 55, 45, 35, 25, 0]
-            rotations = [90, 60, 30, 0]
+            # rotations = [90, 60, 30, 0]
+            rotations = [0]
 
             #rotations = [60, 40, 20, 0]
 
@@ -794,52 +795,57 @@ class PmRobotCalibrationNode(Node):
                                         tf_buffer=self.pm_robot_utils.tf_buffer,
                                         logger=self._logger)
             
-            min_distance = min(distance_list)
-            max_distance = max(distance_list)
-            # fit a circle to the points to find the center
+            # Check if calibration was done without rotation (single rotation of 0)
+            if len(rotations) > 1 and len(distance_list) > 0:
+                min_distance = min(distance_list)
+                max_distance = max(distance_list)
+                # fit a circle to the points to find the center
+                        
+                #2.3656241026821336e-07
+                self._logger.info("Min distance: " + str(min_distance * 1e6) + " um")
+                self._logger.info(f" length of frame_poses_list: {len(frame_poses_list)}")
+                
+                # if the rotational axis is not ideal all the frames in the 'frame_poses_list' form a circle. We saved all the distances between the points in the circle
+                # if we are already calibrated, the points should be very close together and not form a circle.
+                # we check the distances between the points, if the max_distance exeedes a threshold we calibrate the axis offset
+
+                #if distance > 20 * 1e-6:
+                # If the rotation axis need to be corrected
+                if max_distance > 20 * 1e-6:
+                    # plot a circle through all the poses
+                    x,y,r,s = self.find_circle_coordinates(copy.copy(frame_poses_list))
+                    self._logger.info("Circle center: " + str(x) + ", " + str(y) + ", radius (um): " + str(r* 1e6) + ", s: " + str(s))
                     
-            #2.3656241026821336e-07
-            self._logger.info("Min distance: " + str(min_distance * 1e6) + " um")
-            self._logger.info(f" length of frame_poses_list: {len(frame_poses_list)}")
-            
-            # if the rotational axis is not ideal all the frames in the 'frame_poses_list' form a circle. We saved all the distances between the points in the circle
-            # if we are already calibrated, the points should be very close together and not form a circle.
-            # we check the distances between the points, if the max_distance exeedes a threshold we calibrate the axis offset
+                    rel_t_joint = Transform()
+                    rel_t_joint.translation.x = (relative_transform.translation.x - x)
+                    rel_t_joint.translation.y = (relative_transform.translation.y - y)
+                    
+                    relative_transform.translation.x = x
+                    relative_transform.translation.y = y
+                    
+                    self._logger.warn(f"T-Axis has offset: {x* 1e6}, {y* 1e6} um")
+                    
+                    self._logger.error(f"Translation of the rotation point")
+                    self._logger.error(f"x offset: {rel_t_joint.translation.x * 1e6} um")
+                    self._logger.error(f"y offset: {rel_t_joint.translation.y * 1e6} um")
+                    
+                    self.save_joint_config('T_Axis_Joint', rel_t_joint)
 
-            #if distance > 20 * 1e-6:
-            # If the rotation axis need to be corrected
-            if max_distance > 20 * 1e-6:
-                # plot a circle through all the poses
-                x,y,r,s = self.find_circle_coordinates(copy.copy(frame_poses_list))
-                self._logger.info("Circle center: " + str(x) + ", " + str(y) + ", radius (um): " + str(r* 1e6) + ", s: " + str(s))
-                
-                rel_t_joint = Transform()
-                rel_t_joint.translation.x = (relative_transform.translation.x - x)
-                rel_t_joint.translation.y = (relative_transform.translation.y - y)
-                
-                relative_transform.translation.x = x
-                relative_transform.translation.y = y
-                
-                self._logger.warn(f"T-Axis has offset: {x* 1e6}, {y* 1e6} um")
-                
-                self._logger.error(f"Translation of the rotation point")
-                self._logger.error(f"x offset: {rel_t_joint.translation.x * 1e6} um")
-                self._logger.error(f"y offset: {rel_t_joint.translation.y * 1e6} um")
-                
-                self.save_joint_config('T_Axis_Joint', rel_t_joint)
+                    t_axis_dict = self._transform_to_dict(rel_t_joint)
 
-                t_axis_dict = self._transform_to_dict(rel_t_joint)
+                    self.log_calibration(file_name='calibrate_gripper_T_axis', calibration_dict=t_axis_dict)
 
-                self.log_calibration(file_name='calibrate_gripper_T_axis', calibration_dict=t_axis_dict)
-
-                self.plot_gripper_calibration_poses(copy.copy(frame_poses_list),
-                                                    radius=r,
-                                                    circle_x=x,
-                                                    circle_y=y)
-                
-            # assuming the gripper is at the center of the circle
+                    self.plot_gripper_calibration_poses(copy.copy(frame_poses_list),
+                                                        radius=r,
+                                                        circle_x=x,
+                                                        circle_y=y)
+                    
+                # assuming the gripper is at the center of the circle
+                else:
+                    self._logger.warn("T-Axis has no offset...")
             else:
-                self._logger.warn("T-Axis has no offset...")
+                # Single rotation calibration (no multi-rotation axis correction needed)
+                self._logger.info("Calibrating gripper without rotation - single pose calibration")
 
             # log relative pose
             #self._logger.error("Relative pose: " + str(relative_transform))
