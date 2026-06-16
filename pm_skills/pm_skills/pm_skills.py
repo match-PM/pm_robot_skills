@@ -120,6 +120,7 @@ class PmSkills(Node):
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.align_gonio_right_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.align_gonio_left_client = self.create_client(pm_moveit_srv.AlignGonio, '/pm_moveit_server/align_gonio_left')
+        self.smart_gripper_force_client = self.create_client(pm_msg_srv.GripperGetForces, '/SmarAct_Gripper/GetForces')
         
         self.vacuum_gripper_on_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
         self.vacuum_gripper_off_client = self.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
@@ -306,6 +307,18 @@ class PmSkills(Node):
 
 
         try:
+            # if not self.smart_gripper_force_client.wait_for_service(timeout_sec=1.0):
+            #     self.logger.error("Service '/SmarAct_Gripper/GetForces' not available")
+            
+            piezo_force_request=pm_msg_srv.GripperGetForces.Request()
+
+            PiezoGripperForce:pm_msg_srv.GripperGetForces.Response = self.smart_gripper_force_client.call(piezo_force_request)
+
+            self.logger.info(f"Current gripper forces: X={PiezoGripperForce.fx}, Y={PiezoGripperForce.fy}, Z={PiezoGripperForce.fz}")
+
+            # raise NotImplementedError("Force scan skill is still in development. The current implementation is a placeholder and may not work as expected.")
+
+
             # Schritt 1: Richtungsvektor pruefen und normalisieren
             direction_length = math.sqrt(
                 request.direction.x**2 +
@@ -314,7 +327,7 @@ class PmSkills(Node):
             )
             if direction_length == 0.0:
                 response.success = False
-                response.message = 'Richtungsvektor ist null!'
+                response.message = 'Direction vector is zero!'
                 self.get_logger().error(response.message)
                 return response
 
@@ -329,35 +342,37 @@ class PmSkills(Node):
             if request.step_size > max_step_size_um:
                 response.success = False
                 response.message = (
-                    f'Schrittgroesse {request.step_size} um ueberschreitet '
-                    f'das Maximum von {max_step_size_um} um.'
+                    f'Step size {request.step_size} um exceeds '
+                    f'the maximum of {max_step_size_um} um.'
                 )
                 self.get_logger().error(response.message)
                 return response
 
-            max_force_limit = 10.0
+            max_force_limit = 1000.0
             if not self.pm_robot_utils.is_unity_running():
                 if (abs(request.max_force.x) > max_force_limit or
                     abs(request.max_force.y) > max_force_limit or
                     abs(request.max_force.z) > max_force_limit):
                     response.success = False
-                    response.message = f'Kraftgrenzwert ueberschreitet das Maximum von {max_force_limit}'
+                    response.message = f'Force threshold {max_force_limit}, pick lower forece values'
                     self.get_logger().error(response.message)
                     return response
                 
             # Schritt 3: Zur Anfahrposition fahren (2mm vor dem Ziel-Frame entlang x-Achse)
 
             offset = [
-                0.002 if axis > 0
-                else -0.002 if axis < 0
+                0.02 if axis > 0
+                else 0.02 if axis < 0
                 else 0.0
                 for axis in direction_normalized
             ]
 
-            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=offset[0], y_offset=offset[1], z_offset=offset[2]) 
+            self.get_logger().info('target frame: ' + request.target_frame)
+
+            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=0.0, y_offset=0.0, z_offset=0.0) 
             if not success:
                 response.success = False
-                response.message = f'Fehler beim Anfahren des Ziel-Frames: {message}'
+                response.message = f'could not move to target frame: {message}'
                 self.get_logger().error(response.message)
                 return response
             
@@ -370,7 +385,7 @@ class PmSkills(Node):
             current_position = list(start_position)
 
             self.get_logger().info(
-                f'Anfahrposition (2mm vorher): '
+                f'Start position (2mm before target per used axis): '
                 f'X={round(start_position[0]*1e3, 3)} mm, '
                 f'Y={round(start_position[1]*1e3, 3)} mm, '
                 f'Z={round(start_position[2]*1e3, 3)} mm'
@@ -381,8 +396,17 @@ class PmSkills(Node):
             time.sleep(2.0)
 
             # Schritt 6: Anfangskraefte pruefen
-            current_force_values = self.pm_robot_utils._current_force_sensor_data.data
-            self.get_logger().info(f'Kraftsensor Ausgangswerte: {current_force_values}')
+            if not self.pm_robot_utils.is_unity_running():
+                force_response = self.smart_gripper_force_client.call(piezo_force_request)
+
+                current_force_values = [
+                    force_response.fx,
+                    force_response.fy,
+                    force_response.fz
+]
+            else:              
+                current_force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  
+            self.get_logger().info(f'Force sensor initial values: {current_force_values}')
 
             force_threshold = [
                 abs(request.max_force.x),
@@ -396,7 +420,7 @@ class PmSkills(Node):
                     abs(current_force_values[2]) > force_threshold[2]):
                     response.success = False
                     response.message = (
-                        f'Anfangskraefte ueberschreiten den Grenzwert {force_threshold}: '
+                        f'current force values exceed threshold {force_threshold} before starting the scan: '
                         f'X={current_force_values[0]:.3f}, '
                         f'Y={current_force_values[1]:.3f}, '
                         f'Z={current_force_values[2]:.3f}'
@@ -405,30 +429,26 @@ class PmSkills(Node):
                     return response
             # Schritt 7: Schrittgroesse in Meter umrechnen
             step_size_m_min = request.step_size * 1e-6
-            step_size_m_search = 0.001 # 1 mm pro Schritt, unabhängig von der angeforderten Schrittgröße, verfeinertung in REFINE
+            step_size_m_search = 0.0001 # 0.1 mm pro Schritt, unabhängig von der angeforderten Schrittgröße, verfeinertung in REFINE
 
             # Schritt 8: Scan-Schleife
-            counter = 0
             detected_position = None
 
             max_scan_distance_m = 0.004  
-            max_steps = int(max_scan_distance_m / step_size_m_min)
-            max_steps = min(max_steps, 1000)  # Begrenze die maximale Anzahl der Schritte auf 1000, um endlose Schleifen zu vermeiden
+            travelled_distance_m = 0.0
 
-            # durch REFINE vermutlich nicht nötig bzw. evtl sogar kontraproduktiv, da keine lineare Progression mehr, 
-            # dadurch evtl. abbruch der Schleife bevor min Schrittgröße erreicht wird
 
             self.get_logger().info(
                 f'Step size: {step_size_m_search*1e6} um | '
-                f'Max steps: {max_steps}'
             )   
 
             contact_detected = False
             detected_position = None
+            contact_position = None
             last_valid_position = current_position.copy()
             state = "SEARCH"
 
-            while counter < max_steps:
+            while travelled_distance_m < max_scan_distance_m:
 
                 if state == "SEARCH":
                     next_position = [
@@ -443,7 +463,16 @@ class PmSkills(Node):
 
                     time.sleep(0.2)
 
-                    force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  
+
+                    if not self.pm_robot_utils.is_unity_running():
+                        force_response = self.smart_gripper_force_client.call(piezo_force_request)
+                        force_values = [
+                            force_response.fx,
+                            force_response.fy,
+                            force_response.fz
+                            ]
+                    else:              
+                        force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  
 
                     contact_detected = any(
                         abs(force_values[i]) > force_threshold[i]
@@ -451,20 +480,24 @@ class PmSkills(Node):
                     )
 
                     if contact_detected:
+                        contact_position = next_position.copy()
                         state = "CONTACT"
                         continue
 
                     else:
                         last_valid_position = next_position
                         current_position = next_position
-                        counter += 1
+                        travelled_distance_m += step_size_m_search
                         continue
 
-                if state == "CONTACT":
+                elif state == "CONTACT":
+
                     self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
                         *last_valid_position,
                         time=0.1
                     )
+
+                    time.sleep(0.2)
 
                     current_position = last_valid_position
 
@@ -476,19 +509,15 @@ class PmSkills(Node):
                         state = "REFINE"
                         continue
 
-                if state == "REFINE":
+                elif state == "REFINE":
 
                     step_size_m_search = max(step_size_m_search / 2, step_size_m_min)
 
                     state = "SEARCH"
                     continue
 
-                if state == "STOP":
-                    detected_position = self.pm_robot_utils.get_current_joint_state_list([
-                        self.pm_robot_utils.X_Axis_JOINT_NAME,
-                        self.pm_robot_utils.Y_Axis_JOINT_NAME,
-                        self.pm_robot_utils.Z_Axis_JOINT_NAME
-                    ]) 
+                elif state == "STOP":
+                    detected_position = contact_position.copy()
                     break
                 
 
@@ -511,13 +540,12 @@ class PmSkills(Node):
             if detected_position is None:
                 response.success = False
                 response.message = (
-                    f'Keine Kraft erkannt nach {counter} Schritten '
-                    f'({counter * request.step_size} um)'
+                f'Contact detected after {travelled_distance_m * 1e3:.3f} mm'                
                 )
             else:
                 response.success = True
                 response.message = (
-                    f'Kraftkontakt erkannt nach {counter} Schritten'
+                    f'Contact detected after {travelled_distance_m * 1e3:.3f} mm'
                 )
 
                 response.detected_position.position.x = detected_position[0]
@@ -526,20 +554,20 @@ class PmSkills(Node):
                 response.detected_position.orientation.w = 1.0
 
                 self.get_logger().info(
-                    f'Kontaktposition (Welt): '
+                    f'Contact position (World): '
                     f'X={round(detected_position[0]*1e3, 3)} mm, '
                     f'Y={round(detected_position[1]*1e3, 3)} mm, '
                     f'Z={round(detected_position[2]*1e3, 3)} mm'
                 )
             
             # Schritt 10: Zurueck zur Startposition (Anfahrposition)
-            self.get_logger().info('Fahre zur Startposition zurueck...')
+            self.get_logger().info('Returning to start position...')
             self._return_to_start(start_position)
             self.get_logger().info(response.message)
 
         except Exception as e:
             response.success = False
-            response.message = f'Fehler: {str(e)}'
+            response.message = f'Error: {str(e)}'
             self.get_logger().error(response.message)
 
         return response
@@ -555,7 +583,7 @@ class PmSkills(Node):
             time=1.0
         )
         if not return_ok:
-            self.get_logger().error('Konnte nicht zur Startposition zurueckfahren!')
+            self.get_logger().error('could not return to start position!')
         return return_ok
 
 
@@ -1768,7 +1796,12 @@ class PmSkills(Node):
             component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
             component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
             comp_id = component.uuid
-        except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+
+        except (ComponentNotFoundError) as e:
+            component_name = "None"
+            comp_id = "None"
+
+        except (RefFrameNotFoundError) as e:
             message = str(e)
             raise PmRobotError(message)
 
