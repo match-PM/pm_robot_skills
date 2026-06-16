@@ -358,10 +358,10 @@ class PmSkills(Node):
                     self.get_logger().error(response.message)
                     return response
                 
-            # Schritt 3: Zur Anfahrposition fahren (2mm vor dem Ziel-Frame entlang x-Achse)
+            # Schritt 3: Zur Anfahrposition fahren (20mm vor dem Ziel-Frame entlang x-Achse)
 
             offset = [
-                0.02 if axis > 0
+                -0.02 if axis > 0
                 else 0.02 if axis < 0
                 else 0.0
                 for axis in direction_normalized
@@ -369,7 +369,7 @@ class PmSkills(Node):
 
             self.get_logger().info('target frame: ' + request.target_frame)
 
-            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=0.0, y_offset=0.0, z_offset=0.0) 
+            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=offset[0], y_offset=offset[1], z_offset=offset[2]) 
             if not success:
                 response.success = False
                 response.message = f'could not move to target frame: {message}'
@@ -429,12 +429,12 @@ class PmSkills(Node):
                     return response
             # Schritt 7: Schrittgroesse in Meter umrechnen
             step_size_m_min = request.step_size * 1e-6
-            step_size_m_search = 0.0001 # 0.1 mm pro Schritt, unabhängig von der angeforderten Schrittgröße, verfeinertung in REFINE
+            step_size_m_search = 0.0005 # 0.5 mm pro Schritt, unabhängig von der angeforderten Schrittgröße, verfeinertung in REFINE
 
             # Schritt 8: Scan-Schleife
             detected_position = None
 
-            max_scan_distance_m = 0.004  
+            max_scan_distance_m = 0.025 
             travelled_distance_m = 0.0
 
 
