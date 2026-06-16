@@ -128,6 +128,8 @@ class PmRobotCalibrationNode(Node):
         self.calibrate_1K_dispenser_xy_on_cam_bottom_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_1K_dispenser_xy_on_cam_bottom', self.calibrate_1K_dispenser_xy_on_cam_bottom, callback_group=self.callback_group)
         self.calibrate_1K_dispenser_z_on_calibration_cube_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_1K_dispenser_z_on_calibration_cube', self.calibrate_1K_dispenser_z_on_calibration_cube, callback_group=self.callback_group)
 
+        self.calibrate_smarpod_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_smarpod', self.calibrate_smarpod, callback_group=self.callback_group)
+
         # paths
         self.calibration_frame_dict_path = get_package_share_directory('pm_robot_description') + '/urdf/urdf_configs/calibration_frame_dictionaries'
         self.calibration_log_dir = get_package_share_directory('pm_robot_calibration') + '/calibration_logs/'
@@ -208,12 +210,10 @@ class PmRobotCalibrationNode(Node):
             self.get_logger().error('Assembly manager not available...')
             return False
         
-        spawn_response:SpawnFramesFromDescription.Response = self.client_spawn_frames.call(request)        
+        spawn_response:SpawnFramesFromDescription.Response = self.client_spawn_frames.call(request)  
+
         if not spawn_response.success:
-            self.get_logger().error("Failed to spawn frames for calibration cube to cam top")
-            return False
-        
-        return True
+            raise PmRobotError("Failed to spawn calibration frames")
 
     def get_unique_identifier(self, calibration_file_name:str)->str:
         # get the unique identifier from the calibration file
@@ -554,7 +554,7 @@ class PmRobotCalibrationNode(Node):
             
             time.sleep(1.0)
             
-            success_correct_frame = self.correct_frame_vison(frame_name)
+            success_correct_frame = self.correct_frame_vison(frame_name).success
 
             if not success_correct_frame:
                 seconds = 100
@@ -564,7 +564,7 @@ class PmRobotCalibrationNode(Node):
                     self.get_logger().info(f"You have {seconds - t} seconds to fix the issue.")
                     time.sleep(1.0)
 
-                success_correct_frame_2 = self.correct_frame_vison(frame_name)
+                success_correct_frame_2 = self.correct_frame_vison(frame_name).success
 
                 if not success_correct_frame_2:
                     raise PmRobotError("Failed to correct 1K dispenser vision frame")
@@ -770,7 +770,7 @@ class PmRobotCalibrationNode(Node):
                 for frame in frames:
                     
                     if 'Vision' in frame or 'vision' in frame:
-                        correct_frame_success = self.correct_frame_vison(frame)
+                        correct_frame_success = self.correct_frame_vison(frame).success
                         #correct_frame_success = self.measure_frame(frame)
                         
                         if not correct_frame_success:
@@ -1028,10 +1028,7 @@ class PmRobotCalibrationNode(Node):
         try:
             # Spawn the frames
 
-            spawn_success = self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
-            
-            if not spawn_success:
-                raise PmRobotError(f"Spawning of frames failed!")
+            self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
 
             unique_identifier = self.get_unique_identifier('CF_Calibration_Qube_Cam_Top.json')
 
@@ -2112,6 +2109,125 @@ class PmRobotCalibrationNode(Node):
             pass
 
         return response
+    
+    def calibrate_smarpod(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        
+        move_up = False
+
+        try:
+            self._logger.warn(f"Starting calibration 'calibrate_smarpod'...")
+            
+            
+            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+                self.pm_robot_utils.pm_robot_config.set_to_real_HW()
+                self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
+            else:
+                self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
+                self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
+
+            
+            if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
+                raise PmRobotError("Smarpod station is not activated in the configuration!")
+            
+            if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
+                self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
+                 raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
+            
+
+            self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
+
+            unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
+
+            # we can hardcode the frame names here, because this hopefully never changes
+
+            vision_frame_name_1 = f"{unique_identifier}Vision_1"
+            vision_frame_name_2 = f"{unique_identifier}Vision_2"
+            vision_frame_name_3 = f"{unique_identifier}Vision_3"
+
+            laser_frame_1 = f"{unique_identifier}Laser_1"
+            laser_frame_2 = f"{unique_identifier}Laser_2"
+            laser_frame_3 = f"{unique_identifier}Laser_3"
+            laser_frame_4 = f"{unique_identifier}Laser_4"
+
+            ###  MOVE HEXAPOD TO ZERO
+            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
+
+            
+            #self.pm_robot_utils.send_smarpod_trajectory_goal_relative(x_joint_rel=0.001, y_joint_rel=0.001, z_joint_rel=0.0, time=1.0)
+        
+            self.pm_robot_utils.move_laser_to_frame(frame_name=laser_frame_1, z_offset=0.01)
+
+            move_up = True
+            
+            for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
+                res = self.correct_frame_laser(frame_id=l_frame_name)
+                cv = res.correction_values.z
+                self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+            
+            # response.success = True
+            self._logger.error(f"STARTING SECOND RUN")
+            
+            for frame_name in [vision_frame_name_1, vision_frame_name_2, vision_frame_name_3]:
+                correct_response = self.correct_frame_vison(frame_id=frame_name)
+
+                correct_success = correct_response.success
+
+                if not correct_success:
+                    raise PmRobotError(f"Vision correction for frame '{frame_name}' failed!")
+                
+
+            # for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
+            #     res = self.correct_frame_laser(frame_id=l_frame_name)
+            #     cv = res.correction_values.z
+            #     self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+            
+            # self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
+            #                                                          y_joint=0.0, 
+            #                                                          z_joint=0.0, 
+            #                                                           rx_joint_deg=0.1, 
+            #                                                           ry_joint_deg=0.0, 
+            #                                                           rz_joint_deg=0.0,
+            #                                                           time=1.0)
+
+            # self._logger.error(f"STARTING THIRD RUN")
+
+            # for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
+            #     res = self.correct_frame_laser(frame_id=l_frame_name)
+            #     cv = res.correction_values.z
+            #     self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+
+            # self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
+            #                                                          y_joint=0.0, 
+            #                                                          z_joint=0.0, 
+            #                                                           rx_joint_deg=0.2, 
+            #                                                           ry_joint_deg=0.0, 
+            #                                                           rz_joint_deg=0.0,
+            #                                                           time=1.0)
+
+            # self._logger.error(f"STARTING FOURTH RUN")
+            
+            # for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
+            #     res = self.correct_frame_laser(frame_id=l_frame_name)
+            #     cv = res.correction_values.z
+            #     self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+
+            # self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
+            #                                                 y_joint=0.0, 
+            #                                                 z_joint=0.0, 
+            #                                                 rx_joint_deg=0.0, 
+            #                                                 ry_joint_deg=0.0, 
+            #                                                 rz_joint_deg=0.0,
+            #                                                 time=1.0)
+                
+        except PmRobotError as e:
+            self._logger.error(f"Error occurred while calibrating smarpod: {e}")
+            response.success = False
+        
+        finally:
+            if move_up:
+                self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
+
+        return response
 
     def _get_circle_from_vision(self, process_file_name:str, camera_file_name:str, process_name:str):
 
@@ -2154,7 +2270,7 @@ class PmRobotCalibrationNode(Node):
         
         return response.success, response.result_vector
     
-    def correct_frame_vison(self, frame_id:str)->bool:
+    def correct_frame_vison(self, frame_id:str)->skills_srv.CorrectFrameVision.Response:
         
         if not self.client_correct_frame_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error('Vision correct frame service not available...')
@@ -2164,7 +2280,7 @@ class PmRobotCalibrationNode(Node):
         request.frame_name = frame_id
         response:skills_srv.CorrectFrameVision.Response = self.client_correct_frame_vision.call(request)
         
-        return response.success
+        return response
     
 
     def correct_frame_confocal_bottom(self, frame_id:str)->bool:
@@ -2178,6 +2294,23 @@ class PmRobotCalibrationNode(Node):
         response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_confocal_bottom.call(request)
         
         return response.success
+    
+    def correct_frame_laser(self, frame_id:str)->skills_srv.CorrectFrameLaser.Response:
+        """
+        Correct the frame using the laser.
+        """
+        
+        if not self.client_correct_frame_with_laser.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Client '{self.client_correct_frame_with_laser.srv_name}' not available...")
+        
+        request = skills_srv.CorrectFrameLaser.Request()
+        request.frame_name = frame_id
+        response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_with_laser.call(request)
+        
+        if not response.success:
+            raise PmRobotError(f"Correction of frame '{frame_id}' with laser failed!")
+        
+        return response
     
     def modify_pose_from_frame(self, modify_pose_request:ami_srv.ModifyPoseFromFrame.Request)->bool:
         if not self.client_modify_pose_from_frame.wait_for_service(timeout_sec=1.0):

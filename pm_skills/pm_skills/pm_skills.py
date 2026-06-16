@@ -1553,7 +1553,12 @@ class PmSkills(Node):
                 component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
                 component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
                 comp_id = component.uuid
-            except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+
+            except (ComponentNotFoundError) as e:
+                component_name = "None"
+                comp_id = "None"
+
+            except (RefFrameNotFoundError) as e:
                 message = str(e)
                 raise PmRobotError(message)
 
@@ -1653,6 +1658,7 @@ class PmSkills(Node):
             world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
             world_pose.transform.translation.z += response_mes.correction_values.z
+            response.correction_values = response_mes.correction_values
 
             adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
             adapt_frame_request.frame_name = request.frame_name

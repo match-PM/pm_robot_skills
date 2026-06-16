@@ -1,4 +1,5 @@
 
+import math
 from platform import node
 
 from rclpy.node import Node
@@ -144,17 +145,17 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.object_scene_un= UnInitializedScene()
 
         self.assembly_scene_analyzer = AssemblySceneAnalyzerAdv(self.object_scene_un, self._node.get_logger())
-
+        
         self.xyz_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_xyz_axis_controller/follow_joint_trajectory')
         self.t_joint_client = ActionClient(self._node, FollowJointTrajectory, '/pm_robot_t_axis_controller/follow_joint_trajectory')
-        
+        self.smarpod_joint_client = ActionClient(self._node, FollowJointTrajectory, '/smaract_hexapod_controller/follow_joint_trajectory')
         self.joint_state_sub = self._node.create_subscription(
                                 JointState,
                                 '/joint_states',
                                 self.joint_state_callback,
                                 10
                                 )
-                
+        
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -241,7 +242,24 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                                         y_joint:float, 
                                         z_joint:float,
                                         time:float = 5)->bool:
-        """Send a goal to the robot."""
+        """
+        Move the XYZ joints to absolute positions (X, Y, Z axis controller).
+        
+        Warning:
+            - Z axis is defined with gravity vector. Use negative values to move the robot up.
+        
+        Args:
+            x_joint (float): Target X position in meters.
+            y_joint (float): Target Y position in meters.
+            z_joint (float): Target Z position in meters.
+            time (float): Time to reach the target position in seconds. Default: 5 seconds.
+        
+        Returns:
+            bool: True if the movement was successful and target positions were reached, False otherwise.
+        
+        Note:
+            - This method blocks until the joints reach the target positions or timeout occurs.
+        """
         goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = ['X_Axis_Joint', 'Y_Axis_Joint', 'Z_Axis_Joint']
         point = JointTrajectoryPoint()
@@ -253,8 +271,68 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         success = self._send_goal_xyz(goal)
         return success
 
+    def send_smarpod_trajectory_goal_absolut(self,  
+                                            x_joint:float, 
+                                            y_joint:float, 
+                                            z_joint:float,
+                                            rx_joint_deg:float = 0.0,
+                                            ry_joint_deg:float = 0.0,
+                                            rz_joint_deg:float = 0.0,
+                                            time:float = 5)->bool:
+        """
+        Move the SmartPod hexapod to absolute position and orientation.
+        
+        Args:
+            x_joint (float): Target X position in meters.
+            y_joint (float): Target Y position in meters.
+            z_joint (float): Target Z position in meters.
+            rx_joint_deg (float): Target rotation around X axis in degrees. Default: 0.0.
+            ry_joint_deg (float): Target rotation around Y axis in degrees. Default: 0.0.
+            rz_joint_deg (float): Target rotation around Z axis in degrees. Default: 0.0.
+            time (float): Time to reach the target position in seconds. Default: 5 seconds.
+        
+        Returns:
+            bool: True if the movement was successful and target positions/orientations were reached, False otherwise.
+        
+        Raises:
+            None
+        
+        Note:
+            - All rotations are in degrees and are automatically converted to radians internally.
+            - This method blocks until all joints reach their target positions or timeout occurs.
+        """
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory.joint_names = ['SP_X_Joint', 'SP_Y_Joint', 'SP_Z_Joint',
+                                       'SP_A_Joint', 'SP_B_Joint', 'SP_C_Joint']
+        point = JointTrajectoryPoint()
+
+        # convert rotation from degree to radian
+        point.positions = [float(x_joint), float(y_joint), float(z_joint),
+                            float(math.radians(rx_joint_deg)), float(math.radians(ry_joint_deg)), float(math.radians(rz_joint_deg))]
+        
+        point.time_from_start =self.float_to_ros_duration(time)
+        goal.trajectory.points.append(point)
+        
+        success = self._send_goal_smarpod(goal)
+        return success
+    
     def send_t_trajectory_goal_absolut(self, t_joint:float, time:float = 5)->bool:
-        """Send a goal to the robot."""
+        """
+        Move the T (rotation) axis to an absolute position.
+        
+        Args:
+            t_joint (float): Target T axis rotation angle in meters (rotational joint, but in linear units).
+            time (float): Time to reach the target position in seconds. Default: 5 seconds.
+        
+        Returns:
+            bool: True if the movement was successful and target position was reached, False otherwise.
+        
+        Raises:
+            None
+        
+        Note:
+            - This method blocks until the joint reaches the target position or timeout occurs.
+        """
         goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = [self.T_Axis_JOINT_NAME]
         point = JointTrajectoryPoint()
@@ -271,10 +349,23 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                                         z_joint_rel:float,
                                         time:float = 5)->bool:
         """
-        Move the robot relative to its current position.
-        z axis is defined with gravity vector !!! Use negative values to move the robot up!
-        THIS IS NOT COLLISION SAVE!!! Be careful.
+        Move the XYZ joints relative to their current positions (X, Y, Z axis controller).
         
+        Warning:
+            - THIS IS NOT COLLISION SAFE!!! No collision checking is performed. Use with extreme caution.
+            - Z axis is defined with gravity vector. Use negative values to move the robot up.
+        
+        Args:
+            x_joint_rel (float): Relative X movement in meters.
+            y_joint_rel (float): Relative Y movement in meters.
+            z_joint_rel (float): Relative Z movement in meters.
+            time (float): Time to complete the relative movement in seconds. Default: 5 seconds.
+        
+        Returns:
+            bool: True if the movement was successful and target positions were reached, False otherwise.
+        
+        Note:
+            - This method blocks until the joints reach their target positions or timeout occurs.
         """
 
         goal = FollowJointTrajectory.Goal()
@@ -293,6 +384,61 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         point.time_from_start = self.float_to_ros_duration(time)
         goal.trajectory.points.append(point)
         success = self._send_goal_xyz(goal)
+        return success
+    
+    def send_smarpod_trajectory_goal_relative(self, 
+                                                x_joint_rel:float, 
+                                                y_joint_rel:float, 
+                                                z_joint_rel:float,
+                                                rx_joint_rel_deg:float = 0.0,
+                                                ry_joint_rel_deg:float = 0.0,
+                                                rz_joint_rel_deg:float = 0.0,
+                                                time:float = 5)->bool:
+        """
+        Move the SmartPod hexapod relative to its current position and orientation.
+        
+        Warning:
+            - THIS IS NOT COLLISION SAFE!!! No collision checking is performed. Use with extreme caution.
+            - All rotation inputs are in degrees and are automatically converted to radians internally.
+        
+        Args:
+            x_joint_rel (float): Relative X movement in meters.
+            y_joint_rel (float): Relative Y movement in meters.
+            z_joint_rel (float): Relative Z movement in meters.
+            rx_joint_rel_deg (float): Relative rotation around X axis in degrees. Default: 0.0.
+            ry_joint_rel_deg (float): Relative rotation around Y axis in degrees. Default: 0.0.
+            rz_joint_rel_deg (float): Relative rotation around Z axis in degrees. Default: 0.0.
+            time (float): Time to complete the relative movement in seconds. Default: 5 seconds.
+        
+        Returns:
+            bool: True if the movement was successful and target positions/orientations were reached, False otherwise.
+        
+        Note:
+            - This method blocks until all joints reach their target positions or timeout occurs.
+        """
+
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory.joint_names = ['SP_X_Joint', 'SP_Y_Joint', 'SP_Z_Joint',
+                                       'SP_A_Joint', 'SP_B_Joint', 'SP_C_Joint']        
+        point = JointTrajectoryPoint()
+        # Get the current joint state positions
+        current_x = self.get_current_joint_state('SP_X_Joint')
+        current_y = self.get_current_joint_state('SP_Y_Joint')
+        current_z = self.get_current_joint_state('SP_Z_Joint')
+        current_rx = self.get_current_joint_state('SP_A_Joint') 
+        current_ry = self.get_current_joint_state('SP_B_Joint')
+        current_rz = self.get_current_joint_state('SP_C_Joint')
+        
+        point.positions = [float(current_x + x_joint_rel),
+                            float(current_y + y_joint_rel), 
+                            float(current_z + z_joint_rel)
+                            ,float(current_rx + math.radians(rx_joint_rel_deg)),
+                            float(current_ry + math.radians(ry_joint_rel_deg)),
+                            float(current_rz + math.radians(rz_joint_rel_deg))]
+                
+        point.time_from_start = self.float_to_ros_duration(time)
+        goal.trajectory.points.append(point)
+        success = self._send_goal_smarpod(goal)
         return success
     
     def _send_goal_xyz(self, goal:FollowJointTrajectory.Goal)->bool:
@@ -321,6 +467,31 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                 time.sleep(1)
                 return wait_success
     
+    def _send_goal_smarpod(self, goal:FollowJointTrajectory.Goal)->bool:
+            self.smarpod_joint_client.wait_for_server()
+            result= self.smarpod_joint_client.send_goal(goal)
+            result:FollowJointTrajectory.Result = result.result
+
+            if result is None:
+                self._node.get_logger().info('Goal rejected.')
+                return False
+            if result.error_code == FollowJointTrajectory.Result.INVALID_GOAL:
+                self._node.get_logger().info('Goal rejected.')
+                return False
+            if result.error_code == FollowJointTrajectory.Result.INVALID_JOINTS:
+                self._node.get_logger().info('Goal rejected. Invalid joints.')
+                return False
+            
+            if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
+                wait_success = self.wait_for_joints_reached(
+                    joint_names=["SP_X_Joint", "SP_Y_Joint", "SP_Z_Joint",
+                                 "SP_A_Joint", "SP_B_Joint", "SP_C_Joint"],
+                    target_joint_values=goal.trajectory.points[0].positions,
+                    tolerance=[0.000001],
+                    timeout=5.0)
+                time.sleep(1)
+                return wait_success
+            
     def _send_goal_t(self, goal:FollowJointTrajectory.Goal)->bool:
             self.t_joint_client.wait_for_server()
             result= self.t_joint_client.send_goal(goal)
