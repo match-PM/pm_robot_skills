@@ -2149,6 +2149,23 @@ class PmRobotCalibrationNode(Node):
             laser_frame_3 = f"{unique_identifier}Laser_3"
             laser_frame_4 = f"{unique_identifier}Laser_4"
 
+            laser_frame_1_initial = f"{unique_identifier}Laser_1_initial"
+            laser_frame_2_initial = f"{unique_identifier}Laser_2_initial"
+            laser_frame_3_initial = f"{unique_identifier}Laser_3_initial"
+            laser_frame_4_initial = f"{unique_identifier}Laser_4_initial"
+
+            laser_frames = [
+                laser_frame_1,
+                laser_frame_2,
+                laser_frame_3,
+                laser_frame_4]
+            
+            laser_initial_frames = [
+                laser_frame_1_initial,
+                laser_frame_2_initial,
+                laser_frame_3_initial,
+                laser_frame_4_initial]
+
             ###  MOVE HEXAPOD TO ZERO
             self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
 
@@ -2159,66 +2176,104 @@ class PmRobotCalibrationNode(Node):
 
             move_up = True
             
-            for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
+            for l_frame_name in laser_initial_frames:
+                res = self.correct_frame_laser(frame_id=l_frame_name,remeasure_after_correction=True)
+                cv = res.correction_values.z
+                self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
+
+            for l_frame_name in laser_frames:
                 res = self.correct_frame_laser(frame_id=l_frame_name)
                 cv = res.correction_values.z
-                self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+                self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
             
-            # response.success = True
-            self._logger.error(f"STARTING SECOND RUN")
-            
-            for frame_name in [vision_frame_name_1, vision_frame_name_2, vision_frame_name_3]:
-                correct_response = self.correct_frame_vison(frame_id=frame_name)
-
-                correct_success = correct_response.success
-
-                if not correct_success:
-                    raise PmRobotError(f"Vision correction for frame '{frame_name}' failed!")
+            def collect_frame_data(angle, pose_name, rx_cmd, ry_cmd):
+                frame_data = {}
                 
+                pose_id = f"{pose_name}_rx{rx_cmd}_ry{ry_cmd}"
 
-            # for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
-            #     res = self.correct_frame_laser(frame_id=l_frame_name)
-            #     cv = res.correction_values.z
-            #     self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
-            
-            # self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
-            #                                                          y_joint=0.0, 
-            #                                                          z_joint=0.0, 
-            #                                                           rx_joint_deg=0.1, 
-            #                                                           ry_joint_deg=0.0, 
-            #                                                           rz_joint_deg=0.0,
-            #                                                           time=1.0)
+                for index, frame in enumerate(laser_frames):
+                    res = self.correct_frame_laser(
+                        frame_id=frame,
+                        remeasure_after_correction=True,
+                        use_iterative_sensing=True,
+                    )
+                    cv = res.correction_values.z
 
-            # self._logger.error(f"STARTING THIRD RUN")
+                    trans_fixed_point = self.pm_robot_utils.get_transform_for_frame(
+                        frame_name=frame,
+                        parent_frame="SmarPod_Origin",
+                    )
 
-            # for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
-            #     res = self.correct_frame_laser(frame_id=l_frame_name)
-            #     cv = res.correction_values.z
-            #     self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+                    trans_rot_point = self.pm_robot_utils.get_transform_for_frame(
+                        frame_name=frame,
+                        parent_frame="Smarpod_Top_Plate",
+                    )
+                    
+                    trans_to_initial_point = self.pm_robot_utils.get_transform_for_frame(
+                        frame_name=f"CAL_Smarpod_Laser_{index + 1}",
+                        parent_frame=f"CAL_Smarpod_Laser_{index + 1}_initial",
+                    )
 
-            # self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
-            #                                                          y_joint=0.0, 
-            #                                                          z_joint=0.0, 
-            #                                                           rx_joint_deg=0.2, 
-            #                                                           ry_joint_deg=0.0, 
-            #                                                           rz_joint_deg=0.0,
-            #                                                           time=1.0)
+                    frame_data[frame] = {
+                        "correction_z_um": cv * 1e6,
+                        "transform_fixed": self._transform_to_dict(trans_fixed_point),
+                        "transform_rot": self._transform_to_dict(trans_rot_point),
+                        "transform_to_initial": self._transform_to_dict(trans_to_initial_point),
+                    }
 
-            # self._logger.error(f"STARTING FOURTH RUN")
-            
-            # for l_frame_name in [laser_frame_1, laser_frame_2, laser_frame_3, laser_frame_4]:
-            #     res = self.correct_frame_laser(frame_id=l_frame_name)
-            #     cv = res.correction_values.z
-            #     self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")
+                    self._logger.warn(
+                        f"{frame} | pose={pose_id} | rx={rx_cmd} | ry={ry_cmd} | z={cv*1e6:.2f} um"
+                    )
 
-            # self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
-            #                                                 y_joint=0.0, 
-            #                                                 z_joint=0.0, 
-            #                                                 rx_joint_deg=0.0, 
-            #                                                 ry_joint_deg=0.0, 
-            #                                                 rz_joint_deg=0.0,
-            #                                                 time=1.0)
-                
+                return {
+                    "angle": angle,
+                    "pose_id": pose_id,
+                    "rx_cmd": rx_cmd,
+                    "ry_cmd": ry_cmd,
+                    "frames": frame_data,
+                }
+
+            calibration_data = []
+            #angles = [0.5, 1.0]
+            angles = [0.5, 1.0, 1.5, 2.0]
+
+            pose_sequence = [
+                ("rx", 1, 0),
+                ("rx", -1, 0),
+                ("ry", 0, 1),
+                ("ry", 0, -1),
+                ("rxry", 1, 1),
+                ("rxry", -1, -1),
+                ("rxry", 1, -1),
+                ("rxry", -1, 1),
+            ]
+
+            for angle in angles:
+                for pose_name, rx, ry in pose_sequence:
+
+                    rx_cmd = angle * rx
+                    ry_cmd = angle * ry
+
+                    self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
+                        x_joint=0.0,
+                        y_joint=0.0,
+                        z_joint=0.0,
+                        rx_joint_deg=rx_cmd,
+                        ry_joint_deg=ry_cmd,
+                        rz_joint_deg=0,
+                        time=0.5,
+                    )
+
+                    calibration_data.append(
+                        collect_frame_data(angle, pose_name, rx_cmd, ry_cmd)
+                    )
+            filename = f"{self.calibration_log_dir}/calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+            with open(filename, "w") as f:
+                json.dump(calibration_data, f, indent=2)
+
+            self._logger.info(f"Calibration data saved to {filename}")
+
         except PmRobotError as e:
             self._logger.error(f"Error occurred while calibrating smarpod: {e}")
             response.success = False
@@ -2226,7 +2281,9 @@ class PmRobotCalibrationNode(Node):
         finally:
             if move_up:
                 self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
-
+            # Move smarpod back to zero position
+            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
+        
         return response
 
     def _get_circle_from_vision(self, process_file_name:str, camera_file_name:str, process_name:str):
@@ -2295,7 +2352,9 @@ class PmRobotCalibrationNode(Node):
         
         return response.success
     
-    def correct_frame_laser(self, frame_id:str)->skills_srv.CorrectFrameLaser.Response:
+    def correct_frame_laser(self, frame_id:str, 
+                            remeasure_after_correction:bool=False,
+                            use_iterative_sensing:bool=False)->skills_srv.CorrectFrameLaser.Response:
         """
         Correct the frame using the laser.
         """
@@ -2305,6 +2364,8 @@ class PmRobotCalibrationNode(Node):
         
         request = skills_srv.CorrectFrameLaser.Request()
         request.frame_name = frame_id
+        request.remeasure_after_correction = remeasure_after_correction
+        request.use_iterative_sensing = use_iterative_sensing
         response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_with_laser.call(request)
         
         if not response.success:
