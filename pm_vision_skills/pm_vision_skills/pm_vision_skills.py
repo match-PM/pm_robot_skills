@@ -66,7 +66,12 @@ class VisionSkillsNode(Node):
             component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
             comp_id = component.uuid
             is_from_component = True
-        except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+
+        except (ComponentNotFoundError) as e:
+            component_name = "None"
+            comp_id = "None"
+
+        except (RefFrameNotFoundError) as e:
             message = str(e)
             raise PmRobotError(message)
 
@@ -81,204 +86,179 @@ class VisionSkillsNode(Node):
         else:
             vision_request.process_uid = f"Frame: {request.frame_name}"
 
+        try:
+            vision_request.image_display_time = 15
 
-        vision_request.image_display_time = 15
+            if request.frame_name == '':
+                raise PmRobotError("Frame name is empty. Please provide a valid frame name to measure!")
+            
+            if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+                raise PmRobotError("Service 'ExecuteVision' not available...")
+            
+            self._logger.info("Service 'ExecuteVision' is available...")
 
-        if request.frame_name == '':
-            self._logger.error("Frame name is empty...")
-            response.success= False
-            response.message = "Frame name is empty!"
-            return response
-        
-        if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
-            response.success= False
-            response.message = "Service 'ExecuteVision' not available!"
-            self._logger.error(f"{response.message}")
-            return response
-        
-        self._logger.info("Service 'ExecuteVision' is available...")
+            # try to move the frame to the bottom camera
+            move_request = MoveToFrame.Request()
+            move_request.execute_movement = True
+            move_request.endeffector_frame_override = request.frame_name
+            move_request.target_frame = 'Camera_Station_TCP'
 
-        # try to move the frame to the bottom camera
-        move_request = MoveToFrame.Request()
-        move_request.execute_movement = True
-        move_request.endeffector_frame_override = request.frame_name
-        move_request.target_frame = 'Camera_Station_TCP'
-
-        #self._logger.error(f"Moving tool to frame: {request.frame_name}... executing movement: {move_request.execute_movement} edgeffector frame override: {move_request.endeffector_frame_override} target frame: {move_request.target_frame}")
-        
-        # select the bottom camera
-        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-            vision_request.camera_config_filename = 'pm_robot_basler_bottom_cam_2.yaml'
-
-        elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
-            self._logger.info("Unity is running. Using simulated camera...")
-            vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
-        else:
-            response.success= False
-            response.message = "Gazebo mode is not supported for this operation!"
-            self._logger.error(response.message)
-            return response
-
-        #if not self.pm_robot_utils.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
-        if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
-            self._logger.error("Service 'MoveCamToFrame' not available...")
-            response.success= False
-            response.message = "Service 'MoveCamToFrame' not available!"
-            return response
-        
-        #result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_tool_to_frame.call(move_request)
-        result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
-
-        #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
-        
-        # If the tool cannot be moved to the bottom camera, try to move it to the top camera
-        if not result_tool_to_bottom_cam.success:
-            self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
-
-            # selct the top camera
+            #self._logger.error(f"Moving tool to frame: {request.frame_name}... executing movement: {move_request.execute_movement} edgeffector frame override: {move_request.endeffector_frame_override} target frame: {move_request.target_frame}")
+            
+            # select the bottom camera
             if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-                vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
+                vision_request.camera_config_filename = 'pm_robot_basler_bottom_cam_2.yaml'
 
             elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
                 self._logger.info("Unity is running. Using simulated camera...")
-                vision_request.camera_config_filename = 'pm_robot_top_cam_1_Unity.yaml'
-
+                vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
             else:
-                response.success= False
-                response.message = "Gazebo mode is not supported for this operation!"
-                self._logger.error(response.message)
-                return response
+                raise PmRobotError("Gazebo mode is not supported for this operation!")
 
-            move_request = MoveToFrame.Request()
-            move_request.execute_movement = True
-            move_request.target_frame = request.frame_name
-
+            #if not self.pm_robot_utils.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
             if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
-                self._logger.error("Service 'MoveCamToFrame' not available...")
-                response.success= False
-                response.message = "Service 'MoveCamToFrame' not available!"
-                return response
+                raise PmRobotError("Service 'MoveCamToFrame' not available...")
+
+            #result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_tool_to_frame.call(move_request)
+            result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+
+            #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
             
-            result_move_tool:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+            # If the tool cannot be moved to the bottom camera, try to move it to the top camera
+            if not result_tool_to_bottom_cam.success:
+                self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
 
-            if not result_move_tool.success:
-                self._logger.error("Error moving tool to frame...")
-                response.success= False
-                response.message = f"Failed to move tool to frame '{request.frame_name}'!"
-                return response
+                # selct the top camera
+                if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+                    vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
 
-        # Measure the frame
-        if (self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE or 
-            self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE):
+                elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
+                    self._logger.info("Unity is running. Using simulated camera...")
+                    vision_request.camera_config_filename = 'pm_robot_top_cam_1_Unity.yaml'
 
-            if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
-                self._logger.error("Service 'ExecuteVision' not available...")
-                response.success= False
-                response.message = "Service 'ExecuteVision' not available!"
-                return response
-            # vision_available = self.pm_robot_utils.check_available_client_execute_vision()
+                else:
+                    raise PmRobotError("Gazebo mode is not supported for this operation!")
 
-            # if not vision_available:
-            #     self._logger.error("Vision client not available...")
-            #     response.success= False
-            #     return response
-            #self._logger.warn(f"Executing vision process for frame: {request.frame_name}...")
-            #self._logger.warn(f"Using process file: {vision_request.process_filename}...")
-            #self._logger.warn(f"Using camera config file: {vision_request.camera_config_filename}...")
-            
-            result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
+                move_request = MoveToFrame.Request()
+                move_request.execute_movement = True
+                move_request.target_frame = request.frame_name
 
-            response.vision_response = result.vision_response
-
-            if not result.success:
-                self._logger.error("Vision process failed...")
-                response.success= False
-                response.message = "Vision process failed!"
-                return response
-            
-            detected_circles = result.vision_response.results.circles
-            detected_points = result.vision_response.results.points
-
-            #self._logger.warn(f"Result: {str(result.vision_response.results)}")
-
-            multiplier = 0.000001 # Convert to m  
-            
-            if len(detected_circles) == 0:
-                self._logger.warn("No circles detected...")
-            
-            else:
-                result_vector = Vector3()
-                detected_cricle:vision_msg.VisionCircle = detected_circles[0]
+                if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
+                    raise PmRobotError("Service 'MoveCamToFrame' not available...")
                 
-                if detected_cricle.center_point.axis_suffix_1 == 'x' or detected_cricle.center_point.axis_suffix_1 == 'X':
-                    result_vector.x = detected_cricle.center_point.axis_value_1*multiplier
+                result_move_tool:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+
+                if not result_move_tool.success:
+                    raise PmRobotError("Failed to move tool to frame with both cameras. Cannot execute vision measurement!")
+
+            # Measure the frame
+            if (self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE or 
+                self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE):
+
+                if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+                    raise PmRobotError("Service 'ExecuteVision' not available.")
+
+                # vision_available = self.pm_robot_utils.check_available_client_execute_vision()
+
+                # if not vision_available:
+                #     self._logger.error("Vision client not available...")
+                #     response.success= False
+                #     return response
+                #self._logger.warn(f"Executing vision process for frame: {request.frame_name}...")
+                #self._logger.warn(f"Using process file: {vision_request.process_filename}...")
+                #self._logger.warn(f"Using camera config file: {vision_request.camera_config_filename}...")
+                
+                result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
+
+                response.vision_response = result.vision_response
+
+                if not result.success:
+                    raise PmRobotError("Vision process failed!")
+                
+                detected_circles = result.vision_response.results.circles
+                detected_points = result.vision_response.results.points
+
+                #self._logger.warn(f"Result: {str(result.vision_response.results)}")
+
+                multiplier = 0.000001 # Convert to m  
+                
+                if len(detected_circles) == 0:
+                    self._logger.warn("No circles detected...")
+                
+                else:
+                    result_vector = Vector3()
+                    detected_cricle:vision_msg.VisionCircle = detected_circles[0]
                     
-                if detected_cricle.center_point.axis_suffix_1 == 'y' or detected_cricle.center_point.axis_suffix_1 == 'Y':
-                    result_vector.y = detected_cricle.center_point.axis_value_1*multiplier
+                    if detected_cricle.center_point.axis_suffix_1 == 'x' or detected_cricle.center_point.axis_suffix_1 == 'X':
+                        result_vector.x = detected_cricle.center_point.axis_value_1*multiplier
+                        
+                    if detected_cricle.center_point.axis_suffix_1 == 'y' or detected_cricle.center_point.axis_suffix_1 == 'Y':
+                        result_vector.y = detected_cricle.center_point.axis_value_1*multiplier
 
-                if detected_cricle.center_point.axis_suffix_1 == 'z' or detected_cricle.center_point.axis_suffix_1 == 'Z':
-                    result_vector.z = detected_cricle.center_point.axis_value_1*multiplier
+                    if detected_cricle.center_point.axis_suffix_1 == 'z' or detected_cricle.center_point.axis_suffix_1 == 'Z':
+                        result_vector.z = detected_cricle.center_point.axis_value_1*multiplier
 
-                if detected_cricle.center_point.axis_suffix_2 == 'x' or detected_cricle.center_point.axis_suffix_2 == 'X':
-                    result_vector.x = detected_cricle.center_point.axis_value_2*multiplier
+                    if detected_cricle.center_point.axis_suffix_2 == 'x' or detected_cricle.center_point.axis_suffix_2 == 'X':
+                        result_vector.x = detected_cricle.center_point.axis_value_2*multiplier
 
-                if detected_cricle.center_point.axis_suffix_2 == 'y' or detected_cricle.center_point.axis_suffix_2 == 'Y':
-                    result_vector.y = detected_cricle.center_point.axis_value_2*multiplier
+                    if detected_cricle.center_point.axis_suffix_2 == 'y' or detected_cricle.center_point.axis_suffix_2 == 'Y':
+                        result_vector.y = detected_cricle.center_point.axis_value_2*multiplier
 
-                if detected_cricle.center_point.axis_suffix_2 == 'z' or detected_cricle.center_point.axis_suffix_2 == 'Z':
-                    result_vector.z = detected_cricle.center_point.axis_value_2*multiplier
+                    if detected_cricle.center_point.axis_suffix_2 == 'z' or detected_cricle.center_point.axis_suffix_2 == 'Z':
+                        result_vector.z = detected_cricle.center_point.axis_value_2*multiplier
 
 
-            if len(detected_points) == 0:
-                self._logger.warn("No points detected...")
+                if len(detected_points) == 0:
+                    self._logger.warn("No points detected...")
 
+                else:
+                    self._logger.warn(f"Detected points: {detected_points}")
+                    detected_point:vision_msg.VisionPoint = detected_points[0]
+                    result_vector = Vector3()
+                    
+                    if detected_point.axis_suffix_1 == 'x' or detected_point.axis_suffix_1 == 'X':
+                        result_vector.x = detected_point.axis_value_1*multiplier
+                    
+                    if detected_point.axis_suffix_1 == 'y' or detected_point.axis_suffix_1 == 'Y':
+                        result_vector.y = detected_point.axis_value_1*multiplier
+
+                    if detected_point.axis_suffix_1 == 'z' or detected_point.axis_suffix_1 == 'Z':
+                        result_vector.z = detected_point.axis_value_1*multiplier
+
+                    if detected_point.axis_suffix_2 == 'x' or detected_point.axis_suffix_2 == 'X':
+                        result_vector.x = detected_point.axis_value_2*multiplier
+
+                    if detected_point.axis_suffix_2 == 'y' or detected_point.axis_suffix_2 == 'Y':
+                        result_vector.y = detected_point.axis_value_2*multiplier
+
+                    if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
+                        result_vector.z = detected_point.axis_value_2*multiplier
+                
+                if len(detected_points) == 0 and len(detected_circles) == 0:
+                    raise PmRobotError("No points and circles detected. Vision process failed to detect the required features!")
+                
+                if len(detected_points) > 1 or len(detected_circles) > 1:
+                    raise PmRobotError("Multiple points or circles detected. Please make sure that the vision process detects only one feature!")
+
+                
+                result_vector.x = result_vector.x
+                result_vector.y = result_vector.y
+                result_vector.z = result_vector.z
+                response.result_vector = result_vector     
+                response.success = result.success
+                
+                #self._logger.info(f"Vision process executed...{result}")
             else:
-                self._logger.warn(f"Detected points: {detected_points}")
-                detected_point:vision_msg.VisionPoint = detected_points[0]
-                result_vector = Vector3()
-                
-                if detected_point.axis_suffix_1 == 'x' or detected_point.axis_suffix_1 == 'X':
-                    result_vector.x = detected_point.axis_value_1*multiplier
-                
-                if detected_point.axis_suffix_1 == 'y' or detected_point.axis_suffix_1 == 'Y':
-                    result_vector.y = detected_point.axis_value_1*multiplier
+                # Gazebo is running
+                response.success = True
 
-                if detected_point.axis_suffix_1 == 'z' or detected_point.axis_suffix_1 == 'Z':
-                    result_vector.z = detected_point.axis_value_1*multiplier
-
-                if detected_point.axis_suffix_2 == 'x' or detected_point.axis_suffix_2 == 'X':
-                    result_vector.x = detected_point.axis_value_2*multiplier
-
-                if detected_point.axis_suffix_2 == 'y' or detected_point.axis_suffix_2 == 'Y':
-                    result_vector.y = detected_point.axis_value_2*multiplier
-
-                if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
-                    result_vector.z = detected_point.axis_value_2*multiplier
-            
-            if len(detected_points) == 0 and len(detected_circles) == 0:
-                self._logger.error("No points and circles detected...")
-                response.success= False
-                response.message = "No points and circles detected!"
-                return response
-            
-            if len(detected_points) > 1 or len(detected_circles) > 1:
-                self._logger.error("Multiple points or circles detected...")
-                response.success= False
-                response.message = "Multiple points or circles detected!"
-                return response
-            
-            result_vector.x = result_vector.x
-            result_vector.y = result_vector.y
-            result_vector.z = result_vector.z
-            response.result_vector = result_vector     
-            response.success = result.success
-            
-            #self._logger.info(f"Vision process executed...{result}")
-        else:
-            # Gazebo is running
-            response.success = True
+        except PmRobotError as e:
+            self._logger.error(str(e))
+            response.success = False
+            response.message = str(e)
        
-        return response
+        finally:
+            return response
     
     def correct_frame(self, 
                       request:skills_srv.CorrectFrameVision.Request, 
@@ -288,11 +268,10 @@ class VisionSkillsNode(Node):
             
             if not self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name):
                 raise RefFrameNotFoundError(f"Frame '{request.frame_name}' not found in the current assembly scene.")
-                return response
 
             try:
                 _obj_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
-
+            
             except ComponentNotFoundError as e:
                 _obj_name = None
 

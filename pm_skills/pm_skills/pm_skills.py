@@ -1647,7 +1647,12 @@ class PmSkills(Node):
                 component_name = self.pm_robot_utils.assembly_scene_analyzer.get_component_for_frame_name(request.frame_name)
                 component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(component_name)
                 comp_id = component.uuid
-            except (ComponentNotFoundError, RefFrameNotFoundError) as e:
+
+            except (ComponentNotFoundError) as e:
+                component_name = "None"
+                comp_id = "None"
+
+            except (RefFrameNotFoundError) as e:
                 message = str(e)
                 raise PmRobotError(message)
 
@@ -1729,6 +1734,9 @@ class PmSkills(Node):
 
             frame_from_scene = self.pm_robot_utils.assembly_scene_analyzer.is_frame_from_scene(request.frame_name)
 
+            if not frame_from_scene:
+                raise RefFrameNotFoundError(f"Frame '{request.frame_name}' is not from assembly scene!")
+            
             measure_frame_request = pm_skill_srv.CorrectFrameLaser.Request()
             measure_frame_response = pm_skill_srv.CorrectFrameLaser.Response()
             
@@ -1736,27 +1744,33 @@ class PmSkills(Node):
             measure_frame_request.remeasure_after_correction = request.remeasure_after_correction
             measure_frame_request.use_iterative_sensing = request.use_iterative_sensing
             
-            response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
-            
-            response.component_name = response_mes.component_name
-            response.component_uuid = response_mes.component_uuid
+            iterations = 1
 
-            if not response_mes.success:
-                raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed! Reason: {response_mes.message}")
+            if request.remeasure_after_correction:
+                iterations = 2
             
-            world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
+            for i in range(iterations):
+                response_mes:pm_skill_srv.CorrectFrameLaser.Response = self.measure_with_laser_callback(measure_frame_request, measure_frame_response)
+                
+                response.component_name = response_mes.component_name
+                response.component_uuid = response_mes.component_uuid
 
-            world_pose.transform.translation.z += response_mes.correction_values.z
+                if not response_mes.success:
+                    raise PmRobotError(f"Measuring frame '{request.frame_name}' with laser failed! Reason: {response_mes.message}")
+                
+                world_pose:TransformStamped = get_transform_for_frame_in_world(request.frame_name, self.tf_buffer, self._logger)
 
-            adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
-            adapt_frame_request.frame_name = request.frame_name
-            adapt_frame_request.pose.position.x = world_pose.transform.translation.x
-            adapt_frame_request.pose.position.y = world_pose.transform.translation.y
-            adapt_frame_request.pose.position.z = world_pose.transform.translation.z
-            adapt_frame_request.pose.orientation = world_pose.transform.rotation
-            adapt_frame_request.set_laser_measured = True
-            
-            if frame_from_scene:
+                world_pose.transform.translation.z += response_mes.correction_values.z
+                response.correction_values.z += response_mes.correction_values.z
+                
+                adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
+                adapt_frame_request.frame_name = request.frame_name
+                adapt_frame_request.pose.position.x = world_pose.transform.translation.x
+                adapt_frame_request.pose.position.y = world_pose.transform.translation.y
+                adapt_frame_request.pose.position.z = world_pose.transform.translation.z
+                adapt_frame_request.pose.orientation = world_pose.transform.rotation
+                adapt_frame_request.set_laser_measured = True
+                
                 if not self.adapt_frame_client.wait_for_service(timeout_sec=1.0):
                     self._logger.error(f"Service '{self.adapt_frame_client.srv_name}' not available. Assembly manager started?...")
                     response.success= False
@@ -1764,10 +1778,8 @@ class PmSkills(Node):
                     return response
                 
                 result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.adapt_frame_client.call(adapt_frame_request)
-            else:
-                result_adapt = ami_srv.ModifyPoseAbsolut.Response()
 
-            response.success = result_adapt.success
+                response.success = result_adapt.success
 
         except (PmRobotError,RefFrameNotFoundError) as e:
             response.success = False

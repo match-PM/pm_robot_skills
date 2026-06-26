@@ -128,6 +128,8 @@ class PmRobotCalibrationNode(Node):
         self.calibrate_1K_dispenser_xy_on_cam_bottom_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_1K_dispenser_xy_on_cam_bottom', self.calibrate_1K_dispenser_xy_on_cam_bottom, callback_group=self.callback_group)
         self.calibrate_1K_dispenser_z_on_calibration_cube_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_1K_dispenser_z_on_calibration_cube', self.calibrate_1K_dispenser_z_on_calibration_cube, callback_group=self.callback_group)
 
+        self.calibrate_smarpod_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_smarpod', self.calibrate_smarpod, callback_group=self.callback_group)
+
         # paths
         self.calibration_frame_dict_path = get_package_share_directory('pm_robot_description') + '/urdf/urdf_configs/calibration_frame_dictionaries'
         self.calibration_log_dir = get_package_share_directory('pm_robot_calibration') + '/calibration_logs/'
@@ -208,12 +210,10 @@ class PmRobotCalibrationNode(Node):
             self.get_logger().error('Assembly manager not available...')
             return False
         
-        spawn_response:SpawnFramesFromDescription.Response = self.client_spawn_frames.call(request)        
+        spawn_response:SpawnFramesFromDescription.Response = self.client_spawn_frames.call(request)  
+
         if not spawn_response.success:
-            self.get_logger().error("Failed to spawn frames for calibration cube to cam top")
-            return False
-        
-        return True
+            raise PmRobotError("Failed to spawn calibration frames")
 
     def get_unique_identifier(self, calibration_file_name:str)->str:
         # get the unique identifier from the calibration file
@@ -554,7 +554,7 @@ class PmRobotCalibrationNode(Node):
             
             time.sleep(1.0)
             
-            success_correct_frame = self.correct_frame_vison(frame_name)
+            success_correct_frame = self.correct_frame_vison(frame_name).success
 
             if not success_correct_frame:
                 seconds = 100
@@ -564,7 +564,7 @@ class PmRobotCalibrationNode(Node):
                     self.get_logger().info(f"You have {seconds - t} seconds to fix the issue.")
                     time.sleep(1.0)
 
-                success_correct_frame_2 = self.correct_frame_vison(frame_name)
+                success_correct_frame_2 = self.correct_frame_vison(frame_name).success
 
                 if not success_correct_frame_2:
                     raise PmRobotError("Failed to correct 1K dispenser vision frame")
@@ -738,7 +738,8 @@ class PmRobotCalibrationNode(Node):
 
             #rotations = [0.0, 20, 30, 40, 50, 60, 80]
             #rotations = [90, 65, 55, 45, 35, 25, 0]
-            rotations = [90, 60, 30, 0]
+            # rotations = [90, 60, 30, 0]
+            rotations = [0]
 
             #rotations = [60, 40, 20, 0]
 
@@ -769,7 +770,7 @@ class PmRobotCalibrationNode(Node):
                 for frame in frames:
                     
                     if 'Vision' in frame or 'vision' in frame:
-                        correct_frame_success = self.correct_frame_vison(frame)
+                        correct_frame_success = self.correct_frame_vison(frame).success
                         #correct_frame_success = self.measure_frame(frame)
                         
                         if not correct_frame_success:
@@ -794,52 +795,57 @@ class PmRobotCalibrationNode(Node):
                                         tf_buffer=self.pm_robot_utils.tf_buffer,
                                         logger=self._logger)
             
-            min_distance = min(distance_list)
-            max_distance = max(distance_list)
-            # fit a circle to the points to find the center
+            # Check if calibration was done without rotation (single rotation of 0)
+            if len(rotations) > 1 and len(distance_list) > 0:
+                min_distance = min(distance_list)
+                max_distance = max(distance_list)
+                # fit a circle to the points to find the center
+                        
+                #2.3656241026821336e-07
+                self._logger.info("Min distance: " + str(min_distance * 1e6) + " um")
+                self._logger.info(f" length of frame_poses_list: {len(frame_poses_list)}")
+                
+                # if the rotational axis is not ideal all the frames in the 'frame_poses_list' form a circle. We saved all the distances between the points in the circle
+                # if we are already calibrated, the points should be very close together and not form a circle.
+                # we check the distances between the points, if the max_distance exeedes a threshold we calibrate the axis offset
+
+                #if distance > 20 * 1e-6:
+                # If the rotation axis need to be corrected
+                if max_distance > 20 * 1e-6:
+                    # plot a circle through all the poses
+                    x,y,r,s = self.find_circle_coordinates(copy.copy(frame_poses_list))
+                    self._logger.info("Circle center: " + str(x) + ", " + str(y) + ", radius (um): " + str(r* 1e6) + ", s: " + str(s))
                     
-            #2.3656241026821336e-07
-            self._logger.info("Min distance: " + str(min_distance * 1e6) + " um")
-            self._logger.info(f" length of frame_poses_list: {len(frame_poses_list)}")
-            
-            # if the rotational axis is not ideal all the frames in the 'frame_poses_list' form a circle. We saved all the distances between the points in the circle
-            # if we are already calibrated, the points should be very close together and not form a circle.
-            # we check the distances between the points, if the max_distance exeedes a threshold we calibrate the axis offset
+                    rel_t_joint = Transform()
+                    rel_t_joint.translation.x = (relative_transform.translation.x - x)
+                    rel_t_joint.translation.y = (relative_transform.translation.y - y)
+                    
+                    relative_transform.translation.x = x
+                    relative_transform.translation.y = y
+                    
+                    self._logger.warn(f"T-Axis has offset: {x* 1e6}, {y* 1e6} um")
+                    
+                    self._logger.error(f"Translation of the rotation point")
+                    self._logger.error(f"x offset: {rel_t_joint.translation.x * 1e6} um")
+                    self._logger.error(f"y offset: {rel_t_joint.translation.y * 1e6} um")
+                    
+                    self.save_joint_config('T_Axis_Joint', rel_t_joint)
 
-            #if distance > 20 * 1e-6:
-            # If the rotation axis need to be corrected
-            if max_distance > 20 * 1e-6:
-                # plot a circle through all the poses
-                x,y,r,s = self.find_circle_coordinates(copy.copy(frame_poses_list))
-                self._logger.info("Circle center: " + str(x) + ", " + str(y) + ", radius (um): " + str(r* 1e6) + ", s: " + str(s))
-                
-                rel_t_joint = Transform()
-                rel_t_joint.translation.x = (relative_transform.translation.x - x)
-                rel_t_joint.translation.y = (relative_transform.translation.y - y)
-                
-                relative_transform.translation.x = x
-                relative_transform.translation.y = y
-                
-                self._logger.warn(f"T-Axis has offset: {x* 1e6}, {y* 1e6} um")
-                
-                self._logger.error(f"Translation of the rotation point")
-                self._logger.error(f"x offset: {rel_t_joint.translation.x * 1e6} um")
-                self._logger.error(f"y offset: {rel_t_joint.translation.y * 1e6} um")
-                
-                self.save_joint_config('T_Axis_Joint', rel_t_joint)
+                    t_axis_dict = self._transform_to_dict(rel_t_joint)
 
-                t_axis_dict = self._transform_to_dict(rel_t_joint)
+                    self.log_calibration(file_name='calibrate_gripper_T_axis', calibration_dict=t_axis_dict)
 
-                self.log_calibration(file_name='calibrate_gripper_T_axis', calibration_dict=t_axis_dict)
-
-                self.plot_gripper_calibration_poses(copy.copy(frame_poses_list),
-                                                    radius=r,
-                                                    circle_x=x,
-                                                    circle_y=y)
-                
-            # assuming the gripper is at the center of the circle
+                    self.plot_gripper_calibration_poses(copy.copy(frame_poses_list),
+                                                        radius=r,
+                                                        circle_x=x,
+                                                        circle_y=y)
+                    
+                # assuming the gripper is at the center of the circle
+                else:
+                    self._logger.warn("T-Axis has no offset...")
             else:
-                self._logger.warn("T-Axis has no offset...")
+                # Single rotation calibration (no multi-rotation axis correction needed)
+                self._logger.info("Calibrating gripper without rotation - single pose calibration")
 
             # log relative pose
             #self._logger.error("Relative pose: " + str(relative_transform))
@@ -1022,10 +1028,7 @@ class PmRobotCalibrationNode(Node):
         try:
             # Spawn the frames
 
-            spawn_success = self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
-            
-            if not spawn_success:
-                raise PmRobotError(f"Spawning of frames failed!")
+            self.spawn_calibration_frames('CF_Calibration_Qube_Cam_Top.json')
 
             unique_identifier = self.get_unique_identifier('CF_Calibration_Qube_Cam_Top.json')
 
@@ -2106,6 +2109,182 @@ class PmRobotCalibrationNode(Node):
             pass
 
         return response
+    
+    def calibrate_smarpod(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
+        
+        move_up = False
+
+        try:
+            self._logger.warn(f"Starting calibration 'calibrate_smarpod'...")
+            
+            
+            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+                self.pm_robot_utils.pm_robot_config.set_to_real_HW()
+                self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
+            else:
+                self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
+                self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
+
+            
+            if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
+                raise PmRobotError("Smarpod station is not activated in the configuration!")
+            
+            if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
+                self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
+                 raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
+            
+
+            self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
+
+            unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
+
+            # we can hardcode the frame names here, because this hopefully never changes
+
+            vision_frame_name_1 = f"{unique_identifier}Vision_1"
+            vision_frame_name_2 = f"{unique_identifier}Vision_2"
+            vision_frame_name_3 = f"{unique_identifier}Vision_3"
+
+            laser_frame_1 = f"{unique_identifier}Laser_1"
+            laser_frame_2 = f"{unique_identifier}Laser_2"
+            laser_frame_3 = f"{unique_identifier}Laser_3"
+            laser_frame_4 = f"{unique_identifier}Laser_4"
+
+            laser_frame_1_initial = f"{unique_identifier}Laser_1_initial"
+            laser_frame_2_initial = f"{unique_identifier}Laser_2_initial"
+            laser_frame_3_initial = f"{unique_identifier}Laser_3_initial"
+            laser_frame_4_initial = f"{unique_identifier}Laser_4_initial"
+
+            laser_frames = [
+                laser_frame_1,
+                laser_frame_2,
+                laser_frame_3,
+                laser_frame_4]
+            
+            laser_initial_frames = [
+                laser_frame_1_initial,
+                laser_frame_2_initial,
+                laser_frame_3_initial,
+                laser_frame_4_initial]
+
+            ###  MOVE HEXAPOD TO ZERO
+            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
+
+            
+            #self.pm_robot_utils.send_smarpod_trajectory_goal_relative(x_joint_rel=0.001, y_joint_rel=0.001, z_joint_rel=0.0, time=1.0)
+        
+            self.pm_robot_utils.move_laser_to_frame(frame_name=laser_frame_1, z_offset=0.01)
+
+            move_up = True
+            
+            for l_frame_name in laser_initial_frames:
+                res = self.correct_frame_laser(frame_id=l_frame_name,remeasure_after_correction=True)
+                cv = res.correction_values.z
+                self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
+
+            for l_frame_name in laser_frames:
+                res = self.correct_frame_laser(frame_id=l_frame_name)
+                cv = res.correction_values.z
+                self._logger.warn(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
+            
+            def collect_frame_data(angle, pose_name, rx_cmd, ry_cmd):
+                frame_data = {}
+                
+                pose_id = f"{pose_name}_rx{rx_cmd}_ry{ry_cmd}"
+
+                for index, frame in enumerate(laser_frames):
+                    res = self.correct_frame_laser(
+                        frame_id=frame,
+                        remeasure_after_correction=True,
+                        use_iterative_sensing=True,
+                    )
+                    cv = res.correction_values.z
+
+                    trans_fixed_point = self.pm_robot_utils.get_transform_for_frame(
+                        frame_name=frame,
+                        parent_frame="SmarPod_Origin",
+                    )
+
+                    trans_rot_point = self.pm_robot_utils.get_transform_for_frame(
+                        frame_name=frame,
+                        parent_frame="Smarpod_Top_Plate",
+                    )
+                    
+                    trans_to_initial_point = self.pm_robot_utils.get_transform_for_frame(
+                        frame_name=f"CAL_Smarpod_Laser_{index + 1}",
+                        parent_frame=f"CAL_Smarpod_Laser_{index + 1}_initial",
+                    )
+
+                    frame_data[frame] = {
+                        "correction_z_um": cv * 1e6,
+                        "transform_fixed": self._transform_to_dict(trans_fixed_point),
+                        "transform_rot": self._transform_to_dict(trans_rot_point),
+                        "transform_to_initial": self._transform_to_dict(trans_to_initial_point),
+                    }
+
+                    self._logger.warn(
+                        f"{frame} | pose={pose_id} | rx={rx_cmd} | ry={ry_cmd} | z={cv*1e6:.2f} um"
+                    )
+
+                return {
+                    "angle": angle,
+                    "pose_id": pose_id,
+                    "rx_cmd": rx_cmd,
+                    "ry_cmd": ry_cmd,
+                    "frames": frame_data,
+                }
+
+            calibration_data = []
+            #angles = [0.5, 1.0]
+            angles = [0.5, 1.0, 1.5, 2.0]
+
+            pose_sequence = [
+                ("rx", 1, 0),
+                ("rx", -1, 0),
+                ("ry", 0, 1),
+                ("ry", 0, -1),
+                ("rxry", 1, 1),
+                ("rxry", -1, -1),
+                ("rxry", 1, -1),
+                ("rxry", -1, 1),
+            ]
+
+            for angle in angles:
+                for pose_name, rx, ry in pose_sequence:
+
+                    rx_cmd = angle * rx
+                    ry_cmd = angle * ry
+
+                    self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
+                        x_joint=0.0,
+                        y_joint=0.0,
+                        z_joint=0.0,
+                        rx_joint_deg=rx_cmd,
+                        ry_joint_deg=ry_cmd,
+                        rz_joint_deg=0,
+                        time=0.5,
+                    )
+
+                    calibration_data.append(
+                        collect_frame_data(angle, pose_name, rx_cmd, ry_cmd)
+                    )
+            filename = f"{self.calibration_log_dir}/calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+            with open(filename, "w") as f:
+                json.dump(calibration_data, f, indent=2)
+
+            self._logger.info(f"Calibration data saved to {filename}")
+
+        except PmRobotError as e:
+            self._logger.error(f"Error occurred while calibrating smarpod: {e}")
+            response.success = False
+        
+        finally:
+            if move_up:
+                self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
+            # Move smarpod back to zero position
+            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
+        
+        return response
 
     def _get_circle_from_vision(self, process_file_name:str, camera_file_name:str, process_name:str):
 
@@ -2148,7 +2327,7 @@ class PmRobotCalibrationNode(Node):
         
         return response.success, response.result_vector
     
-    def correct_frame_vison(self, frame_id:str)->bool:
+    def correct_frame_vison(self, frame_id:str)->skills_srv.CorrectFrameVision.Response:
         
         if not self.client_correct_frame_vision.wait_for_service(timeout_sec=1.0):
             self._logger.error('Vision correct frame service not available...')
@@ -2158,7 +2337,7 @@ class PmRobotCalibrationNode(Node):
         request.frame_name = frame_id
         response:skills_srv.CorrectFrameVision.Response = self.client_correct_frame_vision.call(request)
         
-        return response.success
+        return response
     
 
     def correct_frame_confocal_bottom(self, frame_id:str)->bool:
@@ -2172,6 +2351,27 @@ class PmRobotCalibrationNode(Node):
         response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_confocal_bottom.call(request)
         
         return response.success
+    
+    def correct_frame_laser(self, frame_id:str, 
+                            remeasure_after_correction:bool=False,
+                            use_iterative_sensing:bool=False)->skills_srv.CorrectFrameLaser.Response:
+        """
+        Correct the frame using the laser.
+        """
+        
+        if not self.client_correct_frame_with_laser.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Client '{self.client_correct_frame_with_laser.srv_name}' not available...")
+        
+        request = skills_srv.CorrectFrameLaser.Request()
+        request.frame_name = frame_id
+        request.remeasure_after_correction = remeasure_after_correction
+        request.use_iterative_sensing = use_iterative_sensing
+        response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_with_laser.call(request)
+        
+        if not response.success:
+            raise PmRobotError(f"Correction of frame '{frame_id}' with laser failed!")
+        
+        return response
     
     def modify_pose_from_frame(self, modify_pose_request:ami_srv.ModifyPoseFromFrame.Request)->bool:
         if not self.client_modify_pose_from_frame.wait_for_service(timeout_sec=1.0):
