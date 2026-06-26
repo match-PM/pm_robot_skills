@@ -2,6 +2,8 @@ from setuptools import find_packages, setup
 
 package_name = 'pm_robot_calibration'
 
+submodules = 'pm_robot_calibration/py_modules'
+
 setup(
     name=package_name,
     version='0.0.0',

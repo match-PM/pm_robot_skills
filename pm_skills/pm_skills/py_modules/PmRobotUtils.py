@@ -43,14 +43,6 @@ from sensor_msgs.msg import JointState
 from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement, EmptyWithSuccess, ReferenceCubeState
 import pm_msgs.srv as pm_msg_srv
 
-# Try to import confocal messages - optional hardware component
-try:
-    from pm_uepsilon_confocal_msgs.srv import GetValue
-    HAS_CONFOCAL = True
-except ModuleNotFoundError:
-    HAS_CONFOCAL = False
-    GetValue = None
-
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
 from enum import Enum
 from assembly_scene_publisher.py_modules.AssemblySceneAnalyzerAdv import AssemblySceneAnalyzerAdv
@@ -93,6 +85,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
     TCP_CONFOCAL_BOTTOM = 'TCP_Confocal_Sensor_Bottom'
     TCP_1K_DISPENSER = '1K_Dispenser_TCP'
 
+                                                     
     def __init__(self, node:Node):
         super().__init__(node)
         self._node = node
@@ -105,14 +98,8 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
         self.client_move_laser_relative = self._node.create_client(MoveRelative, '/pm_moveit_server/move_laser_relative')
-        
-        # Only create confocal clients if the package is available
-        if HAS_CONFOCAL:
-            self.client_get_confocal_bottom_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_bottom_measurement')
-            self.client_get_confocal_top_measurement = self._node.create_client(GetValue, '/pm_robot_primitive_skills/get_confocal_top_measurement')
-        else:
-            self.client_get_confocal_bottom_measurement = None
-            self.client_get_confocal_top_measurement = None
+        self.client_move_robot_tool_relative = self._node.create_client(MoveRelative, '/pm_moveit_server/move_tool_relative')
+
         self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
         self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
         self.client_set_force_sensor_bias = self._node.create_client(ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
@@ -680,6 +667,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         
         elif self.get_mode() == self.UNITY_MODE:
             result = response.data * multiplier
+            self._node.get_logger().warn(f"Confocal top measurement in UNITY {result} {unit}")
 
         else:
             raise PmRobotError(f"Getting confocal top measurement not implemented for mode {self.get_mode()}")
@@ -706,9 +694,11 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         
         if self.get_mode() == self.REAL_MODE:
             result = response.data * multiplier
+            self._node.get_logger().warn(f"Confocal bottom measurement in REALITY {result} {unit}")
         
         elif self.get_mode() == self.UNITY_MODE:
             result = response.data * multiplier
+            self._node.get_logger().warn(f"Confocal bottom measurement in UNITY {result} {unit}")
 
         else:
             raise PmRobotError(f"Getting confocal bottom measurement not implemented for mode {self.get_mode()}")
