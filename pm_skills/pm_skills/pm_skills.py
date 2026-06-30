@@ -123,6 +123,8 @@ class PmSkills(Node):
 
         self.adapt_frame_client = self.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
 
+        self.client_move_robot_tool_to_frame = self.create_client(pm_moveit_srv.MoveToFrame, "/pm_moveit_server/move_tool_to_frame")
+
         self.logger = self.get_logger()
         
         self.tf_buffer = Buffer()
@@ -298,12 +300,10 @@ class PmSkills(Node):
 
 
         try:
-            # if not self.smart_gripper_force_client.wait_for_service(timeout_sec=1.0):
-            #     self.logger.error("Service '/SmarAct_Gripper/GetForces' not available")
-            
-            piezo_force_request=pm_msg_srv.GripperGetForces.Request()
 
-            PiezoGripperForce:pm_msg_srv.GripperGetForces.Response = self.smart_gripper_force_client.call(piezo_force_request)
+            piezo_force_request = pm_msg_srv.GripperGetForces.Request()
+
+            PiezoGripperForce: pm_msg_srv.GripperGetForces.Response = self.smart_gripper_force_client.call(piezo_force_request)
 
             self.logger.info(f"Current gripper forces: X={PiezoGripperForce.fx}, Y={PiezoGripperForce.fy}, Z={PiezoGripperForce.fz}")
 
@@ -339,35 +339,37 @@ class PmSkills(Node):
                 self.get_logger().error(response.message)
                 return response
 
-            max_force_limit = 1000.0
+            max_force_limit = 400.0
             if not self.pm_robot_utils.is_unity_running():
                 if (abs(request.max_force.x) > max_force_limit or
                     abs(request.max_force.y) > max_force_limit or
                     abs(request.max_force.z) > max_force_limit):
                     response.success = False
-                    response.message = f'Force threshold {max_force_limit}, pick lower forece values'
+                    response.message = f'Force threshold {max_force_limit}, pick lower force values'
                     self.get_logger().error(response.message)
                     return response
-                
-            # Schritt 3: Zur Anfahrposition fahren (2mm vor dem Ziel-Frame entlang x-Achse)
 
-            offset = [
-                0.02 if axis > 0
-                else 0.02 if axis < 0
-                else 0.0
-                for axis in direction_normalized
-            ]
+            # Schritt 3: Zur Anfahrposition fahren
+            # (Offset von 20 mm entgegen der Scanrichtung je Achse, Vorzeichen
+            # ergibt sich aus der Richtung des normierten Vektors)
+            # offset = [
+            #     -0.002 if axis > 0
+            #     else 0.002 if axis < 0
+            #     else 0.0
+            #     for axis in direction_normalized
+            # ]
 
             self.get_logger().info('target frame: ' + request.target_frame)
 
-            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=0.0, y_offset=0.0, z_offset=0.0) 
+
+            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=-0.002, y_offset=0.0, z_offset=-0.0015) 
             if not success:
                 response.success = False
                 response.message = f'could not move to target frame: {message}'
                 self.get_logger().error(response.message)
                 return response
-            
-            # Schritt 4: Tatsächliche Startposition ermitteln
+
+            # Schritt 4: Tatsaechliche Startposition ermitteln
             start_position = [
                 self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
                 self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
@@ -375,14 +377,15 @@ class PmSkills(Node):
             ]
             current_position = list(start_position)
 
+
             self.get_logger().info(
-                f'Start position (2mm before target per used axis): '
+                f'Start position: '
                 f'X={round(start_position[0]*1e3, 3)} mm, '
                 f'Y={round(start_position[1]*1e3, 3)} mm, '
                 f'Z={round(start_position[2]*1e3, 3)} mm'
             )
-
-            # Schritt 5: Kraftsensor nullen
+            
+            # Schritt 5: Kraftsensor nullen (Vermeidung eines Messbias)
             self.pm_robot_utils.set_force_sensor_bias()
             time.sleep(2.0)
 
@@ -394,9 +397,9 @@ class PmSkills(Node):
                     force_response.fx,
                     force_response.fy,
                     force_response.fz
-]
-            else:              
-                current_force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  
+                ]
+            else:
+                current_force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
             self.get_logger().info(f'Force sensor initial values: {current_force_values}')
 
             force_threshold = [
@@ -418,41 +421,51 @@ class PmSkills(Node):
                     )
                     self.get_logger().error(response.message)
                     return response
-            # Schritt 7: Schrittgroesse in Meter umrechnen
+
+            # Schritt 7: Schrittgroessen in Meter umrechnen
             step_size_m_min = request.step_size * 1e-6
-            step_size_m_search = 0.0001 # 0.1 mm pro Schritt, unabhängig von der angeforderten Schrittgröße, verfeinertung in REFINE
 
-            # Schritt 8: Scan-Schleife
-            detected_position = None
+            # Grobe Suchschrittgroesse: 0,5 mm pro Schritt, unabhaengig von der
+            # angeforderten Ziel-Schrittgroesse. Die Verfeinerung in Richtung
+            # der Ziel-Schrittgroesse erfolgt erst im Zustand REFINE.
+            step_size_m_search = 0.0002
 
-            max_scan_distance_m = 0.004  
+            # Schritt 8: Scan-Schleife (Zustandsmaschine)
+
+            max_scan_distance_m = 0.025
             travelled_distance_m = 0.0
 
+        
+            last_valid_position = current_position.copy()
 
-            self.get_logger().info(
-                f'Step size: {step_size_m_search*1e6} um | '
-            )   
+            contact_position = None        
+
+            detected_position = None
 
             contact_detected = False
-            detected_position = None
-            contact_position = None
-            last_valid_position = current_position.copy()
+
+            self.get_logger().info("checkpoint 1")
+            
             state = "SEARCH"
 
             while travelled_distance_m < max_scan_distance_m:
 
-                if state == "SEARCH":
-                    next_position = [
-                        current_position[i] + step_size_m_search * direction_normalized[i]
-                        for i in range(3)
-                    ]
+                if state == "SEARCH":                    
+                    # Schrittweise Annaeherung in Richtung des normierten Vektors
+                    next_position = current_position.copy()
+
+                    next_position[0] += step_size_m_search * direction_normalized[0]
+                    next_position[1] += step_size_m_search * direction_normalized[1]
+                    next_position[2] += step_size_m_search * direction_normalized[2]
 
                     self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
                         *next_position,
-                        time=0.1
+                        time=0.05
                     )
 
-                    time.sleep(0.2)
+                    current_position = next_position
+
+                    time.sleep(0.02)
 
 
                     if not self.pm_robot_utils.is_unity_running():
@@ -462,8 +475,8 @@ class PmSkills(Node):
                             force_response.fy,
                             force_response.fz
                             ]
-                    else:              
-                        force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]  
+                    else:
+                        force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
                     contact_detected = any(
                         abs(force_values[i]) > force_threshold[i]
@@ -471,37 +484,42 @@ class PmSkills(Node):
                     )
 
                     if contact_detected:
-                        contact_position = next_position.copy()
+
+                        contact_position = current_position
+
                         state = "CONTACT"
                         continue
 
                     else:
+                        # Kein Kontakt -> Position als gueltig speichern und weiterfahren
                         last_valid_position = next_position
-                        current_position = next_position
                         travelled_distance_m += step_size_m_search
                         continue
 
-                elif state == "CONTACT":
-
+                elif state == "CONTACT":                    
+                    # Zurueck zur letzten kontaktfreien Position fahren
                     self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
                         *last_valid_position,
-                        time=0.1
+                        time=0.05
                     )
 
-                    time.sleep(0.2)
+                    travelled_distance_m -= step_size_m_search
 
                     current_position = last_valid_position
 
                     if step_size_m_search <= step_size_m_min:
+                        # Ziel-Schrittgroesse bereits erreicht -> Scan beenden
                         state = "STOP"
                         continue
 
                     else:
+                        # Noch nicht fein genug -> weiter verfeinern
                         state = "REFINE"
                         continue
 
                 elif state == "REFINE":
-
+                    # Suchschrittgroesse halbieren, jedoch nicht unter die
+                    # angeforderte Ziel-Schrittgroesse
                     step_size_m_search = max(step_size_m_search / 2, step_size_m_min)
 
                     state = "SEARCH"
@@ -510,28 +528,33 @@ class PmSkills(Node):
                 elif state == "STOP":
                     detected_position = contact_position.copy()
                     break
-                
 
-            # Frame-Korrektur berechnen und anwenden (Radius des Stiftes noch nicht berücksichtigt, da unbekannt, muss noch hinzugefügt werden)
-            scene = self.pm_robot_utils.assembly_scene_analyzer
-            target_pose = scene.get_pose_from_frame(request.target_frame)
 
-            if detected_position is not None:
-                correction_transform = self.compute_frame_correction(
-                    detected_position,
-                    target_pose
-                )
+            # Frame-Korrektur berechnen und anwenden
+            # HINWEIS: Stiftradius wird hier noch nicht beruecksichtigt, da der
+            # Wert noch nicht eingemessen wurde. Muss vor den eigentlichen
+            # Versuchen ergaenzt werden, sonst verbleibt ein systematischer
+            # Versatz in der Korrektur.
 
-                self.pm_robot_utils.assembly_scene_analyzer.modify_frame_with_transform(
-                    request.target_frame,
-                    correction_transform
-                )
+            # scene = self.pm_robot_utils.assembly_scene_analyzer
+            # target_pose = scene.get_pose_from_frame(request.target_frame)
+
+            # if detected_position is not None:
+            #     correction_transform = self.compute_frame_correction(
+            #         detected_position,
+            #         target_pose
+            #     )
+
+            #     self.pm_robot_utils.assembly_scene_analyzer.modify_frame_with_transform(
+            #         request.target_frame,
+            #         correction_transform
+            #     )
 
             # Schritt 9: Antwort setzen
             if detected_position is None:
                 response.success = False
                 response.message = (
-                f'Contact detected after {travelled_distance_m * 1e3:.3f} mm'                
+                f'No contact detected after {travelled_distance_m * 1e3:.3f} mm'                
                 )
             else:
                 response.success = True
@@ -550,7 +573,18 @@ class PmSkills(Node):
                     f'Y={round(detected_position[1]*1e3, 3)} mm, '
                     f'Z={round(detected_position[2]*1e3, 3)} mm'
                 )
-            
+
+
+            detected_position_log = [detected_position[i] for i in range(3)] if detected_position is not None else [math.nan, math.nan, math.nan]
+            self.get_logger().info(
+                f"detected_position: "
+                f"{detected_position_log}"
+            )
+                             
+            self.csv_force_scan(request, direction_normalized, detected_position_log)
+
+            self.get_logger().info("Data saved to CSV.")
+
             # Schritt 10: Zurueck zur Startposition (Anfahrposition)
             self.get_logger().info('Returning to start position...')
             self._return_to_start(start_position)
@@ -576,6 +610,87 @@ class PmSkills(Node):
         if not return_ok:
             self.get_logger().error('could not return to start position!')
         return return_ok
+
+
+    def csv_force_scan(self, request, direction_normalized, detectet_position):
+
+        import os
+        import csv
+        import math
+
+        base_folder = (
+            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots"
+        )
+
+        folder_name = (
+            f"S{int(request.step_size)}"
+            f"_fx{request.max_force.x:.1f}"
+            f"_fy{request.max_force.y:.1f}"
+            f"_fz{request.max_force.z:.1f}" 
+        )
+
+        folder = os.path.join(base_folder, folder_name)
+
+        plot_folder = os.path.join(folder, "plots")
+
+        os.makedirs(plot_folder, exist_ok=True)
+
+
+        file_name = "data.csv"
+        file_path = os.path.join(plot_folder, file_name)
+
+        file_exists = os.path.isfile(file_path)
+
+
+        fieldnames = [
+            "StepSize_um",
+            "Threshold_x",
+            "Threshold_y",
+            "Threshold_z",
+            "Direction_x",
+            "Direction_y",
+            "Direction_z",
+            "Contact_x",
+            "Contact_y",
+            "Contact_z",
+            "Success"
+        ]
+
+        with open(file_path, mode='a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';')
+
+            if not file_exists:
+                writer.writeheader()
+
+            
+            if detectet_position is not None:
+                writer.writerow({
+                    "StepSize_um": request.step_size,
+                    "Threshold_x": request.max_force.x,
+                    "Threshold_y": request.max_force.y,
+                    "Threshold_z": request.max_force.z,
+                    "Direction_x": direction_normalized[0],
+                    "Direction_y": direction_normalized[1],
+                    "Direction_z": direction_normalized[2],
+                    "Contact_x": detectet_position[0],
+                    "Contact_y": detectet_position[1],
+                    "Contact_z": detectet_position[2],
+                    "Success": 1
+                })
+            else:
+                writer.writerow({
+                    "StepSize_um": request.step_size,
+                    "Threshold_x": request.max_force.x,
+                    "Threshold_y": request.max_force.y,
+                    "Threshold_z": request.max_force.z,
+                    "Direction_x": direction_normalized[0],
+                    "Direction_y": direction_normalized[1],
+                    "Direction_z": direction_normalized[2],
+                    "Contact_x": math.nan,
+                    "Contact_y": math.nan,
+                    "Contact_z": math.nan,
+                    "Success": 0
+    })
 
 
     def iterative_align_gonio_right(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
