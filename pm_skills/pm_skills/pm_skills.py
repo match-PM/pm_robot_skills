@@ -42,6 +42,8 @@ from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 
 from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
+from datetime import datetime
+
 
 class PmSkills(Node):
     
@@ -299,296 +301,352 @@ class PmSkills(Node):
         """
 
 
+
+
         try:
 
-            piezo_force_request = pm_msg_srv.GripperGetForces.Request()
+            for i in range (25):
+                scan_number = i+1
+                self.get_logger().info(f"Starting force scan {scan_number} of 25.")
 
-            PiezoGripperForce: pm_msg_srv.GripperGetForces.Response = self.smart_gripper_force_client.call(piezo_force_request)
+                timestamp = datetime.now().isoformat()
 
-            self.logger.info(f"Current gripper forces: X={PiezoGripperForce.fx}, Y={PiezoGripperForce.fy}, Z={PiezoGripperForce.fz}")
+                piezo_force_request = pm_msg_srv.GripperGetForces.Request()
 
-            # raise NotImplementedError("Force scan skill is still in development. The current implementation is a placeholder and may not work as expected.")
+                PiezoGripperForce: pm_msg_srv.GripperGetForces.Response = self.smart_gripper_force_client.call(piezo_force_request)
+
+                self.logger.info(f"Current gripper forces: X={PiezoGripperForce.fx}, Y={PiezoGripperForce.fy}, Z={PiezoGripperForce.fz}")
+
+                # raise NotImplementedError("Force scan skill is still in development. The current implementation is a placeholder and may not work as expected.")
 
 
-            # Schritt 1: Richtungsvektor pruefen und normalisieren
-            direction_length = math.sqrt(
-                request.direction.x**2 +
-                request.direction.y**2 +
-                request.direction.z**2
-            )
-            if direction_length == 0.0:
-                response.success = False
-                response.message = 'Direction vector is zero!'
-                self.get_logger().error(response.message)
-                return response
-
-            direction_normalized = [
-                request.direction.x / direction_length,
-                request.direction.y / direction_length,
-                request.direction.z / direction_length
-            ]
-
-            # Schritt 2: Schrittgroesse und Kraftgrenzwert pruefen
-            max_step_size_um = 100
-            if request.step_size > max_step_size_um:
-                response.success = False
-                response.message = (
-                    f'Step size {request.step_size} um exceeds '
-                    f'the maximum of {max_step_size_um} um.'
+                # Schritt 1: Richtungsvektor pruefen und normalisieren
+                direction_length = math.sqrt(
+                    request.direction.x**2 +
+                    request.direction.y**2 +
+                    request.direction.z**2
                 )
-                self.get_logger().error(response.message)
-                return response
-
-            max_force_limit = 400.0
-            if not self.pm_robot_utils.is_unity_running():
-                if (abs(request.max_force.x) > max_force_limit or
-                    abs(request.max_force.y) > max_force_limit or
-                    abs(request.max_force.z) > max_force_limit):
+                if direction_length == 0.0:
                     response.success = False
-                    response.message = f'Force threshold {max_force_limit}, pick lower force values'
+                    response.message = 'Direction vector is zero!'
                     self.get_logger().error(response.message)
                     return response
 
-            # Schritt 3: Zur Anfahrposition fahren
-            # (Offset von 20 mm entgegen der Scanrichtung je Achse, Vorzeichen
-            # ergibt sich aus der Richtung des normierten Vektors)
-            # offset = [
-            #     -0.002 if axis > 0
-            #     else 0.002 if axis < 0
-            #     else 0.0
-            #     for axis in direction_normalized
-            # ]
-
-            self.get_logger().info('target frame: ' + request.target_frame)
-
-
-            success, message = self.move_gripper_to_frame(request.target_frame, x_offset=-0.002, y_offset=0.0, z_offset=-0.0015) 
-            if not success:
-                response.success = False
-                response.message = f'could not move to target frame: {message}'
-                self.get_logger().error(response.message)
-                return response
-
-            # Schritt 4: Tatsaechliche Startposition ermitteln
-            start_position = [
-                self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
-                self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
-                self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
-            ]
-            current_position = list(start_position)
-
-
-            self.get_logger().info(
-                f'Start position: '
-                f'X={round(start_position[0]*1e3, 3)} mm, '
-                f'Y={round(start_position[1]*1e3, 3)} mm, '
-                f'Z={round(start_position[2]*1e3, 3)} mm'
-            )
-            
-            # Schritt 5: Kraftsensor nullen (Vermeidung eines Messbias)
-            self.pm_robot_utils.set_force_sensor_bias()
-            time.sleep(2.0)
-
-            # Schritt 6: Anfangskraefte pruefen
-            if not self.pm_robot_utils.is_unity_running():
-                force_response = self.smart_gripper_force_client.call(piezo_force_request)
-
-                current_force_values = [
-                    force_response.fx,
-                    force_response.fy,
-                    force_response.fz
+                direction_normalized = [
+                    request.direction.x / direction_length,
+                    request.direction.y / direction_length,
+                    request.direction.z / direction_length
                 ]
-            else:
-                current_force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
-            self.get_logger().info(f'Force sensor initial values: {current_force_values}')
 
-            force_threshold = [
-                abs(request.max_force.x),
-                abs(request.max_force.y),
-                abs(request.max_force.z)
-            ]
-
-            if not self.pm_robot_utils.is_unity_running():
-                if (abs(current_force_values[0]) > force_threshold[0] or
-                    abs(current_force_values[1]) > force_threshold[1] or
-                    abs(current_force_values[2]) > force_threshold[2]):
+                # Schritt 2: Schrittgroesse und Kraftgrenzwert pruefen
+                max_step_size_um = 100
+                if request.step_size > max_step_size_um:
                     response.success = False
                     response.message = (
-                        f'current force values exceed threshold {force_threshold} before starting the scan: '
-                        f'X={current_force_values[0]:.3f}, '
-                        f'Y={current_force_values[1]:.3f}, '
-                        f'Z={current_force_values[2]:.3f}'
+                        f'Step size {request.step_size} um exceeds '
+                        f'the maximum of {max_step_size_um} um.'
                     )
                     self.get_logger().error(response.message)
                     return response
 
-            # Schritt 7: Schrittgroessen in Meter umrechnen
-            step_size_m_min = request.step_size * 1e-6
+                max_force_limit = 400.0
+                if not self.pm_robot_utils.is_unity_running():
+                    if (abs(request.max_force.x) > max_force_limit or
+                        abs(request.max_force.y) > max_force_limit or
+                        abs(request.max_force.z) > max_force_limit):
+                        response.success = False
+                        response.message = f'Force threshold {max_force_limit}, pick lower force values'
+                        self.get_logger().error(response.message)
+                        return response
 
-            # Grobe Suchschrittgroesse: 0,5 mm pro Schritt, unabhaengig von der
-            # angeforderten Ziel-Schrittgroesse. Die Verfeinerung in Richtung
-            # der Ziel-Schrittgroesse erfolgt erst im Zustand REFINE.
-            step_size_m_search = 0.0002
+                # Schritt 3: Zur Anfahrposition fahren
+                # (Offset von 20 mm entgegen der Scanrichtung je Achse, Vorzeichen
+                # ergibt sich aus der Richtung des normierten Vektors)
+                # offset = [
+                #     -0.002 if axis > 0
+                #     else 0.002 if axis < 0
+                #     else 0.0
+                #     for axis in direction_normalized
+                # ]
 
-            # Schritt 8: Scan-Schleife (Zustandsmaschine)
-
-            max_scan_distance_m = 0.025
-            travelled_distance_m = 0.0
-
-        
-            last_valid_position = current_position.copy()
-
-            contact_position = None        
-
-            detected_position = None
-
-            contact_detected = False
-
-            self.get_logger().info("checkpoint 1")
-            
-            state = "SEARCH"
-
-            while travelled_distance_m < max_scan_distance_m:
-
-                if state == "SEARCH":                    
-                    # Schrittweise Annaeherung in Richtung des normierten Vektors
-                    next_position = current_position.copy()
-
-                    next_position[0] += step_size_m_search * direction_normalized[0]
-                    next_position[1] += step_size_m_search * direction_normalized[1]
-                    next_position[2] += step_size_m_search * direction_normalized[2]
-
-                    self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
-                        *next_position,
-                        time=0.05
-                    )
-
-                    current_position = next_position
-
-                    time.sleep(0.02)
+                self.get_logger().info('target frame: ' + request.target_frame)
 
 
-                    if not self.pm_robot_utils.is_unity_running():
-                        force_response = self.smart_gripper_force_client.call(piezo_force_request)
-                        force_values = [
-                            force_response.fx,
-                            force_response.fy,
-                            force_response.fz
-                            ]
-                    else:
-                        force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
+                success, message = self.move_gripper_to_frame(request.target_frame, x_offset=-0.002, y_offset=0.0, z_offset=-0.0015) 
+                if not success:
+                    response.success = False
+                    response.message = f'could not move to target frame: {message}'
+                    self.get_logger().error(response.message)
+                    return response
 
-                    contact_detected = any(
-                        abs(force_values[i]) > force_threshold[i]
-                        for i in range(3)
-                    )
+                # Schritt 4: Tatsaechliche Startposition ermitteln
+                start_position = [
+                    self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
+                    self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
+                    self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
+                ]
+                current_position = list(start_position)
 
-                    if contact_detected:
-
-                        contact_position = current_position
-
-                        state = "CONTACT"
-                        continue
-
-                    else:
-                        # Kein Kontakt -> Position als gueltig speichern und weiterfahren
-                        last_valid_position = next_position
-                        travelled_distance_m += step_size_m_search
-                        continue
-
-                elif state == "CONTACT":                    
-                    # Zurueck zur letzten kontaktfreien Position fahren
-                    self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
-                        *last_valid_position,
-                        time=0.05
-                    )
-
-                    travelled_distance_m -= step_size_m_search
-
-                    current_position = last_valid_position
-
-                    if step_size_m_search <= step_size_m_min:
-                        # Ziel-Schrittgroesse bereits erreicht -> Scan beenden
-                        state = "STOP"
-                        continue
-
-                    else:
-                        # Noch nicht fein genug -> weiter verfeinern
-                        state = "REFINE"
-                        continue
-
-                elif state == "REFINE":
-                    # Suchschrittgroesse halbieren, jedoch nicht unter die
-                    # angeforderte Ziel-Schrittgroesse
-                    step_size_m_search = max(step_size_m_search / 2, step_size_m_min)
-
-                    state = "SEARCH"
-                    continue
-
-                elif state == "STOP":
-                    detected_position = contact_position.copy()
-                    break
-
-
-            # Frame-Korrektur berechnen und anwenden
-            # HINWEIS: Stiftradius wird hier noch nicht beruecksichtigt, da der
-            # Wert noch nicht eingemessen wurde. Muss vor den eigentlichen
-            # Versuchen ergaenzt werden, sonst verbleibt ein systematischer
-            # Versatz in der Korrektur.
-
-            # scene = self.pm_robot_utils.assembly_scene_analyzer
-            # target_pose = scene.get_pose_from_frame(request.target_frame)
-
-            # if detected_position is not None:
-            #     correction_transform = self.compute_frame_correction(
-            #         detected_position,
-            #         target_pose
-            #     )
-
-            #     self.pm_robot_utils.assembly_scene_analyzer.modify_frame_with_transform(
-            #         request.target_frame,
-            #         correction_transform
-            #     )
-
-            # Schritt 9: Antwort setzen
-            if detected_position is None:
-                response.success = False
-                response.message = (
-                f'No contact detected after {travelled_distance_m * 1e3:.3f} mm'                
-                )
-            else:
-                response.success = True
-                response.message = (
-                    f'Contact detected after {travelled_distance_m * 1e3:.3f} mm'
-                )
-
-                response.detected_position.position.x = detected_position[0]
-                response.detected_position.position.y = detected_position[1]
-                response.detected_position.position.z = detected_position[2]
-                response.detected_position.orientation.w = 1.0
 
                 self.get_logger().info(
-                    f'Contact position (World): '
-                    f'X={round(detected_position[0]*1e3, 3)} mm, '
-                    f'Y={round(detected_position[1]*1e3, 3)} mm, '
-                    f'Z={round(detected_position[2]*1e3, 3)} mm'
+                    f'Start position: '
+                    f'X={round(start_position[0]*1e3, 3)} mm, '
+                    f'Y={round(start_position[1]*1e3, 3)} mm, '
+                    f'Z={round(start_position[2]*1e3, 3)} mm'
+                )
+                
+                # Schritt 5: Kraftsensor nullen (Vermeidung eines Messbias)
+                self.pm_robot_utils.set_force_sensor_bias()
+                time.sleep(2.0)
+
+                # Schritt 6: Anfangskraefte pruefen
+                if not self.pm_robot_utils.is_unity_running():
+                    force_response = self.smart_gripper_force_client.call(piezo_force_request)
+
+                    current_force_values = [
+                        force_response.fx,
+                        force_response.fy,
+                        force_response.fz
+                    ]
+                else:
+                    current_force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
+                self.get_logger().info(f'Force sensor initial values: {current_force_values}')
+
+                force_threshold = [
+                    abs(request.max_force.x),
+                    abs(request.max_force.y),
+                    abs(request.max_force.z)
+                ]
+
+                if not self.pm_robot_utils.is_unity_running():
+                    if (abs(current_force_values[0]) > force_threshold[0] or
+                        abs(current_force_values[1]) > force_threshold[1] or
+                        abs(current_force_values[2]) > force_threshold[2]):
+                        response.success = False
+                        response.message = (
+                            f'current force values exceed threshold {force_threshold} before starting the scan: '
+                            f'X={current_force_values[0]:.3f}, '
+                            f'Y={current_force_values[1]:.3f}, '
+                            f'Z={current_force_values[2]:.3f}'
+                        )
+                        self.get_logger().error(response.message)
+                        return response
+
+                # Schritt 7: Schrittgroessen in Meter umrechnen
+                step_size_m_min = request.step_size * 1e-6
+
+                # Grobe Suchschrittgroesse: 0,5 mm pro Schritt, unabhaengig von der
+                # angeforderten Ziel-Schrittgroesse. Die Verfeinerung in Richtung
+                # der Ziel-Schrittgroesse erfolgt erst im Zustand REFINE.
+                step_size_m_search = 0.0002
+
+                # Schritt 8: Scan-Schleife (Zustandsmaschine)
+
+                max_scan_distance_m = 0.025
+                travelled_distance_m = 0.0
+
+            
+                last_valid_position = current_position.copy()
+
+                contact_position = None        
+
+                detected_position = None
+
+                contact_detected = False
+
+                scan_start_time = time.time()
+                search_iterations = 0
+                refine_iterations = 0
+                contact_force = [math.nan, math.nan, math.nan]
+                
+                state = "SEARCH"
+
+                while travelled_distance_m < max_scan_distance_m:
+
+                    if state == "SEARCH":            
+                        search_iterations += 1        
+                        # Schrittweise Annaeherung in Richtung des normierten Vektors
+                        next_position = current_position.copy()
+
+                        next_position[0] += step_size_m_search * direction_normalized[0]
+                        next_position[1] += step_size_m_search * direction_normalized[1]
+                        next_position[2] += step_size_m_search * direction_normalized[2]
+
+                        self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
+                            *next_position,
+                            time=0.05
+                        )
+
+                        current_position = next_position
+
+                        time.sleep(0.02)
+
+
+                        if not self.pm_robot_utils.is_unity_running():
+                            force_response = self.smart_gripper_force_client.call(piezo_force_request)
+                            force_values = [
+                                force_response.fx,
+                                force_response.fy,
+                                force_response.fz
+                                ]
+                        else:
+                            force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
+
+                        contact_detected = any(
+                            abs(force_values[i]) > force_threshold[i]
+                            for i in range(3)
+                        )
+
+                        if contact_detected:
+
+                            contact_position = (
+                                self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
+                                self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
+                                self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
+                            )
+
+                            if not self.pm_robot_utils.is_unity_running():
+                                force_response = self.smart_gripper_force_client.call(piezo_force_request)
+
+                                contact_force = [
+                                    force_response.fx,
+                                    force_response.fy,
+                                    force_response.fz
+                                ]
+                            else:
+                                contact_force = self.pm_robot_utils._current_force_sensor_data.data[:3]
+
+                            state = "CONTACT"
+                            continue
+
+                        else:
+                            # Kein Kontakt -> Position als gueltig speichern und weiterfahren
+                            last_valid_position = next_position
+                            travelled_distance_m += step_size_m_search
+                            continue
+
+                    elif state == "CONTACT":                    
+                        # Zurueck zur letzten kontaktfreien Position fahren
+                        self.pm_robot_utils.send_xyz_trajectory_goal_absolut(*last_valid_position,
+                            time=0.05
+                        )
+
+                        travelled_distance_m -= step_size_m_search
+
+                        current_position = last_valid_position
+
+                        if step_size_m_search <= step_size_m_min:
+                            # Ziel-Schrittgroesse bereits erreicht -> Scan beenden
+                            state = "STOP"
+                            continue
+
+                        else:
+                            # Noch nicht fein genug -> weiter verfeinern
+                            state = "REFINE"
+                            continue
+
+                    elif state == "REFINE":
+                        refine_iterations += 1
+                        # Suchschrittgroesse halbieren, jedoch nicht unter die
+                        # angeforderte Ziel-Schrittgroesse
+                        step_size_m_search = max(step_size_m_search / 2, step_size_m_min)
+
+                        state = "SEARCH"
+                        continue
+
+                    elif state == "STOP":
+                        detected_position = list(contact_position)
+                        break
+
+
+                # Frame-Korrektur berechnen und anwenden
+                # HINWEIS: Stiftradius wird hier noch nicht beruecksichtigt, da der
+                # Wert noch nicht eingemessen wurde. Muss vor den eigentlichen
+                # Versuchen ergaenzt werden, sonst verbleibt ein systematischer
+                # Versatz in der Korrektur.
+
+                # scene = self.pm_robot_utils.assembly_scene_analyzer
+                # target_pose = scene.get_pose_from_frame(request.target_frame)
+
+                # if detected_position is not None:
+                #     correction_transform = self.compute_frame_correction(
+                #         detected_position,
+                #         target_pose
+                #     )
+
+                #     self.pm_robot_utils.assembly_scene_analyzer.modify_frame_with_transform(
+                #         request.target_frame,
+                #         correction_transform
+                #     )
+
+                scan_time = time.time() - scan_start_time
+                contact_distance = np.dot(
+                    np.array(detected_position) - np.array(start_position),
+                    np.array(direction_normalized)
+                ) if detected_position is not None else math.nan
+
+                # Schritt 9: Antwort setzen
+                if detected_position is None:
+                    response.success = False
+                    response.message = (
+                    f'No contact detected after {travelled_distance_m * 1e3:.3f} mm'                
+                    )
+                else:
+                    response.success = True
+                    response.message = (
+                        f'Contact detected after {travelled_distance_m * 1e3:.3f} mm'
+                    )
+
+                    response.detected_position.position.x = detected_position[0]
+                    response.detected_position.position.y = detected_position[1]
+                    response.detected_position.position.z = detected_position[2]
+                    response.detected_position.orientation.w = 1.0
+
+                    self.get_logger().info(
+                        f'Contact position (World): '
+                        f'X={round(detected_position[0]*1e3, 3)} mm, '
+                        f'Y={round(detected_position[1]*1e3, 3)} mm, '
+                        f'Z={round(detected_position[2]*1e3, 3)} mm'
+                    )
+
+
+                detected_position_log = [detected_position[i] for i in range(3)] if detected_position is not None else [math.nan, math.nan, math.nan]
+                self.get_logger().info(
+                    f"detected_position: "
+                    f"{detected_position_log}"
                 )
 
+                final_search_step_um = step_size_m_search * 1e6
 
-            detected_position_log = [detected_position[i] for i in range(3)] if detected_position is not None else [math.nan, math.nan, math.nan]
-            self.get_logger().info(
-                f"detected_position: "
-                f"{detected_position_log}"
-            )
-                             
-            self.csv_force_scan(request, direction_normalized, detected_position_log)
+                success_flag = detected_position is not None                
+                self.csv_force_scan(
+                    scan_number,
+                    request,
+                    final_search_step_um,
+                    direction_normalized,
+                    detected_position_log,
+                    start_position,
+                    contact_distance,
+                    contact_force,
+                    search_iterations,
+                    refine_iterations,
+                    scan_time,
+                    timestamp,
+                    success_flag
+                )
+                self.get_logger().info("Data saved to CSV.")
 
-            self.get_logger().info("Data saved to CSV.")
+                # Schritt 10: Zurück zur Startposition (Anfahrposition)
+                self.get_logger().info('Returning to start position...')
 
-            # Schritt 10: Zurueck zur Startposition (Anfahrposition)
-            self.get_logger().info('Returning to start position...')
-            self._return_to_start(start_position)
-            self.get_logger().info(response.message)
+                returned = self._return_to_start(start_position)
+
+                if not returned:
+                    self.get_logger().error("Stopping repeatability test: return failed")
+                    break
+
+                self.get_logger().info(response.message)
+                time.sleep(0.5)
 
         except Exception as e:
             response.success = False
@@ -596,6 +654,7 @@ class PmSkills(Node):
             self.get_logger().error(response.message)
 
         return response
+    
 
 
 
@@ -612,7 +671,22 @@ class PmSkills(Node):
         return return_ok
 
 
-    def csv_force_scan(self, request, direction_normalized, detectet_position):
+    def csv_force_scan(
+        self,
+        scan_number,
+        request,
+        final_search_step_um,
+        direction_normalized,
+        detected_position,
+        start_position,
+        contact_distance,
+        contact_force,
+        search_iterations,
+        refine_iterations,
+        scan_time,
+        timestamp,
+        success_flag
+    ):
 
         import os
         import csv
@@ -631,28 +705,41 @@ class PmSkills(Node):
 
         folder = os.path.join(base_folder, folder_name)
 
-        plot_folder = os.path.join(folder, "plots")
+        data_folder = os.path.join(folder, "data")
 
-        os.makedirs(plot_folder, exist_ok=True)
+        os.makedirs(data_folder, exist_ok=True)
 
 
         file_name = "data.csv"
-        file_path = os.path.join(plot_folder, file_name)
+        file_path = os.path.join(data_folder, file_name)
 
         file_exists = os.path.isfile(file_path)
 
 
         fieldnames = [
+            "ScanNumber",
+            "Timestamp",
             "StepSize_um",
+            "final_search_step_um",
             "Threshold_x",
             "Threshold_y",
             "Threshold_z",
             "Direction_x",
             "Direction_y",
             "Direction_z",
+            "Start_x",
+            "Start_y",
+            "Start_z",
             "Contact_x",
             "Contact_y",
             "Contact_z",
+            "Contact_distance_um",
+            "Force_x_contact",
+            "Force_y_contact",
+            "Force_z_contact",
+            "Search_iterations",
+            "Refine_iterations",
+            "Scan_time_s",
             "Success"
         ]
 
@@ -663,34 +750,32 @@ class PmSkills(Node):
                 writer.writeheader()
 
             
-            if detectet_position is not None:
-                writer.writerow({
-                    "StepSize_um": request.step_size,
-                    "Threshold_x": request.max_force.x,
-                    "Threshold_y": request.max_force.y,
-                    "Threshold_z": request.max_force.z,
-                    "Direction_x": direction_normalized[0],
-                    "Direction_y": direction_normalized[1],
-                    "Direction_z": direction_normalized[2],
-                    "Contact_x": detectet_position[0],
-                    "Contact_y": detectet_position[1],
-                    "Contact_z": detectet_position[2],
-                    "Success": 1
-                })
-            else:
-                writer.writerow({
-                    "StepSize_um": request.step_size,
-                    "Threshold_x": request.max_force.x,
-                    "Threshold_y": request.max_force.y,
-                    "Threshold_z": request.max_force.z,
-                    "Direction_x": direction_normalized[0],
-                    "Direction_y": direction_normalized[1],
-                    "Direction_z": direction_normalized[2],
-                    "Contact_x": math.nan,
-                    "Contact_y": math.nan,
-                    "Contact_z": math.nan,
-                    "Success": 0
-    })
+            writer.writerow({
+                "ScanNumber": scan_number,
+                "Timestamp": timestamp,
+                "StepSize_um": request.step_size,
+                "final_search_step_um": final_search_step_um,
+                "Threshold_x": request.max_force.x,
+                "Threshold_y": request.max_force.y,
+                "Threshold_z": request.max_force.z,
+                "Direction_x": direction_normalized[0],
+                "Direction_y": direction_normalized[1],
+                "Direction_z": direction_normalized[2],
+                "Start_x": start_position[0],
+                "Start_y": start_position[1],
+                "Start_z": start_position[2],
+                "Contact_x": detected_position[0] if success_flag else math.nan,
+                "Contact_y": detected_position[1] if success_flag else math.nan,
+                "Contact_z": detected_position[2] if success_flag else math.nan,
+                "Contact_distance_um": contact_distance * 1e6,
+                "Force_x_contact": contact_force[0],
+                "Force_y_contact": contact_force[1],
+                "Force_z_contact": contact_force[2],
+                "Search_iterations": search_iterations,
+                "Refine_iterations": refine_iterations,
+                "Scan_time_s": scan_time,
+                "Success": int(success_flag)
+            })
 
 
     def iterative_align_gonio_right(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
