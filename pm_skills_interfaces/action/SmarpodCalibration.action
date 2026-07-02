@@ -1,0 +1,6 @@
+bool use_confocal_over_laser
+---
+bool success
+string message
+---
+bool active

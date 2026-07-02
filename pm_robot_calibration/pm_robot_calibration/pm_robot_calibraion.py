@@ -137,9 +137,9 @@ class PmRobotCalibrationNode(Node):
         
 
         self.calibrate_smarpod_action_srv = ActionServer(self,
-            skills_action.EmptyCalibration,
+            skills_action.SmarpodCalibration,
             f'/pm_robot_calibration/calibrate_smarpod',
-            execute_callback=self.calibrate_smarpod,
+            execute_callback=self.calibrate_smarpod_V2,
             goal_callback=self._goal_calibration_callback,
             cancel_callback=self._cancel_calibration_callback
         )
@@ -2336,16 +2336,20 @@ class PmRobotCalibrationNode(Node):
         
     #     return response
     
-    async def calibrate_smarpod(self, goal_handle):
+    async def calibrate_smarpod(self, goal_handle: skills_action.SmarpodCalibration.Goal):
 
         calibration_data = []
+        calibration_run_timestamp = datetime.datetime.now().isoformat()
+        calibration_goal_inputs = {
+            "use_confocal_over_laser": bool(goal_handle.request.use_confocal_over_laser),
+        }
         
-        result = skills_action.EmptyCalibration.Result()
+        result = skills_action.SmarpodCalibration.Result()
         result.success = False
 
         move_up = False
 
-        use_confocal_top = True
+        use_confocal_top = goal_handle.request.use_confocal_over_laser
         remeasure_after_correction = False
 
         if use_confocal_top:
@@ -2430,10 +2434,10 @@ class PmRobotCalibrationNode(Node):
                 cv = res.correction_values.z
                 self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
             
-            def collect_frame_data(angle, pose_name, rx_cmd, ry_cmd, rz_cmd):
+            def collect_frame_data(angle, pose_name, rx_cmd, ry_cmd, rz_cmd, x_cmd, y_cmd):
                 frame_data = {}
                 
-                pose_id = f"{pose_name}_rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}"
+                pose_id = f"{pose_name}_rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}_x{x_cmd}_y{y_cmd}"
 
                 for index, frame in enumerate(laser_frames):
                     
@@ -2447,8 +2451,8 @@ class PmRobotCalibrationNode(Node):
                         use_iterative_sensing=True,
                     )
                     cv = res.correction_values.z
-
-                    time.sleep(1.0)
+                    
+                    time.sleep(0.5)
 
                     trans_fixed_point = self.pm_robot_utils.get_transform_for_frame(
                         frame_name=frame,
@@ -2478,7 +2482,7 @@ class PmRobotCalibrationNode(Node):
                     }
 
                     self._logger.warning(
-                        f"{frame} | pose={pose_id} | rx={rx_cmd} | ry={ry_cmd} | rz={rz_cmd} | z={cv*1e6:.2f} um"
+                        f"{frame} | pose={pose_id} | rx={rx_cmd} | ry={ry_cmd} | rz={rz_cmd} | x={x_cmd} | y={y_cmd} | z={cv*1e6:.2f} um"
                     )
 
                 return {
@@ -2487,12 +2491,15 @@ class PmRobotCalibrationNode(Node):
                     "rx_cmd": rx_cmd,
                     "ry_cmd": ry_cmd,
                     "rz_cmd": rz_cmd,
+                    "x_cmd": x_cmd,
+                    "y_cmd": y_cmd,
                     "frames": frame_data,
                 }
             
+            # do not do more than 1.8 degrees, as the gripper might collide with the calibration wafer when using the laser for measuring
             #angles = [0.5, 1.0]
             #angles = [0.5, 1.0, 1.5, 2.0]
-            angles = [1.0, 1.5]
+            angles = [1.0, 1.8]
 
             pose_sequence = [
                 ("rx", 1, 0),
@@ -2504,40 +2511,54 @@ class PmRobotCalibrationNode(Node):
                 ("rxry", 1, -1),
                 ("rxry", -1, 1),
             ]
+            
+            rz_angles =[0]
 
-            rz_angles =[0, 1.0]
+            # in mm
+            x_positions = [0, 2]
+            y_positions = [0, 2]
 
-            total_iterations = len(angles) * len(pose_sequence) * len(rz_angles)
+            total_iterations = len(angles) * len(pose_sequence) * len(rz_angles) * len(x_positions) * len(y_positions)
             current_iteration = 0
 
-            for rz_angle in rz_angles:
-                for angle in angles:
-                    for pose_name, rx, ry in pose_sequence:
-                        self._logger.warning(
-                            f"Starting iteration {current_iteration + 1}/{total_iterations}"
-                        )   
+            for x_pos in x_positions:
+                for y_pos in y_positions:
+                    for rz_angle in rz_angles:
+                        for angle in angles:
+                            for pose_name, rx, ry in pose_sequence:
+                                self._logger.warning(
+                                    f"Starting iteration {current_iteration + 1}/{total_iterations}"
+                                )   
 
-                        rx_cmd = angle * rx
-                        ry_cmd = angle * ry
-                        rz_cmd = rz_angle
+                                rx_cmd = angle * rx
+                                ry_cmd = angle * ry
+                                rz_cmd = rz_angle
+                                x_cmd = x_pos
+                                y_cmd = y_pos
 
-                        # the hexapod takes quite a while to move. so ~4 sec is mandatory.
-                        self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
-                            x_joint=0.0,
-                            y_joint=0.0,
-                            z_joint=0.0,
-                            rx_joint_deg=rx_cmd,
-                            ry_joint_deg=ry_cmd,
-                            rz_joint_deg=rz_cmd,
-                            time=4.0,
-                        )
+                                # the hexapod takes quite a while to move. so ~4 sec is mandatory.
+                                self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
+                                    x_joint=x_cmd*1e-3,
+                                    y_joint=y_cmd*1e-3,
+                                    z_joint=0.0,
+                                    rx_joint_deg=rx_cmd,
+                                    ry_joint_deg=ry_cmd,
+                                    rz_joint_deg=rz_cmd,
+                                    time=4.0,
+                                )
 
-                        time.sleep(2.0)
+                                time.sleep(2.0)
 
-                        calibration_data.append(
-                            collect_frame_data(angle, pose_name, rx_cmd, ry_cmd, rz_cmd)
-                        )
-                        current_iteration += 1
+                                calibration_data.append(
+                                    collect_frame_data(angle = angle, 
+                                                       pose_name = pose_name, 
+                                                       rx_cmd = rx_cmd, 
+                                                       ry_cmd = ry_cmd, 
+                                                       rz_cmd = rz_cmd,
+                                                       x_cmd = x_cmd,
+                                                       y_cmd = y_cmd)
+                                )
+                                current_iteration += 1
             
             result.success = True
             goal_handle.succeed()
@@ -2555,8 +2576,13 @@ class PmRobotCalibrationNode(Node):
             # save the calibration data
             filename = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             try:
+                calibration_output = {
+                    "timestamp": calibration_run_timestamp,
+                    "goal_handle": calibration_goal_inputs,
+                    "calibration_data": calibration_data,
+                }
                 with open(filename, "w") as f:
-                    json.dump(calibration_data, f, indent=2)
+                    json.dump(calibration_output, f, indent=2)
                 self._logger.info(f"Calibration data saved to {filename}")
             except Exception as e:
                 self._logger.error(f"Could not save calibration data: {e}")
@@ -2569,6 +2595,312 @@ class PmRobotCalibrationNode(Node):
         
         return result
 
+
+    def _get_sensor_transform(self, use_confocal_top):
+        frame = (
+            self.pm_robot_utils.TCP_CONFOCAL_TOP
+            if use_confocal_top
+            else self.pm_robot_utils.TCP_LASER
+        )
+
+        return self.pm_robot_utils.get_transform_for_frame(
+            frame_name=frame,
+            parent_frame="SmarPod_Origin",
+        )
+    
+    def _get_measurement(self, use_confocal_top):
+        if use_confocal_top:
+            if not self.pm_robot_utils.check_confocal_top_measurement_in_range():
+                raise PmRobotError("Confocal top measurement is out of range.")
+            return self.pm_robot_utils.get_confocal_top_measurement(unit="mm")
+
+        if not self.pm_robot_utils._check_for_valid_laser_measurement():
+            raise PmRobotError("Laser measurement is out of range.")
+
+        return self.pm_robot_utils.get_laser_measurement(unit="mm")
+
+    async def calibrate_smarpod_V2(self, goal_handle: skills_action.SmarpodCalibration.Goal):
+        
+        goal = goal_handle.request
+        use_confocal_top = goal.use_confocal_over_laser
+
+        calibration_data = []
+        distances_dict = {}
+        calibration_run_timestamp = datetime.datetime.now().isoformat()
+        calibration_goal_inputs = {
+            "use_confocal_over_laser": bool(use_confocal_top),
+        }
+        
+        result = skills_action.SmarpodCalibration.Result()
+        result.success = False
+
+        move_up = False
+
+        remeasure_after_correction = False
+
+        if use_confocal_top:
+            correction_method = self.correct_frame_confocal_top
+        else:
+            correction_method = self.correct_frame_laser
+
+        try:
+            self._logger.warning(f"Starting calibration 'calibrate_smarpod'...")
+            
+            
+            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+                self.pm_robot_utils.pm_robot_config.set_to_real_HW()
+                self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
+            else:
+                self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
+                self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
+
+            
+            if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
+                raise PmRobotError("Smarpod station is not activated in the configuration!")
+            
+            if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
+                self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
+                 raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
+            
+
+            self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
+
+            unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
+
+            # we can hardcode the frame names here, because this hopefully never changes
+
+            vision_frame_name_1 = f"{unique_identifier}Vision_1"
+            vision_frame_name_2 = f"{unique_identifier}Vision_2"
+            vision_frame_name_3 = f"{unique_identifier}Vision_3"
+
+            laser_frame_1 = f"{unique_identifier}Laser_1"
+            laser_frame_2 = f"{unique_identifier}Laser_2"
+            laser_frame_3 = f"{unique_identifier}Laser_3"
+            laser_frame_4 = f"{unique_identifier}Laser_4"
+
+            laser_frame_1_initial = f"{unique_identifier}Laser_1_initial"
+            laser_frame_2_initial = f"{unique_identifier}Laser_2_initial"
+            laser_frame_3_initial = f"{unique_identifier}Laser_3_initial"
+            laser_frame_4_initial = f"{unique_identifier}Laser_4_initial"
+
+            laser_frames = [
+                laser_frame_1,
+                laser_frame_2,
+                laser_frame_3,
+                laser_frame_4]
+            
+            laser_initial_frames = [
+                laser_frame_1_initial,
+                laser_frame_2_initial,
+                laser_frame_3_initial,
+                laser_frame_4_initial]
+
+            ###  MOVE HEXAPOD TO ZERO
+            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
+
+            #self.pm_robot_utils.send_smarpod_trajectory_goal_relative(x_joint_rel=0.001, y_joint_rel=0.001, z_joint_rel=0.0, time=1.0)
+
+            if use_confocal_top:
+                self.pm_robot_utils.move_confocal_top_to_frame(frame_name=laser_frame_1, z_offset=0.01)
+            else:
+                self.pm_robot_utils.move_laser_to_frame(frame_name=laser_frame_1, z_offset=0.01)
+
+            move_up = True
+                  
+            for l_frame_name in laser_frames:
+                res = correction_method(frame_id=l_frame_name, remeasure_after_correction=remeasure_after_correction)
+                cv = res.correction_values.z
+                self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
+            
+            poses = []
+
+            for frame in laser_frames:
+                transform = self.pm_robot_utils.get_transform_for_frame(
+                    frame_name=frame,
+                    parent_frame="world",
+                    )
+                pose = Pose()
+                pose.position.x = transform.translation.x
+                pose.position.y = transform.translation.y
+                pose.position.z = transform.translation.z
+                poses.append(pose)
+
+            pose_1 = poses[0]
+            pose_2 = poses[1]
+            pose_3 = poses[2]
+            pose_4 = poses[3]
+
+            distances_dict = {}
+            distance_x_12 = pose_2.position.x - pose_1.position.x
+            distance_y_12 = pose_2.position.y - pose_1.position.y
+            distance_z_12 = pose_2.position.z - pose_1.position.z
+            distance_12 = math.sqrt(distance_x_12**2 + distance_y_12**2 + distance_z_12**2)
+            distance_x_23 = pose_3.position.x - pose_2.position.x
+            distance_y_23 = pose_3.position.y - pose_2.position.y
+            distance_z_23 = pose_3.position.z - pose_2.position.z
+            distance_23 = math.sqrt(distance_x_23**2 + distance_y_23**2 + distance_z_23**2)
+            distance_x_34 = pose_4.position.x - pose_3.position.x
+            distance_y_34 = pose_4.position.y - pose_3.position.y
+            distance_z_34 = pose_4.position.z - pose_3.position.z
+            distance_34 = math.sqrt(distance_x_34**2 + distance_y_34**2 + distance_z_34**2)
+            distance_x_41 = pose_1.position.x - pose_4.position.x
+            distance_y_41 = pose_1.position.y - pose_4.position.y
+            distance_z_41 = pose_1.position.z - pose_4.position.z
+            distance_41 = math.sqrt(distance_x_41**2 + distance_y_41**2 + distance_z_41**2)          
+            
+            distances_dict = {
+                "distance_x_12_mm": distance_x_12 * 1e3,
+                "distance_y_12_mm": distance_y_12 * 1e3,
+                "distance_z_12_mm": distance_z_12 * 1e3,
+                "distance_12_mm": distance_12 * 1e3,
+                "distance_x_23_mm": distance_x_23 * 1e3,
+                "distance_y_23_mm": distance_y_23 * 1e3,
+                "distance_z_23_mm": distance_z_23 * 1e3,
+                "distance_23_mm": distance_23 * 1e3,
+                "distance_x_34_mm": distance_x_34 * 1e3,
+                "distance_y_34_mm": distance_y_34 * 1e3,
+                "distance_z_34_mm": distance_z_34 * 1e3,
+                "distance_34_mm": distance_34 * 1e3,
+                "distance_x_41_mm": distance_x_41 * 1e3,
+                "distance_y_41_mm": distance_y_41 * 1e3,
+                "distance_z_41_mm": distance_z_41 * 1e3,
+                "distance_41_mm": distance_41 * 1e3,
+            }
+
+            # do not do more than 1.8 degrees, as the gripper might collide with the calibration wafer when using the laser for measuring
+            #angles = [0.5, 1.0]
+            #angles = [0.5, 1.0, 1.5, 2.0]
+            angles = [0.5, 1.0]
+
+            pose_sequence = [
+                ("rx", 1, 0),
+                ("rx", -1, 0),
+                ("ry", 0, 1),
+                ("ry", 0, -1),
+                ("rxry", 1, 1),
+                ("rxry", -1, -1),
+                ("rxry", 1, -1),
+                ("rxry", -1, 1),
+            ]
+            
+            rz_angles =[0]
+
+            # in mm
+            x_positions = [0, 2]
+            y_positions = [0, 2]
+
+            total_iterations = len(angles) * len(pose_sequence) * len(rz_angles) * len(x_positions) * len(y_positions) * 4
+            current_iteration = 0
+
+            for x_pos in x_positions:
+                for y_pos in y_positions:
+                    for pose in poses:
+                        
+                        _pose = copy.deepcopy(pose)
+                        _pose.position.x += x_pos * 1e-3
+                        _pose.position.y += y_pos * 1e-3
+
+                        move_request = MoveToPose.Request()
+                        move_request.move_to_pose = _pose
+                        move_request.execute_movement = True
+                        
+                        self._logger.warning(f"Moving smarpod to the next pose on the wafer...")
+                        
+                        if use_confocal_top:
+                            self.pm_robot_utils.move_confocal_top_to_pose(move_request)
+                        else:
+                            self.pm_robot_utils.move_laser_to_pose(move_request)
+
+                        for pose_name, rx, ry in pose_sequence:
+                            for angle in angles:
+
+                                if goal_handle.is_cancel_requested:
+                                    self._logger.warning("Calibration cancelled.")
+                                    raise PmRobotError("Calibration cancelled.")
+
+                                self._logger.warning(
+                                    f"Starting iteration {current_iteration + 1}/{total_iterations}"
+                                )   
+
+                                rx_cmd = angle * rx
+                                ry_cmd = angle * ry
+                                x_cmd = x_pos
+                                y_cmd = y_pos
+
+                                pose_id = f"rx{rx_cmd}_ry{ry_cmd}_x{x_cmd}_y{y_cmd}"
+
+                                # the hexapod takes quite a while to move. so ~4 sec is mandatory.
+                                self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
+                                    x_joint=x_cmd*1e-3,
+                                    y_joint=y_cmd*1e-3,
+                                    z_joint=0.0,
+                                    rx_joint_deg=rx_cmd,
+                                    ry_joint_deg=ry_cmd,
+                                    rz_joint_deg=0,
+                                    time=4.0,
+                                )
+                                
+                                time.sleep(2.0)
+
+                                measurement = self._get_measurement(use_confocal_top)
+
+                                self._logger.warning(f"Measurement at pose={pose_id} | measurement={measurement:.3f} mm"
+                                    )
+                                time.sleep(0.5)
+
+                                trans_endeffector = self._get_sensor_transform(use_confocal_top)
+
+                                current_mes_dict = {
+                                    "pose_id": pose_id,
+                                    "angle": angle,
+                                    "rx_cmd": rx_cmd,
+                                    "ry_cmd": ry_cmd,
+                                    "x_cmd": x_cmd,
+                                    "y_cmd": y_cmd,
+                                    "measurement_mm": measurement,
+                                    "transform_endeffector": self._transform_to_dict(trans_endeffector),
+                                    "current_iteration": current_iteration + 1,
+                                }
+
+                                calibration_data.append(current_mes_dict)
+                                current_iteration += 1
+
+            
+            result.success = True
+            goal_handle.succeed()
+        
+        except PmRobotError as e:
+            self._logger.error(f"Error occurred while calibrating smarpod: {e}")
+            result.success = False
+
+        except CancelCalibrationException as e:
+            self._logger.warning("Calibration cancelled.")
+            result.success = False
+            goal_handle.canceled()
+
+        finally:
+            # save the calibration data
+            filename = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            try:
+                calibration_output = {
+                    "timestamp": calibration_run_timestamp,
+                    "goal_handle": calibration_goal_inputs,
+                    "calibration_data": calibration_data,
+                    "distances": distances_dict
+                }
+                with open(filename, "w") as f:
+                    json.dump(calibration_output, f, indent=2)
+                self._logger.info(f"Calibration data saved to {filename}")
+            except Exception as e:
+                self._logger.error(f"Could not save calibration data: {e}")
+
+            if move_up:
+                self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
+
+            # Move smarpod back to zero position
+            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
+        
+        return result
     
     def _goal_calibration_callback(self, goal_request):
         self.get_logger().info(f"Received goal: {str(goal_request)}")

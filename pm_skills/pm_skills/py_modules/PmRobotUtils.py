@@ -94,6 +94,9 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.client_move_robot_tool_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_tool_to_frame')
         self.client_move_robot_confocal_top_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_confocal_head_to_frame')
         self.client_move_robot_1k_dispenser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_1k_dispenser_to_frame')
+        self.client_move_robot_confocal_top_to_pose = self._node.create_client(MoveToPose, '/pm_moveit_server/move_confocal_head_to_pose')
+        self.client_move_robot_laser_to_pose = self._node.create_client(MoveToPose, '/pm_moveit_server/move_laser_to_pose') 
+
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
         self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
@@ -959,6 +962,40 @@ class PmRobotUtils(PrimitiveSkillsUtils):
 
         if not response.success:
             raise PmRobotError(f"Failed to create reference frame: {response.message}")
+
+        return response
+    
+    def move_confocal_top_to_pose(self, request: MoveToPose.Request)-> MoveToPose.Response:
+        """
+        Move the confocal top to the specified pose.
+        param request: MoveToPose.Request
+        return: MoveToPose.Response
+        Raises PmRobotError if the service call fails or if the response indicates failure.
+        """
+        if not self.client_move_robot_confocal_top_to_pose.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_move_robot_confocal_top_to_pose.srv_name}' not available")
+        
+        response:MoveToPose.Response = self.client_move_robot_confocal_top_to_pose.call(request)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to move confocal top to pose: {response.message}")
+
+        return response
+    
+    def move_laser_to_pose(self, request: MoveToPose.Request)-> MoveToPose.Response:
+        """
+        Move the laser to the specified pose.
+        param request: MoveToPose.Request
+        return: MoveToPose.Response
+        Raises PmRobotError if the service call fails or if the response indicates failure.
+        """
+        if not self.client_move_robot_laser_to_pose.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError(f"Service '{self.client_move_robot_laser_to_pose.srv_name}' not available")
+        
+        response:MoveToPose.Response = self.client_move_robot_laser_to_pose.call(request)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to move laser to pose: {response.message}")
 
         return response
     
