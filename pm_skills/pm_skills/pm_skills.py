@@ -312,6 +312,11 @@ class PmSkills(Node):
                 timestamp = datetime.now().isoformat()
 
                 piezo_force_request = pm_msg_srv.GripperGetForces.Request()
+                frame_position_gripper = get_transform_for_frame_in_world(
+                    self.PM_ROBOT_GRIPPER_FRAME,
+                    self.tf_buffer,
+                    self.get_logger()
+                )
 
                 PiezoGripperForce: pm_msg_srv.GripperGetForces.Response = self.smart_gripper_force_client.call(piezo_force_request)
 
@@ -370,9 +375,18 @@ class PmSkills(Node):
                 # ]
 
                 self.get_logger().info('target frame: ' + request.target_frame)
+                frame_target = get_transform_for_frame_in_world(
+                    request.target_frame,
+                    self.tf_buffer,
+                    self.get_logger()
+                )
+                frame_position_target = [
+                    frame_target.transform.translation.x,
+                    frame_target.transform.translation.y,
+                    frame_target.transform.translation.z
+                ]
 
-
-                success, message = self.move_gripper_to_frame(request.target_frame, x_offset=-0.002, y_offset=0.0, z_offset=-0.0015) 
+                success, message = self.move_gripper_to_frame(request.target_frame, x_offset=-0.0021, y_offset=0.0, z_offset=-0.0015) 
                 if not success:
                     response.success = False
                     response.message = f'could not move to target frame: {message}'
@@ -458,6 +472,7 @@ class PmSkills(Node):
                 search_iterations = 0
                 refine_iterations = 0
                 contact_force = [math.nan, math.nan, math.nan]
+                frame_position_contact = [math.nan, math.nan, math.nan]
                 
                 state = "SEARCH"
 
@@ -466,21 +481,23 @@ class PmSkills(Node):
                     if state == "SEARCH":            
                         search_iterations += 1        
                         # Schrittweise Annaeherung in Richtung des normierten Vektors
-                        next_position = current_position.copy()
 
-                        next_position[0] += step_size_m_search * direction_normalized[0]
-                        next_position[1] += step_size_m_search * direction_normalized[1]
-                        next_position[2] += step_size_m_search * direction_normalized[2]
+                        current_position[0] += step_size_m_search * direction_normalized[0]
+                        current_position[1] += step_size_m_search * direction_normalized[1]
+                        current_position[2] += step_size_m_search * direction_normalized[2]
 
                         self.pm_robot_utils.send_xyz_trajectory_goal_absolut(
-                            *next_position,
+                            *current_position,
                             time=0.05
                         )
 
-                        current_position = next_position
+                        time.sleep(0.5)
 
-                        time.sleep(0.02)
-
+                        current_position = [
+                            self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
+                            self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
+                            self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
+                        ]
 
                         if not self.pm_robot_utils.is_unity_running():
                             force_response = self.smart_gripper_force_client.call(piezo_force_request)
@@ -499,12 +516,18 @@ class PmSkills(Node):
 
                         if contact_detected:
 
-                            contact_position = (
+                            contact_position = [
                                 self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
                                 self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
                                 self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
-                            )
+                            ]
 
+                            frame_position_contact = [
+                                frame_position_gripper.transform.translation.x,
+                                frame_position_gripper.transform.translation.y,
+                                frame_position_gripper.transform.translation.z
+                            ]
+                            
                             if not self.pm_robot_utils.is_unity_running():
                                 force_response = self.smart_gripper_force_client.call(piezo_force_request)
 
@@ -516,12 +539,14 @@ class PmSkills(Node):
                             else:
                                 contact_force = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
+                            self.get_logger().info(f'force at current contact: {contact_force}')
+
                             state = "CONTACT"
                             continue
 
                         else:
                             # Kein Kontakt -> Position als gueltig speichern und weiterfahren
-                            last_valid_position = next_position
+                            last_valid_position = current_position.copy()
                             travelled_distance_m += step_size_m_search
                             continue
 
@@ -533,7 +558,13 @@ class PmSkills(Node):
 
                         travelled_distance_m -= step_size_m_search
 
-                        current_position = last_valid_position
+                        time.sleep(0.5)
+
+                        current_position = [
+                            self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
+                            self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
+                            self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
+                        ]
 
                         if step_size_m_search <= step_size_m_min:
                             # Ziel-Schrittgroesse bereits erreicht -> Scan beenden
@@ -589,12 +620,12 @@ class PmSkills(Node):
                 if detected_position is None:
                     response.success = False
                     response.message = (
-                    f'No contact detected after {travelled_distance_m * 1e3:.3f} mm'                
+                    f'No contact detected after {contact_distance * 1e3:.3f} mm'                
                     )
                 else:
                     response.success = True
                     response.message = (
-                        f'Contact detected after {travelled_distance_m * 1e3:.3f} mm'
+                        f'Contact detected after {contact_distance * 1e3:.3f} mm'
                     )
 
                     response.detected_position.position.x = detected_position[0]
@@ -625,6 +656,8 @@ class PmSkills(Node):
                     final_search_step_um,
                     direction_normalized,
                     detected_position_log,
+                    frame_position_contact,
+                    frame_position_target,
                     start_position,
                     contact_distance,
                     contact_force,
@@ -678,6 +711,8 @@ class PmSkills(Node):
         final_search_step_um,
         direction_normalized,
         detected_position,
+        frame_position_contact,
+        frame_position_target,
         start_position,
         contact_distance,
         contact_force,
@@ -691,7 +726,7 @@ class PmSkills(Node):
         import os
         import csv
         import math
-
+    
         base_folder = (
             "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots"
         )
@@ -733,6 +768,12 @@ class PmSkills(Node):
             "Contact_x",
             "Contact_y",
             "Contact_z",
+            "Frame_x_contact",
+            "Frame_y_contact",
+            "Frame_z_contact",
+            "Frame_x_target",
+            "Frame_y_target",
+            "Frame_z_target",
             "Contact_distance_um",
             "Force_x_contact",
             "Force_y_contact",
@@ -743,13 +784,20 @@ class PmSkills(Node):
             "Success"
         ]
 
+        def safe_vec3(v):
+            if v is None or len(v) != 3:
+                return (math.nan, math.nan, math.nan)
+            return v
+
+        fx, fy, fz = safe_vec3(frame_position_contact)
+        cx, cy, cz = safe_vec3(detected_position) if success_flag else (math.nan, math.nan, math.nan)
+
         with open(file_path, mode='a', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';')
 
             if not file_exists:
                 writer.writeheader()
 
-            
             writer.writerow({
                 "ScanNumber": scan_number,
                 "Timestamp": timestamp,
@@ -764,9 +812,15 @@ class PmSkills(Node):
                 "Start_x": start_position[0],
                 "Start_y": start_position[1],
                 "Start_z": start_position[2],
-                "Contact_x": detected_position[0] if success_flag else math.nan,
-                "Contact_y": detected_position[1] if success_flag else math.nan,
-                "Contact_z": detected_position[2] if success_flag else math.nan,
+                "Contact_x": cx,
+                "Contact_y": cy,
+                "Contact_z": cz,
+                "Frame_x_contact": fx,
+                "Frame_y_contact": fy,
+                "Frame_z_contact": fz,
+                "Frame_x_target": frame_position_target[0],
+                "Frame_y_target": frame_position_target[1],
+                "Frame_z_target": frame_position_target[2],
                 "Contact_distance_um": contact_distance * 1e6,
                 "Force_x_contact": contact_force[0],
                 "Force_y_contact": contact_force[1],
