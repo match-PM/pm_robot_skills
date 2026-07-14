@@ -305,8 +305,9 @@ class PmSkills(Node):
 
         try:
 
-            for i in range (25):
-                scan_number = i+1
+            # for i in range (30):
+                # scan_number = i+1
+                scan_number = 1
                 self.get_logger().info(f"Starting force scan {scan_number} of 25.")
 
                 timestamp = datetime.now().isoformat()
@@ -509,6 +510,17 @@ class PmSkills(Node):
                         else:
                             force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
+                        self.csv_force_scan_step(
+                            scan_number,
+                            request,
+                            search_iterations + refine_iterations, 
+                            "SEARCH",
+                            step_size_m_search * 1e6,
+                            force_values,
+                            current_position,
+                            datetime.now().isoformat()
+                        )
+
                         contact_detected = any(
                             abs(force_values[i]) > force_threshold[i]
                             for i in range(3)
@@ -539,6 +551,17 @@ class PmSkills(Node):
                             else:
                                 contact_force = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
+                            self.csv_force_scan_step(
+                                scan_number,
+                                request,
+                                search_iterations + refine_iterations, 
+                                "CONTACT",
+                                step_size_m_search * 1e6,
+                                contact_force,
+                                contact_position,
+                                datetime.now().isoformat()
+                            )
+
                             self.get_logger().info(f'force at current contact: {contact_force}')
 
                             state = "CONTACT"
@@ -565,6 +588,28 @@ class PmSkills(Node):
                             self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Y_Axis_JOINT_NAME),
                             self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.Z_Axis_JOINT_NAME)
                         ]
+
+                        if not self.pm_robot_utils.is_unity_running():
+                            force_response = self.smart_gripper_force_client.call(piezo_force_request)
+
+                            current_force = [
+                                force_response.fx,
+                                force_response.fy,
+                                force_response.fz
+                            ]
+                        else:
+                            current_force = self.pm_robot_utils._current_force_sensor_data.data[:3]
+
+                        self.csv_force_scan_step(
+                            scan_number,
+                            request,
+                            search_iterations + refine_iterations, 
+                            "moved back",
+                            step_size_m_search * 1e6,
+                            current_force,
+                            current_position,
+                            datetime.now().isoformat()
+                        )
 
                         if step_size_m_search <= step_size_m_min:
                             # Ziel-Schrittgroesse bereits erreicht -> Scan beenden
@@ -647,27 +692,27 @@ class PmSkills(Node):
                     f"{detected_position_log}"
                 )
 
-                final_search_step_um = step_size_m_search * 1e6
+                # final_search_step_um = step_size_m_search * 1e6
 
-                success_flag = detected_position is not None                
-                self.csv_force_scan(
-                    scan_number,
-                    request,
-                    final_search_step_um,
-                    direction_normalized,
-                    detected_position_log,
-                    frame_position_contact,
-                    frame_position_target,
-                    start_position,
-                    contact_distance,
-                    contact_force,
-                    search_iterations,
-                    refine_iterations,
-                    scan_time,
-                    timestamp,
-                    success_flag
-                )
-                self.get_logger().info("Data saved to CSV.")
+                # success_flag = detected_position is not None                
+                # self.csv_force_scan(
+                #     scan_number,
+                #     request,
+                #     final_search_step_um,
+                #     direction_normalized,
+                #     detected_position_log,
+                #     frame_position_contact,
+                #     frame_position_target,
+                #     start_position,
+                #     contact_distance,
+                #     contact_force,
+                #     search_iterations,
+                #     refine_iterations,
+                #     scan_time,
+                #     timestamp,
+                #     success_flag
+                # )
+                # self.get_logger().info("Data saved to CSV.")
 
                 # Schritt 10: Zurück zur Startposition (Anfahrposition)
                 self.get_logger().info('Returning to start position...')
@@ -676,7 +721,7 @@ class PmSkills(Node):
 
                 if not returned:
                     self.get_logger().error("Stopping repeatability test: return failed")
-                    break
+                    # break
 
                 self.get_logger().info(response.message)
                 time.sleep(0.5)
@@ -703,6 +748,77 @@ class PmSkills(Node):
             self.get_logger().error('could not return to start position!')
         return return_ok
 
+    def csv_force_scan_step(
+            self,
+            scan_number,
+            request,
+            step,
+            state,
+            step_size_um,
+            current_force,
+            current_position,
+            timestamp
+        ):
+
+        import os
+        import csv
+
+        base_folder = (
+            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/messungen_neu"
+        )
+
+        folder_name = (
+            f"S{request.step_size}"
+            f"_fx{request.max_force.x:.1f}"
+            f"_fy{request.max_force.y:.1f}"
+            f"_fz{request.max_force.z:.1f}" 
+        )
+
+        folder = os.path.join(base_folder, folder_name)
+
+        data_folder = os.path.join(folder, "data")
+
+        os.makedirs(data_folder, exist_ok=True)
+
+        file_name = "search_refine_log.csv"
+        file_path = os.path.join(data_folder, file_name)
+
+        file_exists = os.path.isfile(file_path)
+
+        fieldnames = [
+            "ScanNumber",
+            "Timestamp",
+            "Step",
+            "State",
+            "StepSize_um",
+            "Force_x",
+            "Force_y",
+            "Force_z",
+            "Position_x",
+            "Position_y",
+            "Position_z",
+        ]
+
+        row = {
+            "ScanNumber": scan_number,
+            "Timestamp": timestamp,
+            "Step": step,
+            "State": state,
+            "StepSize_um": step_size_um,
+            "Force_x": current_force[0],
+            "Force_y": current_force[1],
+            "Force_z": current_force[2],
+            "Position_x": current_position[0],
+            "Position_y": current_position[1],
+            "Position_z": current_position[2],
+        }
+
+        with open(file_path, "a", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(row)
+
 
     def csv_force_scan(
         self,
@@ -728,11 +844,11 @@ class PmSkills(Node):
         import math
     
         base_folder = (
-            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots"
+            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/messungen_neu"
         )
 
         folder_name = (
-            f"S{int(request.step_size)}"
+            f"S{request.step_size}"
             f"_fx{request.max_force.x:.1f}"
             f"_fy{request.max_force.y:.1f}"
             f"_fz{request.max_force.z:.1f}" 
