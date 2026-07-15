@@ -43,6 +43,7 @@ from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 
 from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
 from datetime import datetime
+from pm_robot_modules.submodules.pm_robot_config import VacuumGripperConfig, ParallelGripperConfig
 
 
 class PmSkills(Node):
@@ -71,7 +72,7 @@ class PmSkills(Node):
         self.pm_robot_utils.start_object_scene_subscribtion()
         
         # services
-        #self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
+        self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.grip_component_callback,callback_group=self.callback_group_me)
         self.force_grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/force_grip_component", self.force_grip_component_callback,callback_group=self.callback_group_me)
 
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.place_component_callback,callback_group=self.callback_group_me)
@@ -1361,97 +1362,145 @@ class PmSkills(Node):
     def grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
 
-        self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
-        
-        raise PmRobotError(f"This skill should not be used!")
-    
+        self.pm_robot_utils.wait_for_initial_scene_update()
+
         try:
+            should_move_up_at_error = False
+            self.logger.info(f"Force gripping component '{request.component_name}'")
+
             if not self.pm_robot_utils.assembly_scene_analyzer.check_object_exists(request.component_name):
-                response.success = False
-                response.message = f"Object '{request.component_name}' does not exist!"
-                self.logger.error(response.message)
-                return response
+                raise PmRobotError(f"Object '{request.component_name}' does not exist!")
+
+            self.logger.info(f"Force gripping component '{request.component_name}'")
 
             if not self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
-                response.success = False
-                response.message = "Gripper is not empty! Can not grip new component!"
-                self.logger.error(response.message)
-                return response
+                raise PmRobotError("Gripper is not empty! Can not grip new component!")
+
+            if self.pm_robot_utils.assembly_scene_analyzer.check_component_assembled(request.component_name):
+                raise PmRobotError(f"Component '{request.component_name}' is already assembled! Can not grip it!")
             
-        except ValueError as e:
+            gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame_of_component(request.component_name)
+            
+            self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
+            
+            algin_success = True
+            align_msg = ""
+
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name) and request.align_orientation:
+                algin_success, align_msg = self.align_gonio_left(gripping_frame)
+
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name) and request.align_orientation:
+                algin_success, align_msg = self.align_gonio_right(gripping_frame)
+            
+            else:
+                pass
+
+            if not algin_success:
+                raise PmRobotError(f"Failed to align gonio for component '{request.component_name}': {align_msg}")
+
+            #Offset
+            move_tool_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
+
+            if not move_tool_to_part_offset_success:
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}' at offset distance: {move_offset_msg}")
+            
+
+            self.logger.info(f"Moving to grip sensing start position!")
+
+            move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_SENSING_START_OFFSET)
+
+            if not move_tool_to_part_success:
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}': {move_part_msg}")
+
+            should_move_up_at_error = True
+
+            self.pm_robot_utils.set_gripper_component_collision(component_name=request.component_name, 
+                                                                state=False)
+            
+
+            # open gripper if it is a parallel gripper
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
+                self.logger.info(f"Opening parallel 1 jaw gripper for component '{request.component_name}'")
+                
+                # TODO: Implement the actual gripper opening logic here
+
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
+                self.logger.info(f"Opening parallel 2 jaw gripper for component '{request.component_name}'")
+                self.pm_robot_utils.open_gripper_2_jaws()
+                # TODO: Implement the actual gripper opening logic here
+            
+
+            move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame, z_offset=0.0)
+
+            if not move_tool_to_part_success:
+                raise PmRobotError(f"Failed to move gripper to part '{request.component_name}': {move_part_msg}")
+
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == VacuumGripperConfig.TOOL_VACUUM_IDENT:
+                # enable vacuum
+                enable_success = self.pm_robot_utils.set_tool_vaccum(True)
+                self.logger.info(f"Enabling vacuum for component '{request.component_name}'")
+
+                if not enable_success:
+                    raise PmRobotError(f"Failed to enable vacuum for component '{request.component_name}'!")
+
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
+                self.logger.info(f"Opening parallel 1 jaw gripper for component '{request.component_name}'")
+
+                # TODO: Implement the actual gripper opening logic here
+
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
+                self.logger.info(f"Opening parallel 2 jaw gripper for component '{request.component_name}'")
+                self.pm_robot_utils.set_gripper_2_jaws_position(0.1)
+                # TODO: Implement the actual gripper opening logic here
+
+            disable_success = True
+
+            # turn off the vacuum
+            if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name, max_depth=1):
+                self.logger.info(f"Disabling vacuum on gonio left for component '{request.component_name}'")
+                disable_success = self.pm_robot_utils.set_gonio_left_vacuum(False)
+
+            elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name, max_depth=1):
+                self.logger.info(f"Disabling vacuum on gonio right for component '{request.component_name}'")
+                disable_success = self.pm_robot_utils.set_gonio_right_vacuum(False)
+            else:
+                self.logger.info(f"Component '{request.component_name}' is not on a gonio!")
+
+            if not disable_success:
+                raise PmRobotError(f"Failed to disable vacuum for component '{request.component_name}'!")
+
+            # attach the component to the gripper
+            attach_component_success = self.attach_component_to_gripper(request.component_name)
+            
+            if not attach_component_success:
+                raise PmRobotError(f"Failed to attach component '{request.component_name}' to gripper")
+            
+            properties = ami_msg.ComponentProperties()
+            properties.is_gripped = True
+
+            set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(request.component_name, properties)
+
+            if not set_properties_response.success:
+                raise PmRobotError(f"Failed to set component properties for component '{request.component_name}' after gripping!")  
+            
+            response.success = True
+
+            response.message = f"Component '{request.component_name}' gripped successfully!"
+            self.logger.info(response.message)
+            time.sleep(0.5)  # wait for properties to update in the assembly manager
+
+        except (PmRobotError, ComponentNotFoundError, GrippingFrameNotFoundError) as e:
             response.success = False
             response.message = str(e)
             self.logger.error(response.message)
-            return response
-        
-        gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame(request.component_name)
 
-        if gripping_frame is None:
-            response.success = False
-            response.message = f"No gripping frame found for object '{request.component_name}'"
-            self.logger.error(response.message)
-            return response
-        
-        self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
-
-        if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name):
-            algin_success, align_msg = self.align_gonio_left(gripping_frame)
-
-        elif self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_right(request.component_name):
-            algin_success, align_msg = self.align_gonio_right(gripping_frame)
-        
-        else:
-            response.success = False
-            response.message = "Object not on gonio!"
-            self.logger.error("Object not on gonio!")
-            return response
-        
-        if not algin_success:
-            response.success = False
-            response.message = f"Failed to align gonio for component '{request.component_name}': {align_msg}"
-            self.logger.error(response.message)
-            return response
-        
-        #Offset
-        move_tool_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.RELEASE_LIFT_DISTANCE)
-
-        if not move_tool_to_part_offset_success:
-            response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}' at offset distance: {move_offset_msg}"
-            self.logger.error(response.message)
-            return response
-        
-        move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame,z_offset=self.GRIPPING_OFFSET)
-
-        if not move_tool_to_part_success:
-            response.success = False
-            response.message = f"Failed to move gripper to part '{request.component_name}': {move_part_msg}"
-            self.logger.error(response.message)
-            return response
-        
-        attach_component_success = self.attach_component_to_gripper(request.component_name)
-
-        if not attach_component_success:
-            move_relatively_success, lift_msg = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-            response.success = False
-            response.message = f"Failed to attach component '{request.component_name}' to gripper"
-            self.logger.error(response.message)
-            return response
-        
-        move_relatively_success, lift_msg = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
-
-        if not move_relatively_success:
-            response.success = False
-            response.message = f"Failed to lift gripper after attaching component '{request.component_name}': {lift_msg}"
-            self.logger.error(response.message)
-            return response
-        
-        self.logger.info(f"Move tool relative success: {move_relatively_success}")
-
-        response.success = True
-
-        response.message = f"Component '{request.component_name}' gripped successfully!"
-        self.logger.info(response.message)
+        finally:
+            if should_move_up_at_error:
+                move_relatively_success, lift_msg = self.lift_gripper_relative(self.GRIP_RELATIVE_LIFT_DISTANCE)
+                if not move_relatively_success:
+                    response.success = False
+                    response.message = f"Failed to lift gripper after attaching component '{request.component_name}': {lift_msg}"
+                    self.logger.error(response.message)
 
         return response
 
