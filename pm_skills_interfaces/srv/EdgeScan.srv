@@ -1,0 +1,7 @@
+string target_frame
+string camera_config_filename
+string process_filename
+int32 num_repetitions
+---
+bool success
+string message

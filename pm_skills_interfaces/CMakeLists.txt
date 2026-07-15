@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/CheckFrameMeasurable.srv"
   "srv/DispenseAtPointsAdv.srv"
   "srv/ForceScan.srv"
+  "srv/EdgeScan.srv"
   "action/EmptyCalibration.action"
   "action/SmarpodCalibration.action"
   DEPENDENCIES geometry_msgs pm_vision_interfaces

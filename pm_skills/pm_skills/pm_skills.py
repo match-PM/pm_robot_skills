@@ -94,6 +94,8 @@ class PmSkills(Node):
         self.correct_frame_with_laser_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_laser", self.correct_frame_with_laser, callback_group=self.callback_group_me)
         self.force_sensing_move_srv = self.create_service(pm_msg_srv.GripperForceMove, self.get_name()+'/gripper_force_sensing', self.force_sensing_move_callback, callback_group=self.callback_group_me)
         self.force_scan_srv = self.create_service(pm_skill_srv.ForceScan, self.get_name() + "/force_scan", self.force_scan_callback, callback_group=self.callback_group_me)
+        self.edge_scan_srv = self.create_service(pm_skill_srv.EdgeScan, self.get_name() + "/edge_scan", self.edge_scan_callback, callback_group=self.callback_group_me)
+
         
         self.measure_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/measure_frame_with_confocal_bottom", self.measure_frame_with_confocal_bottom, callback_group=self.callback_group_me)
         self.correct_frame_with_confocal_bottom_srv = self.create_service(pm_skill_srv.CorrectFrameLaser, "pm_skills/correct_frame_with_confocal_bottom", self.correct_frame_with_confocal_bottom, callback_group=self.callback_group_me)
@@ -305,9 +307,8 @@ class PmSkills(Node):
 
         try:
 
-            # for i in range (30):
-                # scan_number = i+1
-                scan_number = 1
+            for i in range (30):
+                scan_number = i+1
                 self.get_logger().info(f"Starting force scan {scan_number} of 25.")
 
                 timestamp = datetime.now().isoformat()
@@ -692,27 +693,27 @@ class PmSkills(Node):
                     f"{detected_position_log}"
                 )
 
-                # final_search_step_um = step_size_m_search * 1e6
+                final_search_step_um = step_size_m_search * 1e6
 
-                # success_flag = detected_position is not None                
-                # self.csv_force_scan(
-                #     scan_number,
-                #     request,
-                #     final_search_step_um,
-                #     direction_normalized,
-                #     detected_position_log,
-                #     frame_position_contact,
-                #     frame_position_target,
-                #     start_position,
-                #     contact_distance,
-                #     contact_force,
-                #     search_iterations,
-                #     refine_iterations,
-                #     scan_time,
-                #     timestamp,
-                #     success_flag
-                # )
-                # self.get_logger().info("Data saved to CSV.")
+                success_flag = detected_position is not None                
+                self.csv_force_scan(
+                    scan_number,
+                    request,
+                    final_search_step_um,
+                    direction_normalized,
+                    detected_position_log,
+                    frame_position_contact,
+                    frame_position_target,
+                    start_position,
+                    contact_distance,
+                    contact_force,
+                    search_iterations,
+                    refine_iterations,
+                    scan_time,
+                    timestamp,
+                    success_flag
+                )
+                self.get_logger().info("Data saved to CSV.")
 
                 # Schritt 10: Zurück zur Startposition (Anfahrposition)
                 self.get_logger().info('Returning to start position...')
@@ -721,7 +722,7 @@ class PmSkills(Node):
 
                 if not returned:
                     self.get_logger().error("Stopping repeatability test: return failed")
-                    # break
+                    break
 
                 self.get_logger().info(response.message)
                 time.sleep(0.5)
@@ -946,6 +947,131 @@ class PmSkills(Node):
                 "Scan_time_s": scan_time,
                 "Success": int(success_flag)
             })
+
+    def edge_scan_callback(self, request: pm_skill_srv.EdgeScan.Request, response: pm_skill_srv.EdgeScan.Response):
+        """
+        Kamera-basierte Wiederholmessung einer Kante, analog zu force_scan_callback.
+ 
+        Request:
+            - target_frame (string):          Frame, zu dem die Kamera gefahren wird
+            - camera_config_filename (string): z.B. self.pm_robot_utils.get_cam_file_name_bottom()
+            - process_filename (string):       Name des Vision-Prozesses (Kantenerkennung)
+            - num_repetitions (int32):         Anzahl der Wiederholungen (z.B. 25)
+ 
+        Response:
+            - success (bool)
+            - message (string)
+        """
+
+        from pm_vision_interfaces.srv import ExecuteVision
+        import pm_vision_interfaces.msg as vision_msg  
+ 
+        try:
+            for i in range(request.num_repetitions):
+                scan_number = i + 1
+                self.get_logger().info(f"Starting edge scan {scan_number} of {request.num_repetitions}.")
+ 
+                timestamp = datetime.now().isoformat()
+ 
+                # --- Schritt 1: Kamera zur Zielposition fahren ---
+                move_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(
+                    request.target_frame
+                )
+ 
+                if not move_success:
+                    response.success = False
+                    response.message = f"Could not move to target frame: {move_msg}"
+                    self.get_logger().error(response.message)
+                    return response
+ 
+                # --- Schritt 2: Vision-Messung durchfuehren ---
+                vision_request = ExecuteVision.Request()
+                vision_request.camera_config_filename = request.camera_config_filename
+                vision_request.image_display_time = -1
+                vision_request.process_filename = request.process_filename
+                vision_request.process_uid = f"Edge_Scan_{scan_number}"
+ 
+                if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+                    raise PmRobotError("Vision Manager not available...")
+ 
+                vision_response: ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
+ 
+                if not vision_response.success:
+                    raise PmRobotError("Vision measurement failed!")
+ 
+                # --- Ergebnis extrahieren ---
+                # Kanten-/Eckenerkennung liefert einen einzelnen Punkt.
+                if len(vision_response.vision_response.results.points) != 1:
+                    raise PmRobotError("Vision did not find a single edge/corner point!")
+ 
+                detected_point = vision_response.vision_response.results.points[0]
+                x_detected = detected_point.axis_value_1
+                y_detected = detected_point.axis_value_2
+ 
+                self.get_logger().info(
+                    f"Detected edge position: X={x_detected} um, Y={y_detected} um"
+                )
+ 
+                # --- Schritt 3: Ergebnis loggen ---
+                self.csv_edge_scan_step(
+                    scan_number=scan_number,
+                    request=request,
+                    x_detected=x_detected,
+                    y_detected=y_detected,
+                    timestamp=timestamp
+                )
+ 
+            response.success = True
+            response.message = f"Edge scan completed with {request.num_repetitions} repetitions."
+            self.get_logger().info(response.message)
+ 
+        except PmRobotError as e:
+            response.success = False
+            response.message = f"Error: {str(e)}"
+            self.get_logger().error(response.message)
+ 
+        return response
+ 
+    def csv_edge_scan_step(self, scan_number, request, x_detected, y_detected, timestamp):
+ 
+        import os
+        import csv
+ 
+        base_folder = (
+            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/messungen_neu"
+        )
+ 
+        folder_name = f"EdgeScan_{request.target_frame}"
+        folder = os.path.join(base_folder, folder_name)
+        data_folder = os.path.join(folder, "data")
+        os.makedirs(data_folder, exist_ok=True)
+ 
+        file_name = "edge_scan_data.csv"
+        file_path = os.path.join(data_folder, file_name)
+        file_exists = os.path.isfile(file_path)
+ 
+        fieldnames = [
+            "ScanNumber",
+            "Timestamp",
+            "TargetFrame",
+            "X_detected_um",
+            "Y_detected_um",
+        ]
+ 
+        row = {
+            "ScanNumber": scan_number,
+            "Timestamp": timestamp,
+            "TargetFrame": request.target_frame,
+            "X_detected_um": x_detected,
+            "Y_detected_um": y_detected,
+        }
+ 
+        with open(file_path, "a", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(row)
+ 
 
 
     def iterative_align_gonio_right(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
