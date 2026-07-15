@@ -1711,7 +1711,7 @@ class PmSkills(Node):
             
             # activate the vacuum at head_nozzle
             if not sim_time:
-                response_vacuum:EmptyWithSuccess.Response = self.client_turn_on_vacuum_tool_head.call(EmptyWithSuccess.Request())
+                response_vacuum:EmptyWithSuccess.Response = self.pm_robot_utils.client_turn_on_vacuum_tool_head.call(EmptyWithSuccess.Request())
                 if not response_vacuum.success:
                     response.success = False
                     response.message = "Failed to activate vacuum!"
@@ -1746,7 +1746,7 @@ class PmSkills(Node):
 
         try:
             if not sim_time:
-                response_vacuum:EmptyWithSuccess.Response = self.client_turn_off_vacuum_tool_head.call(EmptyWithSuccess.Request())
+                response_vacuum:EmptyWithSuccess.Response = self.pm_robot_utils.client_turn_off_vacuum_tool_head.call(EmptyWithSuccess.Request())
                 if not response_vacuum.success:
                     response.success = False
                     response.message = "Failed to deactivate vacuum!"
@@ -1816,7 +1816,7 @@ class PmSkills(Node):
     def lift_gripper_relative(self, distance:float)-> tuple[bool, str]:
         call_async = False
 
-        if not self.client_move_robot_tool_relative.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_move_robot_tool_relative.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/move_tool_relative' not available")
             return False, "Service '/pm_moveit_server/move_tool_relative' not available"
         
@@ -1825,14 +1825,14 @@ class PmSkills(Node):
         req.execute_movement = True
 
         if call_async:
-            future = self.client_move_robot_tool_relative.call_async(req)
+            future = self.pm_robot_utils.client_move_robot_tool_relative.call_async(req)
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
                 return False, f"Service call failed: {future.exception()}"
             return future.result().success, future.result().message
         else:
-            response:pm_moveit_srv.MoveRelative.Response = self.client_move_robot_tool_relative.call(req)
+            response:pm_moveit_srv.MoveRelative.Response = self.pm_robot_utils.client_move_robot_tool_relative.call(req)
             return response.success, response.message
         
     def move_gripper_to_frame(self, frame_name:str, endeffector_override = None, x_offset=None, y_offset=None, z_offset=None)-> tuple[bool, str]:
@@ -2352,7 +2352,7 @@ class PmSkills(Node):
     def align_gonio_right(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> tuple[bool, str]:
         call_async = False
 
-        if not self.client_align_gonio_right.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_align_gonio_right.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/align_gonio_right' not available")
             return False, "Service '/pm_moveit_server/align_gonio_right' not available"
         
@@ -2362,20 +2362,20 @@ class PmSkills(Node):
         req.endeffector_frame_override = endeffector_override
 
         if call_async:
-            future = self.client_align_gonio_right.call_async(req)
+            future = self.pm_robot_utils.client_align_gonio_right.call_async(req)
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
                 return False, f"Service call failed: {future.exception()}"
             return future.result().success, future.result().message
         else:
-            response:pm_moveit_srv.AlignGonio.Response = self.client_align_gonio_right.call(req)
+            response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_right.call(req)
             return response.success, response.message
         
     def align_gonio_left(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> tuple[bool, str]:
         call_async = False
 
-        if not self.client_align_gonio_left.wait_for_service(timeout_sec=1.0):
+        if not self.pm_robot_utils.client_align_gonio_left.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/align_gonio_left' not available")
             return False, "Service '/pm_moveit_server/align_gonio_left' not available"
         
@@ -2385,14 +2385,14 @@ class PmSkills(Node):
         req.endeffector_frame_override = endeffector_override
 
         if call_async:
-            future = self.client_align_gonio_left.call_async(req)
+            future = self.pm_robot_utils.client_align_gonio_left.call_async(req)
             rclpy.spin_until_future_complete(self, future)
             if future.result() is None:
                 self.logger.error('Service call failed %r' % (future.exception(),))
                 return False, f"Service call failed: {future.exception()}"
             return future.result().success, future.result().message
         else:
-            response:pm_moveit_srv.AlignGonio.Response = self.client_align_gonio_left.call(req)
+            response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_left.call(req)
             return response.success, response.message
     
     def check_frame_mes_confocal_top(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
