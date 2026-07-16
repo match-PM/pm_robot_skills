@@ -40,7 +40,6 @@ from builtin_interfaces.msg import Duration as MsgDuration
 
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import JointState
-from pm_msgs.srv import LaserGetMeasurement, Cam2LightSetState, CoaxLightSetState, ForceSensorBias,ForceSensorGetMeasurement, EmptyWithSuccess, ReferenceCubeState
 import pm_msgs.srv as pm_msg_srv
 
 from pm_robot_modules.submodules.pm_robot_config import PmRobotConfig
@@ -98,15 +97,15 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.client_move_robot_laser_to_pose = self._node.create_client(MoveToPose, '/pm_moveit_server/move_laser_to_pose') 
 
         self.client_adapt_frame_absolut = self._node.create_client(ami_srv.ModifyPoseAbsolut, '/assembly_manager/modify_frame_absolut')
-        self.client_get_laser_mes = self._node.create_client(LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
+        self.client_get_laser_mes = self._node.create_client(pm_msg_srv.LaserGetMeasurement, '/pm_sensor_controller/Laser/GetMeasurement')
         self.client_move_robot_laser_to_frame = self._node.create_client(MoveToFrame, '/pm_moveit_server/move_laser_to_frame')
         self.client_move_laser_relative = self._node.create_client(MoveRelative, '/pm_moveit_server/move_laser_relative')
         self.client_move_robot_tool_relative = self._node.create_client(MoveRelative, '/pm_moveit_server/move_tool_relative')
 
-        self.client_set_cam2_coax_light = self._node.create_client(Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
-        self.client_set_cam1_coax_light = self._node.create_client(CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
-        self.client_set_force_sensor_bias = self._node.create_client(ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
-        self.client_get_force_measurement = self._node.create_client(ForceSensorGetMeasurement,'/pm_sensor_controller/ForceSensor/GetMeasurement')
+        self.client_set_cam2_coax_light = self._node.create_client(pm_msg_srv.Cam2LightSetState, '/pm_lights_controller/Cam2Light/SetState')
+        self.client_set_cam1_coax_light = self._node.create_client(pm_msg_srv.CoaxLightSetState, '/pm_lights_controller/CoaxLight/SetState')
+        self.client_set_force_sensor_bias = self._node.create_client(pm_msg_srv.ForceSensorBias,'/pm_sensor_controller/ForceSensor/Bias')
+        self.client_get_force_measurement = self._node.create_client(pm_msg_srv.ForceSensorGetMeasurement,'/pm_sensor_controller/ForceSensor/GetMeasurement')
         self.client_align_gonio_right = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_right')
         self.client_align_gonio_left = self._node.create_client(AlignGonio, '/pm_moveit_server/align_gonio_left')
         self.client_set_collision = self._node.create_client(ami_srv.SetCollisionChecking, '/moveit_component_spawner/set_collision_checking')
@@ -114,23 +113,25 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         self.client_recalculate_assembly_instruction = self._node.create_client(ami_srv.CalculateAssemblyInstructions, '/assembly_manager/calculate_assembly_instructions')
         self.client_set_frame_properties = self._node.create_client(ami_srv.SetFrameProperties, '/assembly_manager/set_frame_properties')
         self.client_switch_controller = self._node.create_client(SwitchController, '/controller_manager/switch_controller')
-        self.client_check_reference_cube = self._node.create_client(ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
+        self.client_check_reference_cube = self._node.create_client(pm_msg_srv.ReferenceCubeState, '/pm_sensor_controller/ReferenceCube/State')
         self.client_uv_cure = self._node.create_client(pm_msg_srv.UVCuringSkill, '/pm_robot_primitive_skills/uv_curing')
 
-        self.client_turn_on_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
-        self.client_turn_off_vacuum_tool_head = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
+        self.client_turn_on_vacuum_tool_head = self._node.create_client(pm_msg_srv.EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/Vacuum')
+        self.client_turn_off_vacuum_tool_head = self._node.create_client(pm_msg_srv.EmptyWithSuccess, '/pm_nozzle_controller/Head_Nozzle/TurnOff')
         self.client_check_line_of_sight = self._node.create_client(ami_srv.CheckLineOfSight, '/assembly_manager/check_line_of_sight')
 
-        self.client_turn_on_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/Vacuum')
-        self.client_turn_off_gonio_left_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOff')
+        self.client_turn_on_gonio_left_vacuum = self._node.create_client(pm_msg_srv.EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/Vacuum')
+        self.client_turn_off_gonio_left_vacuum = self._node.create_client(pm_msg_srv.EmptyWithSuccess, '/pm_nozzle_controller/Gonio_Nozzle/TurnOff')
 
-        self.client_turn_on_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/Vacuum')
+        self.client_turn_on_gonio_right_vacuum = self._node.create_client(pm_msg_srv.EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/Vacuum')
         
-        self.client_turn_off_gonio_right_vacuum = self._node.create_client(EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOff')
+        self.client_turn_off_gonio_right_vacuum = self._node.create_client(pm_msg_srv.EmptyWithSuccess, '/pm_nozzle_controller/Nest_Nozzle/TurnOff')
 
         self.client_set_component_properties = self._node.create_client(ami_srv.SetComponentProperties, '/assembly_manager/set_component_properties')
         
         self.client_dispense_at_points = self._node.create_client(pm_msg_srv.DispenseAtPoints, '/pm_robot_primitive_skills/dispense_at_frames')
+
+        self.client_set_gripper_2_jaws_position = self._node.create_client(pm_msg_srv.Gripper2JawSetPosition, '/pm_robot_primitive_skills/set_gripper_2_jaws_position')
         
         self.object_scene_un= UnInitializedScene()
 
@@ -197,9 +198,9 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         if not self.client_set_force_sensor_bias.wait_for_service(1):
             raise PmRobotError(f"Client '{self.client_set_force_sensor_bias.srv_name}' not available!")
 
-        request = ForceSensorBias.Request() 
+        request = pm_msg_srv.ForceSensorBias.Request() 
         request.bias = True
-        response:ForceSensorBias.Response = self.client_set_force_sensor_bias.call(request)
+        response:pm_msg_srv.ForceSensorBias.Response = self.client_set_force_sensor_bias.call(request)
         self._node.get_logger().info(f"Force Sensor Bias set!")
 
     def get_cam_file_name_bottom(self)->str:
@@ -597,7 +598,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             self._node.get_logger().error("Service '/pm_lights_controller/CoaxLight/SetState' not available")
             return False
         
-        req = Cam2LightSetState.Request()
+        req = pm_msg_srv.Cam2LightSetState.Request()
         req.intensity = intensity_value_pct
 
         response = self.client_set_cam2_coax_light.call(req)
@@ -610,7 +611,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             self._node.get_logger().error("Service '/pm_lights_controller/CoaxLight/SetState' not available")
             return False
         
-        req = CoaxLightSetState.Request()
+        req = pm_msg_srv.CoaxLightSetState.Request()
         req.turn_on = enable_state
 
         response = self.client_set_cam1_coax_light.call(req)
@@ -645,9 +646,9 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         if not self.client_get_laser_mes.wait_for_service(timeout_sec=1.0):
             raise PmRobotError(f"Service '{self.client_get_laser_mes.srv_name}' not available")
         
-        req = LaserGetMeasurement.Request()
+        req = pm_msg_srv.LaserGetMeasurement.Request()
 
-        response:LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
+        response:pm_msg_srv.LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
         
         multiplier = self._get_multiplier(unit)
 
@@ -747,12 +748,12 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             self._node._logger.error(f"Client '{self.client_turn_off_vacuum_tool_head.srv_name}' not available!")
             return False
         
-        request=EmptyWithSuccess.Request()
+        request=pm_msg_srv.EmptyWithSuccess.Request()
 
         if state:
-            response:EmptyWithSuccess.Response = self.client_turn_on_vacuum_tool_head.call(request)
+            response:pm_msg_srv.EmptyWithSuccess.Response = self.client_turn_on_vacuum_tool_head.call(request)
         else:
-            response:EmptyWithSuccess.Response = self.client_turn_off_vacuum_tool_head.call(request)
+            response:pm_msg_srv.EmptyWithSuccess.Response = self.client_turn_off_vacuum_tool_head.call(request)
 
         return response.success
 
@@ -816,12 +817,12 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             self._node._logger.error(f"Client '{self.client_turn_off_gonio_left_vacuum.srv_name}' not available!")
             return False
         
-        request=EmptyWithSuccess.Request()
+        request=pm_msg_srv.EmptyWithSuccess.Request()
 
         if state:
-            response:EmptyWithSuccess.Response = self.client_turn_on_gonio_left_vacuum.call(request)
+            response:pm_msg_srv.EmptyWithSuccess.Response = self.client_turn_on_gonio_left_vacuum.call(request)
         else:
-            response:EmptyWithSuccess.Response = self.client_turn_off_gonio_left_vacuum.call(request)
+            response:pm_msg_srv.EmptyWithSuccess.Response = self.client_turn_off_gonio_left_vacuum.call(request)
 
         return response.success
     
@@ -834,15 +835,60 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             self._node._logger.error(f"Client '{self.client_turn_off_gonio_right_vacuum.srv_name}' not available!")
             return False
         
-        request=EmptyWithSuccess.Request()
+        request=pm_msg_srv.EmptyWithSuccess.Request()
 
         if state:
-            response:EmptyWithSuccess.Response = self.client_turn_on_gonio_right_vacuum.call(request)
+            response:pm_msg_srv.EmptyWithSuccess.Response = self.client_turn_on_gonio_right_vacuum.call(request)
         else:
-            response:EmptyWithSuccess.Response = self.client_turn_off_gonio_right_vacuum.call(request)
+            response:pm_msg_srv.EmptyWithSuccess.Response = self.client_turn_off_gonio_right_vacuum.call(request)
 
         return response.success
-    
+
+    def set_gripper_2_jaws_position(self, position: float) -> bool:
+        """
+        Set the position of the 2-jaw gripper jaws.
+
+        Args:
+            position (float): Target jaw opening position (meters).
+                - 0.0  -> jaws fully closed
+                - 0.1  -> jaws fully open (maximum opening)
+        Raises:
+            PmRobotError: If the service is not available or the request fails.
+        """
+        if not self.client_set_gripper_2_jaws_position.wait_for_service(1):
+            raise PmRobotError(
+                f"Client '{self.client_set_gripper_2_jaws_position.srv_name}' not available!"
+            )
+
+        request = pm_msg_srv.Gripper2JawSetPosition.Request()
+        request.position = float(position)
+
+        response: pm_msg_srv.Gripper2JawSetPosition.Response = self.client_set_gripper_2_jaws_position.call(request)
+
+        if not response.success:
+            raise PmRobotError(f"Failed to set 2-jaw gripper position to '{position}'!")
+
+        self._node.get_logger().info(
+            f"2-jaw gripper position set to '{position}'!")
+        
+        return None
+
+    def open_gripper_2_jaws(self):
+        """
+        Fully open the 2-jaw gripper (position = 0.0).
+        """
+        self.set_gripper_2_jaws_position(0.0)
+
+        return None
+
+    def close_gripper_2_jaws(self):
+        """
+        Fully close the 2-jaw gripper (position = 0.1).
+        """
+        self.set_gripper_2_jaws_position(0.1)
+
+        return None
+
     def get_transform_for_frame(self, 
                                 frame_name: str, 
                                 parent_frame:str) -> Transform:
@@ -1028,8 +1074,8 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         if not self.client_check_reference_cube.wait_for_service(timeout_sec=1.0):
             raise PmRobotError (f"Service '{self.client_check_reference_cube.srv_name}' not available")
 
-        req = ReferenceCubeState.Request()
-        response: ReferenceCubeState.Response = self.client_check_reference_cube.call(req)
+        req = pm_msg_srv.ReferenceCubeState.Request()
+        response: pm_msg_srv.ReferenceCubeState.Response = self.client_check_reference_cube.call(req)
 
         return response.pressed
     
