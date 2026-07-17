@@ -40,6 +40,9 @@ from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 from pm_robot_primitive_skills.py_modules.PmRobotMeasurementError import PmRobotMeasurementError
 
+from pm_robot_calibration.py_modules.hexapod_calibration.sphere_calibration import SphereCalibration
+from pm_robot_calibration.py_modules.hexapod_calibration.calibration_analysis import CalibrationAnalysis
+from assembly_scene_publisher.py_modules.geometry_functions import (multiply_ros_transforms, inverse_ros_transform)
 import time
 import os
 import datetime
@@ -50,7 +53,8 @@ import shutil
 
 from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transform_for_frames)
 
-from assembly_scene_publisher.py_modules.geometry_type_functions import (get_relative_transform_for_transforms, get_relative_transform_for_transforms_calibration)
+from assembly_scene_publisher.py_modules.geometry_type_functions import (get_relative_transform_for_transforms, 
+                                                                         get_relative_transform_for_transforms_calibration)
 
 
 from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
@@ -68,6 +72,14 @@ CAMERA_CALIBRATION_JOINT_VALUES_X = -0.266460 # in m
 CAMERA_CALIBRATION_JOINT_VALUES_Y = -0.045949 # in m
 CAMERA_CALIBRATION_JOINT_VALUES_Z = 0.002535 # in m
 
+class HexapodConstants:
+    FIXED_CS_SMARPOD_FRAME = "Smarpod_Station_Base_Calibration"
+    CALIBRATED_CS_SMARPOD_FRAME = "Smarpod_Station_Base"
+    BALL_ENDEFFECTOR = "Smarpod_Part_Spawn"
+    BALL_DIAMETER = 6.35 #mm
+    CALIBRATION_FILE_JOINT_NAME = "Smarpod_Station"
+    CALIBRATION_FILE_JOINT_NAME_SPHERE = "CAL_Smarpod_J__t__P"
+    SMARPOD_CS_PIVOT_BASE_NAME = "Smarpod_Pivot_Base_Origin"
 class CancelCalibrationException(Exception):
     pass
 class PmRobotCalibrationNode(Node):
@@ -124,6 +136,7 @@ class PmRobotCalibrationNode(Node):
         self.calibrate_confocal_bottom_z_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_confocal_bottom_z_on_laser', self.calibrate_confocal_bottom_z_on_laser, callback_group=self.callback_group)
         self.calibrate_confocal_top_z_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_confocal_top_z_on_laser', self.calibrate_confocal_top_z_on_laser, callback_group=self.callback_group)
         self.calibrate_confocal_bottom_xy_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_confocal_bottom_xy_on_cam_top', self.calibrate_confocal_bottom_xy_on_cam_top, callback_group=self.callback_group)
+        self.assess_hexapod_calibration_file_srv = self.create_service(skills_srv.AssessHexapodCalibration, '/pm_robot_calibration/assess_hexapod_calibration_file', self.assess_hexapod_calibration, callback_group=self.callback_group)
 
         #self.calibrate_siemens_gripper_on_cal_cube = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_siemens_gripper_on_cal_cube', self.calibrate_sim_gripper_on_cube, callback_group=self.callback_group)
         self.calbibrate_gonio_left_chuck_srv = self.create_service(EmptyWithSuccess, '/pm_robot_calibration/calibrate_gonio_left_chuck', self.calibrate_gonio_left_chuck_callback, callback_group=self.callback_group)
@@ -3061,13 +3074,9 @@ class PmRobotCalibrationNode(Node):
 
             main_frame_name = ""
 
-            FIXED_CS_SMARPOD_FRAME = "Smarpod_Station_Base_Calibration"
-            CALIBRATED_CS_SMARPOD_FRAME = "Smarpod_Station_Base"
-            BALL_ENDEFFECTOR = "Smarpod_Part_Spawn"
-            BALL_DIAMETER = 6.35 #mm
-
-            current_cal_transfrom:Transform = self.pm_robot_utils.get_transform_for_frame(frame_name=CALIBRATED_CS_SMARPOD_FRAME,
-                                                                                        parent_frame=FIXED_CS_SMARPOD_FRAME)
+            current_cal_transfrom:Transform = self.get_current_joint_calibration_transform(
+                HexapodConstants.CALIBRATION_FILE_JOINT_NAME
+            )
             current_cal_transfrom_dict = self._transform_to_dict(current_cal_transfrom)
 
             ###  MOVE HEXAPOD TO ZERO
@@ -3120,9 +3129,11 @@ class PmRobotCalibrationNode(Node):
             move_success = False
 
             if use_confocal_top:
-                move_success, msg = self.pm_robot_utils.move_confocal_top_to_frame(BALL_ENDEFFECTOR, z_offset=((BALL_DIAMETER/2*1e-3)))
+                move_success, msg = self.pm_robot_utils.move_confocal_top_to_frame(HexapodConstants.BALL_ENDEFFECTOR, 
+                                                                                   z_offset=((HexapodConstants.BALL_DIAMETER/2*1e-3)))
             else:
-                move_success = self.pm_robot_utils.move_laser_to_frame(BALL_ENDEFFECTOR, z_offset=((BALL_DIAMETER/2*1e-3)))
+                move_success = self.pm_robot_utils.move_laser_to_frame(HexapodConstants.BALL_ENDEFFECTOR, 
+                                                                       z_offset=((HexapodConstants.BALL_DIAMETER/2*1e-3)))
 
             if not move_success:
                 raise PmRobotError(f"Could not move to desired position!")
@@ -3179,13 +3190,13 @@ class PmRobotCalibrationNode(Node):
                             
                             time.sleep(2.0)
 
-                            name_list = self.spawn_ball_frames(reference_frame=BALL_ENDEFFECTOR,
-                                            reference_parent_frame=FIXED_CS_SMARPOD_FRAME,
-                                            ball_diameter_mm=BALL_DIAMETER)
+                            name_list = self.spawn_ball_frames(reference_frame=HexapodConstants.BALL_ENDEFFECTOR,
+                                            reference_parent_frame=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
+                                            ball_diameter_mm=HexapodConstants.BALL_DIAMETER)
                             
                             results_list = self.measure_frame_list(frame_names_list=name_list,
                                                     use_confocal_top=use_confocal_top,
-                                                    fixed_frame_name=FIXED_CS_SMARPOD_FRAME,
+                                                    fixed_frame_name=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
                                                     goal_handle = goal_handle)
                             
                             move_up = True
@@ -3232,21 +3243,21 @@ class PmRobotCalibrationNode(Node):
             # save the calibration data
             Path(self.calibration_log_dir).mkdir(parents=True, exist_ok=True)
 
-            filename = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            file_path = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             
             try:
                 calibration_output = {
                     "timestamp": calibration_run_timestamp,
-                    "calibration_fixed_reference_frame": FIXED_CS_SMARPOD_FRAME,
-                    "calibration_reference_frame": CALIBRATED_CS_SMARPOD_FRAME,
+                    "calibration_fixed_reference_frame": HexapodConstants.FIXED_CS_SMARPOD_FRAME,
+                    "calibration_reference_frame": HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME,
                     "current_calibration_transformation": current_cal_transfrom_dict, 
                     "goal_handle": calibration_goal_inputs,
                     "calibration_data": calibration_data,
                 }
                 if not calibration_data  == []:
-                    with open(filename, "w") as f:
+                    with open(file_path, "w") as f:
                         json.dump(calibration_output, f, indent=2)
-                    self._logger.info(f"Calibration data saved to {filename}")
+                    self._logger.info(f"Calibration data saved to {file_path}")
                 else:
                     self._logger.info(f"Calibration data empty. No file saved!")
 
@@ -3261,7 +3272,96 @@ class PmRobotCalibrationNode(Node):
         
         return result
     
+    def assess_hexapod_calibration(self, request:skills_srv.AssessHexapodCalibration.Request, response:skills_srv.AssessHexapodCalibration.Response):
+        
+        try:
+            sc = SphereCalibration.load_file(request.results_file_path)
 
+            self.get_logger().warn(f"Start calculating the Smarpot Pivot Point!")
+
+            analysis:CalibrationAnalysis = sc.run_calibration()
+            
+            analysis.save_results(file_path=self.calibration_log_dir)
+            
+            analysis.plot_results(file_path=self.calibration_log_dir)
+            
+            euler_angles = analysis.get_B_T_P_euler()
+
+            translation_pivot = analysis.get_B_T_P_translation()
+
+            translation_ball = analysis.get_J_t_P_translation(unit='m')
+
+            B__T__J = analysis.get_B_T_P_ros_transform()
+
+            #self.get_logger().warn(f"euler: {str(euler_angles)}")
+            #self.get_logger().warn(f"translation pivot: {str(translation_pivot)}")
+            #self.get_logger().warn(f"translation ball: {str(translation_ball)}")
+            
+            current_transform_sphere = self.get_current_joint_calibration_transform(HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE)
+            
+            current_transform_sphere.translation.x = translation_ball[0]
+            current_transform_sphere.translation.y = translation_ball[1]
+            current_transform_sphere.translation.z = translation_ball[2]
+
+            #self.get_logger().warn(f"current transform: {str(current_transform_sphere)}")
+            
+            default_ball_transform:Transform = self.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.BALL_ENDEFFECTOR,
+                                                            parent_frame=HexapodConstants.SMARPOD_CS_PIVOT_BASE_NAME)
+            
+            self.get_logger().warn(f"current transform: {str(default_ball_transform)}")
+
+
+            trans_fixed_calibrated:Transform = self.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
+                                                                        parent_frame=HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME)
+            
+            C__T__J:Transform = self.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.SMARPOD_CS_PIVOT_BASE_NAME,
+                                                                        parent_frame=HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME)
+            
+            #self.get_logger().warn(f"Current Calibration Value: {str(trans_fixed_calibrated)}")
+            #self.get_logger().warn(f"Calibration Pivot: {str(C__T__J)}")
+
+            self.save_joint_config(joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE,
+                                   rel_transformation=current_transform_sphere,
+                                   overwrite=True)
+            
+            J__T__C = inverse_ros_transform(C__T__J, output_type=Transform)
+            B__T__C = multiply_ros_transforms(B__T__J, J__T__C, output_type=Transform)
+
+            self.save_joint_config(joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME,
+                        rel_transformation=B__T__C,
+                        overwrite=True)
+            
+            self.get_logger().error(f"Calibration values written successfully to the joint calibration.")
+
+            response.success = True
+            
+        except FileNotFoundError as e:
+            message = (
+                "Assessing the hexapod calibration file failed: "
+                f"results file does not exist: {request.results_file_path}"
+            )
+            self.get_logger().error(message)
+            self.get_logger().debug(str(e))
+            response.message = message
+            response.success = False
+
+        except PmRobotError as e:
+            message = f"Assessing the hexapod calibration file failed: {e}"
+            self.get_logger().error(message)
+            response.message = message
+            response.success = False
+
+        except Exception as e:
+            message = f"Assessing the hexapod calibration file failed unexpectedly: {e}"
+            self.get_logger().error(message)
+            response.message = message
+            response.success = False
+
+        finally:
+            pass
+
+        return response
+    
     def _goal_calibration_callback(self, goal_request):
         self.get_logger().info(f"Received goal: {str(goal_request)}")
         # Accept all goals
@@ -3271,7 +3371,6 @@ class PmRobotCalibrationNode(Node):
         self.get_logger().info("Cancel request received")
         return CancelResponse.ACCEPT
     
-
     def _get_circle_from_vision(self, process_file_name:str, camera_file_name:str, process_name:str):
 
         request_execute_vision_bottom = ExecuteVision.Request()
@@ -3496,6 +3595,76 @@ class PmRobotCalibrationNode(Node):
             self._logger.error(f"Failed to write JSON calibration log to '{file_path}': {e}")
             return False
 
+    def get_joint_config_file_path_for_current_mode(self) -> str:
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+            return self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=True)
+        elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
+            return self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
+        else:
+            return self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
+
+    def _joint_config_to_transform(self, joint_name: str, joint_config: dict) -> Transform:
+        required_keys = (
+            'x_offset',
+            'y_offset',
+            'z_offset',
+            'rx_offset',
+            'ry_offset',
+            'rz_offset',
+        )
+
+        missing_keys = [key for key in required_keys if key not in joint_config]
+        if missing_keys:
+            raise PmRobotError(
+                f"Joint '{joint_name}' calibration is missing keys: {missing_keys}"
+            )
+
+        current_transformation = Transform()
+        current_transformation.translation.x = float(joint_config['x_offset']) * 1e-6
+        current_transformation.translation.y = float(joint_config['y_offset']) * 1e-6
+        current_transformation.translation.z = float(joint_config['z_offset']) * 1e-6
+
+        quat = R.from_euler(
+            'xyz',
+            [
+                float(joint_config['rx_offset']),
+                float(joint_config['ry_offset']),
+                float(joint_config['rz_offset']),
+            ],
+            degrees=True,
+        ).as_quat()
+        current_transformation.rotation.x = quat[0]
+        current_transformation.rotation.y = quat[1]
+        current_transformation.rotation.z = quat[2]
+        current_transformation.rotation.w = quat[3]
+
+        return current_transformation
+
+    def get_current_joint_calibration_transform(self, joint_name: str) -> Transform:
+        file_path = self.get_joint_config_file_path_for_current_mode()
+
+        if not os.path.isfile(file_path):
+            raise PmRobotError(f"Joint calibration file does not exist: {file_path}")
+
+        with open(file_path, 'r') as file:
+            calibration_config = yaml.load(file, Loader=yaml.FullLoader)
+
+        if not isinstance(calibration_config, dict):
+            raise PmRobotError(f"Joint calibration file is invalid or empty: {file_path}")
+
+        joint_config = calibration_config.get(joint_name, None)
+        if joint_config is None:
+            raise PmRobotError(
+                f"Joint '{joint_name}' does not exist in calibration file: {file_path}"
+            )
+
+        if not isinstance(joint_config, dict):
+            raise PmRobotError(
+                f"Joint '{joint_name}' calibration entry is invalid in file: {file_path}"
+            )
+
+        return self._joint_config_to_transform(joint_name, joint_config)
+
     def save_joint_config(self, joint_name:str, 
                           rel_transformation:Transform,
                           unit = 'm',
@@ -3515,12 +3684,7 @@ class PmRobotCalibrationNode(Node):
             self._logger.fatal('Fatal error in calibration program. Invalid unit!')
             return False
         
-        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-            file_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=True)
-        elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
-            file_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
-        else:
-            file_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
+        file_path = self.get_joint_config_file_path_for_current_mode()
 
         self._log_calibration_result(rel_transformation, unit=unit)
 
@@ -3535,19 +3699,12 @@ class PmRobotCalibrationNode(Node):
             
             joint_config = calibration_config.get(joint_name, None)
             current_transformation = Transform()
+            current_transformation.rotation.w = 1.0
             
             if joint_config is not None:
-                current_transformation.translation.x = joint_config['x_offset'] * 1e-6 
-                current_transformation.translation.y = joint_config['y_offset'] * 1e-6 
-                current_transformation.translation.z = joint_config['z_offset'] * 1e-6 
-                rx_offset = joint_config['rx_offset']
-                ry_offset = joint_config['ry_offset']
-                rz_offset = joint_config['rz_offset']
-                
-                quat = R.from_euler('xyz', [rx_offset, ry_offset, rz_offset], degrees=True).as_quat()
-                current_transformation.rotation.x = quat[0]
-                current_transformation.rotation.y = quat[1]
-                current_transformation.rotation.z = quat[2]
+                current_transformation = self._joint_config_to_transform(joint_name, joint_config)
+            else:
+                calibration_config[joint_name] = {}
             #new_transform = get_relative_transform_for_transforms(current_transformation, rel_transformation)
             if not overwrite:
                 new_transform = get_relative_transform_for_transforms_calibration(  base_transform = current_transformation, 
@@ -3556,14 +3713,14 @@ class PmRobotCalibrationNode(Node):
                 new_transform = rel_transformation
                 self._logger.warning(f"Overwriting existing calibration data.")
 
-            calibration_config[joint_name]['x_offset'] = new_transform.translation.x * 1e6
-            calibration_config[joint_name]['y_offset'] = new_transform.translation.y * 1e6
-            calibration_config[joint_name]['z_offset'] = new_transform.translation.z * 1e6
+            calibration_config[joint_name]['x_offset'] = float(new_transform.translation.x * 1e6)
+            calibration_config[joint_name]['y_offset'] = float(new_transform.translation.y * 1e6)
+            calibration_config[joint_name]['z_offset'] = float(new_transform.translation.z * 1e6)
 
-            q = [new_transform.rotation.x,
-                 new_transform.rotation.y,
-                 new_transform.rotation.z,
-                 new_transform.rotation.w]
+            q = [float(new_transform.rotation.x),
+                 float(new_transform.rotation.y),
+                 float(new_transform.rotation.z),
+                 float(new_transform.rotation.w)]
 
             # Convert to Euler angles (roll, pitch, yaw) in radians
             r = R.from_quat(q)
