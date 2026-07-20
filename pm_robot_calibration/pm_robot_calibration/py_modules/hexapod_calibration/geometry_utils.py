@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 from itertools import combinations
 from typing import Optional, Iterable, Mapping, Hashable
-
+import math
 
 # ---------------------------------------------------------------- angle utils
 def normal_to_angles(
@@ -213,3 +213,32 @@ def fit_sphere_fixed_radius(
     residuals = distances - radius
     rms_error = float(np.sqrt(np.mean(residuals ** 2)))
     return center_array, rms_error, iterations
+
+
+def sphere_z(x:float, y:float, diameter:float)->float:
+    """
+    Calculate the z height on a sphere.
+
+    Parameters:
+        x (float): x-coordinate from sphere top center (mm)
+        y (float): y-coordinate from sphere top center (mm)
+        diameter (float): sphere diameter (mm)
+
+    Returns:
+        float: z height below the sphere top (mm)
+
+    """
+
+    radius = diameter / 2
+
+    # radial distance from the top axis
+    r2 = x**2 + y**2
+
+    # Check if point is outside the sphere projection
+    if r2 > radius**2:
+        return None  # outside sphere
+
+    # Sphere surface equation
+    z = radius - math.sqrt(radius**2 - r2)
+
+    return z

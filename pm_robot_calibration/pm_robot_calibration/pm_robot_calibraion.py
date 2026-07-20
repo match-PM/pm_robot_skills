@@ -42,6 +42,18 @@ from pm_robot_primitive_skills.py_modules.PmRobotMeasurementError import PmRobot
 
 from pm_robot_calibration.py_modules.hexapod_calibration.sphere_calibration import SphereCalibration
 from pm_robot_calibration.py_modules.hexapod_calibration.calibration_analysis import CalibrationAnalysis
+from pm_robot_calibration.py_modules.hexapod_calibration.geometry_utils import sphere_z
+from pm_robot_calibration.py_modules.hexapod_calibration.hexapod_calibration_runtime import (
+    get_calibrate_smarpod_measurement_file_path,
+    get_hexapod_calibration_positions_mm,
+    get_hexapod_calibration_test_poses,
+    get_hexapod_orientation_commands,
+    get_smarpod_results_base_path,
+    get_smarpod_results_dir,
+    get_smarpod_results_json_path,
+    get_test_calibrate_smarpod_file_path,
+    write_json_file,
+)
 from assembly_scene_publisher.py_modules.geometry_functions import (multiply_ros_transforms, inverse_ros_transform)
 import time
 import os
@@ -76,10 +88,12 @@ class HexapodConstants:
     FIXED_CS_SMARPOD_FRAME = "Smarpod_Station_Base_Calibration"
     CALIBRATED_CS_SMARPOD_FRAME = "Smarpod_Station_Base"
     BALL_ENDEFFECTOR = "Smarpod_Part_Spawn"
+    BALL_CALIBRATION_ENDEFFECTOR = "CAL_Sphere_Center"
     BALL_DIAMETER = 6.35 #mm
     CALIBRATION_FILE_JOINT_NAME = "Smarpod_Station"
     CALIBRATION_FILE_JOINT_NAME_SPHERE = "CAL_Smarpod_J__t__P"
     SMARPOD_CS_PIVOT_BASE_NAME = "Smarpod_Pivot_Base_Origin"
+    SMARPOD_CS_PLATFORM_PIVOT = "Smarpod_Top_Plate"
 class CancelCalibrationException(Exception):
     pass
 class PmRobotCalibrationNode(Node):
@@ -154,6 +168,14 @@ class PmRobotCalibrationNode(Node):
             skills_action.SmarpodCalibration,
             f'/pm_robot_calibration/calibrate_smarpod',
             execute_callback=self.calibrate_smarpod_V3,
+            goal_callback=self._goal_calibration_callback,
+            cancel_callback=self._cancel_calibration_callback
+        )
+
+        self.test_hexapod_calibration_action_srv = ActionServer(self,
+            skills_action.TestHexapodCalibration,
+            f'/pm_robot_calibration/test_calibrate_smarpod',
+            execute_callback=self.test_hexapod_calibration,
             goal_callback=self._goal_calibration_callback,
             cancel_callback=self._cancel_calibration_callback
         )
@@ -1032,13 +1054,13 @@ class PmRobotCalibrationNode(Node):
         ax.grid(True)
         ax.set_aspect('equal')  # Ensures circle is not distorted
         #plt.show()
-        path = self.calibration_log_dir+ 'gripper_plots/'
+        path = os.path.join(self.get_calibration_log_dir_for_current_mode(), 'gripper_plots', '')
 
         # check path
         if not os.path.exists(path):
             os.makedirs(path)
 
-        file_dir = path + f'gripper_calibration_poses_{datetime.datetime.now()}.png'
+        file_dir = os.path.join(path, f'gripper_calibration_poses_{datetime.datetime.now()}.png')
 
         #save the figure
         fig.savefig(file_dir)   
@@ -2138,477 +2160,6 @@ class PmRobotCalibrationNode(Node):
 
         return response
 
-    # Service implementation    
-    # def calibrate_smarpod(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
-    #     calibration_data = []
-
-    #     move_up = False
-
-    #     use_confocal_top = True
-
-    #     if use_confocal_top:
-    #         correction_method = self.correct_frame_confocal_top
-    #     else:
-    #         correction_method = self.correct_frame_laser
-
-    #     try:
-    #         self._logger.warning(f"Starting calibration 'calibrate_smarpod'...")
-            
-            
-    #         if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-    #             self.pm_robot_utils.pm_robot_config.set_to_real_HW()
-    #             self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
-    #         else:
-    #             self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
-    #             self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
-
-            
-    #         if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
-    #             raise PmRobotError("Smarpod station is not activated in the configuration!")
-            
-    #         if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
-    #             self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
-    #              raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
-            
-
-    #         self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
-
-    #         unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
-
-    #         # we can hardcode the frame names here, because this hopefully never changes
-
-    #         vision_frame_name_1 = f"{unique_identifier}Vision_1"
-    #         vision_frame_name_2 = f"{unique_identifier}Vision_2"
-    #         vision_frame_name_3 = f"{unique_identifier}Vision_3"
-
-    #         laser_frame_1 = f"{unique_identifier}Laser_1"
-    #         laser_frame_2 = f"{unique_identifier}Laser_2"
-    #         laser_frame_3 = f"{unique_identifier}Laser_3"
-    #         laser_frame_4 = f"{unique_identifier}Laser_4"
-
-    #         laser_frame_1_initial = f"{unique_identifier}Laser_1_initial"
-    #         laser_frame_2_initial = f"{unique_identifier}Laser_2_initial"
-    #         laser_frame_3_initial = f"{unique_identifier}Laser_3_initial"
-    #         laser_frame_4_initial = f"{unique_identifier}Laser_4_initial"
-
-    #         laser_frames = [
-    #             laser_frame_1,
-    #             laser_frame_2,
-    #             laser_frame_3,
-    #             laser_frame_4]
-            
-    #         laser_initial_frames = [
-    #             laser_frame_1_initial,
-    #             laser_frame_2_initial,
-    #             laser_frame_3_initial,
-    #             laser_frame_4_initial]
-
-    #         ###  MOVE HEXAPOD TO ZERO
-    #         self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
-
-            
-    #         #self.pm_robot_utils.send_smarpod_trajectory_goal_relative(x_joint_rel=0.001, y_joint_rel=0.001, z_joint_rel=0.0, time=1.0)
-
-    #         if use_confocal_top:
-    #             self.pm_robot_utils.move_confocal_top_to_frame(frame_name=laser_frame_1, z_offset=0.01)
-    #         else:
-    #             self.pm_robot_utils.move_laser_to_frame(frame_name=laser_frame_1, z_offset=0.01)
-
-    #         move_up = True
-            
-    #         for l_frame_name in laser_initial_frames:
-    #             res = correction_method(frame_id=l_frame_name,
-    #                                            remeasure_after_correction=True)
-                                
-    #             cv = res.correction_values.z
-    #             self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
-
-    #         for l_frame_name in laser_frames:
-    #             res = correction_method(frame_id=l_frame_name)
-    #             cv = res.correction_values.z
-    #             self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
-            
-    #         def collect_frame_data(angle, pose_name, rx_cmd, ry_cmd):
-    #             frame_data = {}
-                
-    #             pose_id = f"{pose_name}_rx{rx_cmd}_ry{ry_cmd}"
-
-    #             for index, frame in enumerate(laser_frames):
-                
-    #                 res = correction_method(
-    #                     frame_id=frame,
-    #                     remeasure_after_correction=False,
-    #                     use_iterative_sensing=True,
-    #                 )
-    #                 cv = res.correction_values.z
-
-    #                 time.sleep(1.0)
-
-    #                 trans_fixed_point = self.pm_robot_utils.get_transform_for_frame(
-    #                     frame_name=frame,
-    #                     parent_frame="SmarPod_Origin",
-    #                 )
-
-    #                 trans_rot_point = self.pm_robot_utils.get_transform_for_frame(
-    #                     frame_name=frame,
-    #                     parent_frame="Smarpod_Top_Plate",
-    #                 )
-                    
-    #                 trans_to_initial_point = self.pm_robot_utils.get_transform_for_frame(
-    #                     frame_name=f"CAL_Smarpod_Laser_{index + 1}",
-    #                     parent_frame=f"CAL_Smarpod_Laser_{index + 1}_initial",
-    #                 )
-    #                 trans_static = self.pm_robot_utils.get_transform_for_frame(
-    #                     frame_name="Smarpod_Top_Plate",
-    #                     parent_frame="SmarPod_Origin",
-    #                 )
-
-    #                 frame_data[frame] = {
-    #                     "correction_z_um": cv * 1e6,
-    #                     "transform_fixed": self._transform_to_dict(trans_fixed_point),
-    #                     "transform_rot": self._transform_to_dict(trans_rot_point),
-    #                     "transform_to_initial": self._transform_to_dict(trans_to_initial_point),
-    #                     "transform_static": self._transform_to_dict(trans_static),
-    #                 }
-
-    #                 self._logger.warning(
-    #                     f"{frame} | pose={pose_id} | rx={rx_cmd} | ry={ry_cmd} | z={cv*1e6:.2f} um"
-    #                 )
-
-    #             return {
-    #                 "angle": angle,
-    #                 "pose_id": pose_id,
-    #                 "rx_cmd": rx_cmd,
-    #                 "ry_cmd": ry_cmd,
-    #                 "frames": frame_data,
-    #             }
-
-    #         #angles = [0.5, 1.0]
-    #         #angles = [0.5, 1.0, 1.5, 2.0]
-    #         angles = [0.5, 1.0]
-
-    #         pose_sequence = [
-    #             ("rx", 1, 0),
-    #             ("rx", -1, 0),
-    #             ("ry", 0, 1),
-    #             ("ry", 0, -1),
-    #             ("rxry", 1, 1),
-    #             ("rxry", -1, -1),
-    #             ("rxry", 1, -1),
-    #             ("rxry", -1, 1),
-    #         ]
-
-    #         total_iterations = len(angles) * len(pose_sequence)
-    #         current_iteration = 0
-
-    #         for angle in angles:
-    #             for pose_name, rx, ry in pose_sequence:
-    #                 self._logger.warning(
-    #                     f"Starting iteration {current_iteration + 1}/{total_iterations}"
-    #                 )   
-
-    #                 rx_cmd = angle * rx
-    #                 ry_cmd = angle * ry
-
-    #                 # the hexapod takes quite a while to move. so ~4 sec is mandatory.
-    #                 self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
-    #                     x_joint=0.0,
-    #                     y_joint=0.0,
-    #                     z_joint=0.0,
-    #                     rx_joint_deg=rx_cmd,
-    #                     ry_joint_deg=ry_cmd,
-    #                     rz_joint_deg=0,
-    #                     time=4.0,
-    #                 )
-
-    #                 time.sleep(2.0)
-
-    #                 calibration_data.append(
-    #                     collect_frame_data(angle, pose_name, rx_cmd, ry_cmd)
-    #                 )
-    #                 current_iteration += 1
-            
-    #         response.success = True
-
-    #     except PmRobotError as e:
-    #         self._logger.error(f"Error occurred while calibrating smarpod: {e}")
-    #         response.success = False
-        
-    #     finally:
-    #         # save the calibration data
-    #         filename = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-
-    #         with open(filename, "w") as f:
-    #             json.dump(calibration_data, f, indent=2)
-
-    #         self._logger.info(f"Calibration data saved to {filename}")
-
-    #         if move_up:
-    #             self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
-    #         # Move smarpod back to zero position
-    #         self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
-        
-    #     return response
-    
-    async def calibrate_smarpod(self, goal_handle: skills_action.SmarpodCalibration.Goal):
-
-        calibration_data = []
-        calibration_run_timestamp = datetime.datetime.now().isoformat()
-        calibration_goal_inputs = {
-            "use_confocal_over_laser": bool(goal_handle.request.use_confocal_over_laser),
-        }
-        
-        result = skills_action.SmarpodCalibration.Result()
-        result.success = False
-
-        move_up = False
-
-        use_confocal_top = goal_handle.request.use_confocal_over_laser
-        remeasure_after_correction = False
-
-        if use_confocal_top:
-            correction_method = self.correct_frame_confocal_top
-        else:
-            correction_method = self.correct_frame_laser
-
-        try:
-            self._logger.warning(f"Starting calibration 'calibrate_smarpod'...")
-            
-            
-            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-                self.pm_robot_utils.pm_robot_config.set_to_real_HW()
-                self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
-            else:
-                self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
-                self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
-
-            
-            if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
-                raise PmRobotError("Smarpod station is not activated in the configuration!")
-            
-            if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
-                self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
-                 raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
-            
-
-            self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
-
-            unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
-
-            # we can hardcode the frame names here, because this hopefully never changes
-
-            vision_frame_name_1 = f"{unique_identifier}Vision_1"
-            vision_frame_name_2 = f"{unique_identifier}Vision_2"
-            vision_frame_name_3 = f"{unique_identifier}Vision_3"
-
-            laser_frame_1 = f"{unique_identifier}Laser_1"
-            laser_frame_2 = f"{unique_identifier}Laser_2"
-            laser_frame_3 = f"{unique_identifier}Laser_3"
-            laser_frame_4 = f"{unique_identifier}Laser_4"
-
-            laser_frame_1_initial = f"{unique_identifier}Laser_1_initial"
-            laser_frame_2_initial = f"{unique_identifier}Laser_2_initial"
-            laser_frame_3_initial = f"{unique_identifier}Laser_3_initial"
-            laser_frame_4_initial = f"{unique_identifier}Laser_4_initial"
-
-            laser_frames = [
-                laser_frame_1,
-                laser_frame_2,
-                laser_frame_3,
-                laser_frame_4]
-            
-            laser_initial_frames = [
-                laser_frame_1_initial,
-                laser_frame_2_initial,
-                laser_frame_3_initial,
-                laser_frame_4_initial]
-
-            ###  MOVE HEXAPOD TO ZERO
-            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
-
-            
-            #self.pm_robot_utils.send_smarpod_trajectory_goal_relative(x_joint_rel=0.001, y_joint_rel=0.001, z_joint_rel=0.0, time=1.0)
-
-            if use_confocal_top:
-                self.pm_robot_utils.move_confocal_top_to_frame(frame_name=laser_frame_1, z_offset=0.01)
-            else:
-                self.pm_robot_utils.move_laser_to_frame(frame_name=laser_frame_1, z_offset=0.01)
-
-            move_up = True
-            
-            for l_frame_name in laser_initial_frames:
-                res = correction_method(frame_id=l_frame_name,
-                                        remeasure_after_correction=remeasure_after_correction)
-                                
-                cv = res.correction_values.z
-                self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
-
-            for l_frame_name in laser_frames:
-                res = correction_method(frame_id=l_frame_name, remeasure_after_correction=remeasure_after_correction)
-                cv = res.correction_values.z
-                self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
-            
-            def collect_frame_data(angle, pose_name, rx_cmd, ry_cmd, rz_cmd, x_cmd, y_cmd):
-                frame_data = {}
-                
-                pose_id = f"{pose_name}_rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}_x{x_cmd}_y{y_cmd}"
-
-                for index, frame in enumerate(laser_frames):
-                    
-                    if goal_handle.is_cancel_requested:
-                        self._logger.warning("Calibration cancelled.")
-                        raise PmRobotError("Calibration cancelled.")
-        
-                    res = correction_method(
-                        frame_id=frame,
-                        remeasure_after_correction=False,
-                        use_iterative_sensing=True,
-                    )
-                    cv = res.correction_values.z
-                    
-                    time.sleep(0.5)
-
-                    trans_fixed_point = self.pm_robot_utils.get_transform_for_frame(
-                        frame_name=frame,
-                        parent_frame="SmarPod_Origin",
-                    )
-
-                    trans_rot_point = self.pm_robot_utils.get_transform_for_frame(
-                        frame_name=frame,
-                        parent_frame="Smarpod_Top_Plate",
-                    )
-                    
-                    trans_to_initial_point = self.pm_robot_utils.get_transform_for_frame(
-                        frame_name=f"CAL_Smarpod_Laser_{index + 1}",
-                        parent_frame=f"CAL_Smarpod_Laser_{index + 1}_initial",
-                    )
-                    trans_static = self.pm_robot_utils.get_transform_for_frame(
-                        frame_name="Smarpod_Top_Plate",
-                        parent_frame="SmarPod_Origin",
-                    )
-
-                    frame_data[frame] = {
-                        "correction_z_um": cv * 1e6,
-                        "transform_fixed": self._transform_to_dict(trans_fixed_point),
-                        "transform_rot": self._transform_to_dict(trans_rot_point),
-                        "transform_to_initial": self._transform_to_dict(trans_to_initial_point),
-                        "transform_static": self._transform_to_dict(trans_static),
-                    }
-
-                    self._logger.warning(
-                        f"{frame} | pose={pose_id} | rx={rx_cmd} | ry={ry_cmd} | rz={rz_cmd} | x={x_cmd} | y={y_cmd} | z={cv*1e6:.2f} um"
-                    )
-
-                return {
-                    "angle": angle,
-                    "pose_id": pose_id,
-                    "rx_cmd": rx_cmd,
-                    "ry_cmd": ry_cmd,
-                    "rz_cmd": rz_cmd,
-                    "x_cmd": x_cmd,
-                    "y_cmd": y_cmd,
-                    "frames": frame_data,
-                }
-            
-            # do not do more than 1.8 degrees, as the gripper might collide with the calibration wafer when using the laser for measuring
-            #angles = [0.5, 1.0]
-            #angles = [0.5, 1.0, 1.5, 2.0]
-            angles = [1.0, 1.8]
-
-            pose_sequence = [
-                ("rx", 1, 0),
-                ("rx", -1, 0),
-                ("ry", 0, 1),
-                ("ry", 0, -1),
-                ("rxry", 1, 1),
-                ("rxry", -1, -1),
-                ("rxry", 1, -1),
-                ("rxry", -1, 1),
-            ]
-            
-            rz_angles =[0]
-
-            # in mm
-            x_positions = [0, 2]
-            y_positions = [0, 2]
-
-            total_iterations = len(angles) * len(pose_sequence) * len(rz_angles) * len(x_positions) * len(y_positions)
-            current_iteration = 0
-
-            for x_pos in x_positions:
-                for y_pos in y_positions:
-                    for rz_angle in rz_angles:
-                        for angle in angles:
-                            for pose_name, rx, ry in pose_sequence:
-                                self._logger.warning(
-                                    f"Starting iteration {current_iteration + 1}/{total_iterations}"
-                                )   
-
-                                rx_cmd = angle * rx
-                                ry_cmd = angle * ry
-                                rz_cmd = rz_angle
-                                x_cmd = x_pos
-                                y_cmd = y_pos
-
-                                # the hexapod takes quite a while to move. so ~4 sec is mandatory.
-                                self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
-                                    x_joint=x_cmd*1e-3,
-                                    y_joint=y_cmd*1e-3,
-                                    z_joint=0.0,
-                                    rx_joint_deg=rx_cmd,
-                                    ry_joint_deg=ry_cmd,
-                                    rz_joint_deg=rz_cmd,
-                                    time=4.0,
-                                )
-
-                                time.sleep(2.0)
-
-                                calibration_data.append(
-                                    collect_frame_data(angle = angle, 
-                                                       pose_name = pose_name, 
-                                                       rx_cmd = rx_cmd, 
-                                                       ry_cmd = ry_cmd, 
-                                                       rz_cmd = rz_cmd,
-                                                       x_cmd = x_cmd,
-                                                       y_cmd = y_cmd)
-                                )
-                                current_iteration += 1
-            
-            result.success = True
-            goal_handle.succeed()
-        
-        except PmRobotError as e:
-            self._logger.error(f"Error occurred while calibrating smarpod: {e}")
-            result.success = False
-
-        except CancelCalibrationException as e:
-            self._logger.warning("Calibration cancelled.")
-            result.success = False
-            goal_handle.canceled()
-
-        finally:
-            # save the calibration data
-            filename = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            try:
-                calibration_output = {
-                    "timestamp": calibration_run_timestamp,
-                    "goal_handle": calibration_goal_inputs,
-                    "calibration_data": calibration_data,
-                }
-                with open(filename, "w") as f:
-                    json.dump(calibration_output, f, indent=2)
-                self._logger.info(f"Calibration data saved to {filename}")
-            except Exception as e:
-                self._logger.error(f"Could not save calibration data: {e}")
-
-            if move_up:
-                self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
-
-            # Move smarpod back to zero position
-            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
-        
-        return result
-
 
     def _get_sensor_transform(self, use_confocal_top):
         frame = (
@@ -2633,290 +2184,232 @@ class PmRobotCalibrationNode(Node):
 
         return self.pm_robot_utils.get_laser_measurement(unit="mm")
 
-    async def calibrate_smarpod_V2(self, goal_handle: skills_action.SmarpodCalibration.Goal):
-        
+    def _prepare_smarpod_calibration_run(self, run_name: str):
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+            self.pm_robot_utils.pm_robot_config.set_to_real_HW()
+            self._logger.info(f"Using real hardware bringup configuration for {run_name}.")
+        else:
+            self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
+            self._logger.info(f"Using simulation hardware bringup configuration for {run_name}.")
+
+        if not self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status():
+            raise PmRobotError("Smarpod station is not activated in the configuration!")
+
+        self._logger.info(f"Chuck: {self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck()}")
+
+        if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
+            self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
+            raise PmRobotError(
+                "Smarpod station has already a chuck and a chuck center assigned. "
+                f"Please remove them before {run_name}!"
+            )
+
+        self.spawn_smarpod_calibration_sphere_frame()
+
+    def _move_smarpod_absolute_pose(
+        self,
+        pose_id: str,
+        x_cmd_m: float,
+        y_cmd_m: float,
+        rx_cmd: float,
+        ry_cmd: float,
+        rz_cmd: float,
+        move_time: float,
+        settle_time: float,
+    ):
+        move_success = self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
+            x_joint=x_cmd_m,
+            y_joint=y_cmd_m,
+            z_joint=0.0,
+            rx_joint_deg=rx_cmd,
+            ry_joint_deg=ry_cmd,
+            rz_joint_deg=rz_cmd,
+            time=move_time,
+        )
+        if not move_success:
+            raise PmRobotError(f"Could not move hexapod to pose {pose_id}.")
+
+        time.sleep(settle_time)
+
+    def _move_sensor_to_sphere_top(self, use_confocal_top: bool) -> bool:
+        z_offset = HexapodConstants.BALL_DIAMETER / 2 * 1e-3
+
+        if use_confocal_top:
+            move_success, message = self.pm_robot_utils.move_confocal_top_to_frame(
+                HexapodConstants.BALL_CALIBRATION_ENDEFFECTOR,
+                z_offset=z_offset,
+            )
+            if not move_success:
+                self._logger.error(message)
+            return move_success
+
+        return self.pm_robot_utils.move_laser_to_frame(
+            HexapodConstants.BALL_CALIBRATION_ENDEFFECTOR,
+            z_offset=z_offset,
+        )
+
+    async def test_hexapod_calibration(self, goal_handle):
         goal = goal_handle.request
         use_confocal_top = goal.use_confocal_over_laser
+        poses = get_hexapod_calibration_test_poses()
 
-        calibration_data = []
-        distances_dict = {}
+        result = skills_action.TestHexapodCalibration.Result()
+        result.success = False
+        result.message = ""
+        result.log_file_path = ""
+
+        measurement_data = []
         calibration_run_timestamp = datetime.datetime.now().isoformat()
         calibration_goal_inputs = {
             "use_confocal_over_laser": bool(use_confocal_top),
         }
-        
-        result = skills_action.SmarpodCalibration.Result()
-        result.success = False
-
         move_up = False
-
-        remeasure_after_correction = False
-
-        if use_confocal_top:
-            correction_method = self.correct_frame_confocal_top
-        else:
-            correction_method = self.correct_frame_laser
+        goal_finished = False
 
         try:
-            self._logger.warning(f"Starting calibration 'calibrate_smarpod'...")
-            
-            
-            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-                self.pm_robot_utils.pm_robot_config.set_to_real_HW()
-                self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
-            else:
-                self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
-                self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
+            self._logger.warning("Starting calibration test 'test_hexapod_calibration'...")
+            self._prepare_smarpod_calibration_run("testing the hexapod calibration")
 
-            
-            if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
-                raise PmRobotError("Smarpod station is not activated in the configuration!")
-            
-            if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
-                self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
-                 raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
-            
+            total_iterations = len(poses)
 
-            self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
+            for current_iteration, pose in enumerate(poses, start=1):
+                if goal_handle.is_cancel_requested:
+                    raise CancelCalibrationException("Hexapod calibration test cancelled.")
 
-            unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
+                x_cmd_um = pose["x_cmd_um"]
+                y_cmd_um = pose["y_cmd_um"]
+                x_cmd_m = x_cmd_um * 1e-6
+                y_cmd_m = y_cmd_um * 1e-6
+                rx_cmd = pose["rx_cmd"]
+                ry_cmd = pose["ry_cmd"]
+                rz_cmd = pose["rz_cmd"]
+                pose_id = pose["pose_id"]
 
-            # we can hardcode the frame names here, because this hopefully never changes
+                self._logger.warning(
+                    f"Starting hexapod calibration test iteration {current_iteration}/{total_iterations}: {pose_id}"
+                )
 
-            vision_frame_name_1 = f"{unique_identifier}Vision_1"
-            vision_frame_name_2 = f"{unique_identifier}Vision_2"
-            vision_frame_name_3 = f"{unique_identifier}Vision_3"
+                self._move_smarpod_absolute_pose(
+                    pose_id=pose_id,
+                    x_cmd_m=x_cmd_m,
+                    y_cmd_m=y_cmd_m,
+                    rx_cmd=rx_cmd,
+                    ry_cmd=ry_cmd,
+                    rz_cmd=rz_cmd,
+                    move_time=6.0,
+                    settle_time=3.0,
+                )
 
-            laser_frame_1 = f"{unique_identifier}Laser_1"
-            laser_frame_2 = f"{unique_identifier}Laser_2"
-            laser_frame_3 = f"{unique_identifier}Laser_3"
-            laser_frame_4 = f"{unique_identifier}Laser_4"
+                move_success = self._move_sensor_to_sphere_top(use_confocal_top)
+                if not move_success:
+                    raise PmRobotError(f"Could not move sensor to the top of the calibration sphere for pose {pose_id}.")
 
-            laser_frame_1_initial = f"{unique_identifier}Laser_1_initial"
-            laser_frame_2_initial = f"{unique_identifier}Laser_2_initial"
-            laser_frame_3_initial = f"{unique_identifier}Laser_3_initial"
-            laser_frame_4_initial = f"{unique_identifier}Laser_4_initial"
+                move_up = True
 
-            laser_frames = [
-                laser_frame_1,
-                laser_frame_2,
-                laser_frame_3,
-                laser_frame_4]
-            
-            laser_initial_frames = [
-                laser_frame_1_initial,
-                laser_frame_2_initial,
-                laser_frame_3_initial,
-                laser_frame_4_initial]
+                measurement_um = self._get_measurement(use_confocal_top) * 1e3
+                sensor_transform = self._get_sensor_transform(use_confocal_top)
 
-            ###  MOVE HEXAPOD TO ZERO
-            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
+                self._logger.warning(
+                    f"Hexapod calibration test measurement at pose={pose_id}: {measurement_um:.3f} um"
+                )
 
-            #self.pm_robot_utils.send_smarpod_trajectory_goal_relative(x_joint_rel=0.001, y_joint_rel=0.001, z_joint_rel=0.0, time=1.0)
+                current_measurement = {
+                    "pose_id": pose_id,
+                    "x_cmd_um": x_cmd_um,
+                    "y_cmd_um": y_cmd_um,
+                    "rx_cmd": rx_cmd,
+                    "ry_cmd": ry_cmd,
+                    "rz_cmd": rz_cmd,
+                    "measurement_um": measurement_um,
+                    "transform_endeffector": self._transform_to_dict(sensor_transform),
+                    "current_iteration": current_iteration,
+                }
+                measurement_data.append(current_measurement)
 
-            if use_confocal_top:
-                self.pm_robot_utils.move_confocal_top_to_frame(frame_name=laser_frame_1, z_offset=0.01)
-            else:
-                self.pm_robot_utils.move_laser_to_frame(frame_name=laser_frame_1, z_offset=0.01)
+                feedback = skills_action.TestHexapodCalibration.Feedback()
+                feedback.active = True
+                feedback.current_iteration = current_iteration
+                feedback.total_iterations = total_iterations
+                feedback.pose_id = pose_id
+                feedback.measurement_um = measurement_um
+                feedback.message = f"Measurement at {pose_id}: {measurement_um:.3f} um"
+                goal_handle.publish_feedback(feedback)
 
-            move_up = True
-                  
-            for l_frame_name in laser_frames:
-                res = correction_method(frame_id=l_frame_name, remeasure_after_correction=remeasure_after_correction)
-                cv = res.correction_values.z
-                self._logger.warning(f"Correction value for frame '{l_frame_name}' is z: {cv*1e6} um")         
-            
-            poses = []
+                if not use_confocal_top:
+                    self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.005, 1.0)
 
-            for frame in laser_frames:
-                transform = self.pm_robot_utils.get_transform_for_frame(
-                    frame_name=frame,
-                    parent_frame="world",
-                    )
-                pose = Pose()
-                pose.position.x = transform.translation.x
-                pose.position.y = transform.translation.y
-                pose.position.z = transform.translation.z
-                poses.append(pose)
-
-            pose_1 = poses[0]
-            pose_2 = poses[1]
-            pose_3 = poses[2]
-            pose_4 = poses[3]
-
-            distances_dict = {}
-            distance_x_12 = pose_2.position.x - pose_1.position.x
-            distance_y_12 = pose_2.position.y - pose_1.position.y
-            distance_z_12 = pose_2.position.z - pose_1.position.z
-            distance_12 = math.sqrt(distance_x_12**2 + distance_y_12**2 + distance_z_12**2)
-            distance_x_23 = pose_3.position.x - pose_2.position.x
-            distance_y_23 = pose_3.position.y - pose_2.position.y
-            distance_z_23 = pose_3.position.z - pose_2.position.z
-            distance_23 = math.sqrt(distance_x_23**2 + distance_y_23**2 + distance_z_23**2)
-            distance_x_34 = pose_4.position.x - pose_3.position.x
-            distance_y_34 = pose_4.position.y - pose_3.position.y
-            distance_z_34 = pose_4.position.z - pose_3.position.z
-            distance_34 = math.sqrt(distance_x_34**2 + distance_y_34**2 + distance_z_34**2)
-            distance_x_41 = pose_1.position.x - pose_4.position.x
-            distance_y_41 = pose_1.position.y - pose_4.position.y
-            distance_z_41 = pose_1.position.z - pose_4.position.z
-            distance_41 = math.sqrt(distance_x_41**2 + distance_y_41**2 + distance_z_41**2)          
-            
-            distances_dict = {
-                "distance_x_12_mm": distance_x_12 * 1e3,
-                "distance_y_12_mm": distance_y_12 * 1e3,
-                "distance_z_12_mm": distance_z_12 * 1e3,
-                "distance_12_mm": distance_12 * 1e3,
-                "distance_x_23_mm": distance_x_23 * 1e3,
-                "distance_y_23_mm": distance_y_23 * 1e3,
-                "distance_z_23_mm": distance_z_23 * 1e3,
-                "distance_23_mm": distance_23 * 1e3,
-                "distance_x_34_mm": distance_x_34 * 1e3,
-                "distance_y_34_mm": distance_y_34 * 1e3,
-                "distance_z_34_mm": distance_z_34 * 1e3,
-                "distance_34_mm": distance_34 * 1e3,
-                "distance_x_41_mm": distance_x_41 * 1e3,
-                "distance_y_41_mm": distance_y_41 * 1e3,
-                "distance_z_41_mm": distance_z_41 * 1e3,
-                "distance_41_mm": distance_41 * 1e3,
-            }
-
-            # do not do more than 1.8 degrees, as the gripper might collide with the calibration wafer when using the laser for measuring
-            #angles = [0.5, 1.0]
-            #angles = [0.5, 1.0, 1.5, 2.0]
-            angles = [0.5, 0.8]
-
-            pose_sequence = [
-                ("rx", 1, 0),
-                ("rx", -1, 0),
-                ("ry", 0, 1),
-                ("ry", 0, -1),
-                ("rxry", 1, 1),
-                ("rxry", -1, -1),
-                ("rxry", 1, -1),
-                ("rxry", -1, 1),
-            ]
-            
-            rz_angles =[0]
-
-            # in mm
-            x_positions = [0, 2]
-            y_positions = [0, 2]
-
-            total_iterations = len(angles) * len(pose_sequence) * len(rz_angles) * len(x_positions) * len(y_positions) * 4
-            current_iteration = 0
-
-            for x_pos in x_positions:
-                for y_pos in y_positions:
-                    for pose in poses:
-                        
-                        _pose = copy.deepcopy(pose)
-                        _pose.position.x += x_pos * 1e-3
-                        _pose.position.y += y_pos * 1e-3
-
-                        move_request = MoveToPose.Request()
-                        move_request.move_to_pose = _pose
-                        move_request.execute_movement = True
-                        
-                        self._logger.warning(f"Moving smarpod to the next pose on the wafer...")
-                        
-                        if use_confocal_top:
-                            self.pm_robot_utils.move_confocal_top_to_pose(move_request)
-                        else:
-                            self.pm_robot_utils.move_laser_to_pose(move_request)
-
-                        for pose_name, rx, ry in pose_sequence:
-                            for angle in angles:
-
-                                if goal_handle.is_cancel_requested:
-                                    self._logger.warning("Calibration cancelled.")
-                                    raise PmRobotError("Calibration cancelled.")
-
-                                self._logger.warning(
-                                    f"Starting iteration {current_iteration + 1}/{total_iterations}"
-                                )   
-
-                                rx_cmd = angle * rx
-                                ry_cmd = angle * ry
-                                x_cmd = x_pos
-                                y_cmd = y_pos
-
-                                pose_id = f"rx{rx_cmd}_ry{ry_cmd}_x{x_cmd}_y{y_cmd}"
-
-                                # the hexapod takes quite a while to move. so ~4 sec is mandatory.
-                                self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
-                                    x_joint=x_cmd*1e-3,
-                                    y_joint=y_cmd*1e-3,
-                                    z_joint=0.0,
-                                    rx_joint_deg=rx_cmd,
-                                    ry_joint_deg=ry_cmd,
-                                    rz_joint_deg=0,
-                                    time=2.0,
-                                )
-                                
-                                time.sleep(2.0)
-
-                                measurement = self._get_measurement(use_confocal_top)
-
-                                self._logger.warning(f"Measurement at pose={pose_id} | measurement={measurement:.3f} mm"
-                                    )
-                                time.sleep(0.5)
-
-                                trans_endeffector = self._get_sensor_transform(use_confocal_top)
-
-                                current_mes_dict = {
-                                    "pose_id": pose_id,
-                                    "angle": angle,
-                                    "rx_cmd": rx_cmd,
-                                    "ry_cmd": ry_cmd,
-                                    "x_cmd": x_cmd,
-                                    "y_cmd": y_cmd,
-                                    "measurement_mm": measurement,
-                                    "transform_endeffector": self._transform_to_dict(trans_endeffector),
-                                    "current_iteration": current_iteration + 1,
-                                }
-
-                                calibration_data.append(current_mes_dict)
-                                current_iteration += 1
-
-            
             result.success = True
+            result.message = "Hexapod calibration test succeeded."
             goal_handle.succeed()
-        
-        except PmRobotError as e:
-            self._logger.error(f"Error occurred while calibrating smarpod: {e}")
+            goal_finished = True
+
+        except PmRobotMeasurementError as e:
+            message = f"Error measuring the calibration sphere: {e}"
+            self._logger.error(message)
             result.success = False
+            result.message = message
+            goal_handle.abort()
+            goal_finished = True
+
+        except PmRobotError as e:
+            message = f"Error occurred while testing hexapod calibration: {e}"
+            self._logger.error(message)
+            result.success = False
+            result.message = message
+            goal_handle.abort()
+            goal_finished = True
 
         except CancelCalibrationException as e:
-            self._logger.warning("Calibration cancelled.")
+            message = f"Hexapod calibration test cancelled: {e}"
+            self._logger.warning(message)
             result.success = False
+            result.message = message
             goal_handle.canceled()
+            goal_finished = True
+
+        except Exception as e:
+            message = f"Hexapod calibration test failed unexpectedly: {e}"
+            self._logger.error(message)
+            result.success = False
+            result.message = message
+            goal_handle.abort()
+            goal_finished = True
 
         finally:
-            # save the calibration data
-            filename = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            calibration_log_dir = self.get_calibration_log_dir_for_current_mode()
+            Path(calibration_log_dir).mkdir(parents=True, exist_ok=True)
+
+            file_path = get_test_calibrate_smarpod_file_path(calibration_log_dir)
+
             try:
                 calibration_output = {
                     "timestamp": calibration_run_timestamp,
+                    "calibration_fixed_reference_frame": HexapodConstants.FIXED_CS_SMARPOD_FRAME,
+                    "calibration_reference_frame": HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME,
                     "goal_handle": calibration_goal_inputs,
-                    "calibration_data": calibration_data,
-                    "distances": distances_dict
+                    "measurement_data": measurement_data,
                 }
-                if not calibration_data  == []:
-                    with open(filename, "w") as f:
-                        json.dump(calibration_output, f, indent=2)
-                    self._logger.info(f"Calibration data saved to {filename}")
+                if write_json_file(
+                    file_path=file_path,
+                    data=calibration_output,
+                    data_available=bool(measurement_data),
+                ):
+                    result.log_file_path = file_path
+                    self._logger.info(f"Hexapod calibration test data saved to {file_path}")
                 else:
-                    self._logger.info(f"Calibration data empty. No file saved!")
+                    self._logger.info("Hexapod calibration test data empty. No file saved.")
+
             except Exception as e:
-                self._logger.error(f"Could not save calibration data: {e}")
+                self._logger.error(f"Could not save hexapod calibration test data: {e}")
 
             if move_up:
                 self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
 
-            # Move smarpod back to zero position
             self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
-        
+
+            if not goal_finished:
+                goal_handle.abort()
+
         return result
 
 
@@ -2924,11 +2417,12 @@ class PmRobotCalibrationNode(Node):
                           reference_frame:str, 
                           reference_parent_frame: str,
                           ball_diameter_mm = 6.35)->list:
+        
         # spawn the calibration frames
         request = ami_srv.CreateRefFrame.Request()
         name_stem = "CAL_Smarpod_Ball_"
         grid_distance = 1.0 # mm
-        z_curve = 0.2 # mm
+        z_curve = 0.0 # mm
         frame_name_list = []
         ref_pose:Transform = self.pm_robot_utils.get_transform_for_frame(frame_name=reference_frame,
                                                                parent_frame=reference_parent_frame)
@@ -2966,6 +2460,12 @@ class PmRobotCalibrationNode(Node):
             if (abs(entry[0]) ==0) and  (abs(entry[1]) == 0):
                 mult = 0 
             request.ref_frame.pose.position.z = ref_pose.translation.z + ball_diameter_mm/2*1e-3 - mult * z_curve*1e-3
+            z_offset = sphere_z(x=entry[0]*grid_distance,
+                                y=entry[1]*grid_distance,
+                                diameter=ball_diameter_mm)
+            
+            self.get_logger().warning(f"z_offset {z_offset}")
+            # request.ref_frame.pose.position.z = ref_pose.translation.z + ball_diameter_mm/2*1e-3 - z_offset * 1e-3
 
             spawn_response:ami_srv.CreateRefFrame.Response = self.client_create_ref_frame.call(request)  
 
@@ -2979,8 +2479,6 @@ class PmRobotCalibrationNode(Node):
                             use_confocal_top:bool,
                             fixed_frame_name : str,
                             goal_handle):
-        
-        #move_success = False
 
         if use_confocal_top:
             correction_method = self.correct_frame_confocal_top
@@ -2988,24 +2486,11 @@ class PmRobotCalibrationNode(Node):
             correction_method = self.correct_frame_laser
         
         for frame_name in frame_names_list:
-
-            # if use_confocal_top:
-            #     move_success, msg = self.pm_robot_utils.move_confocal_top_to_frame(frame_name=frame_name)
-            # else:
-            #     move_success = self.pm_robot_utils.move_laser_to_frame(frame_name=frame_name)
-
-            # if not move_success:
-            #     raise PmRobotError(f"Could not move to frame {frame_name}")
-
-            # measurement_mm = self._get_measurement(use_confocal_top)
-
-            # self._logger.warn(f"Measurement {measurement_mm} mm")
-
             if goal_handle.is_cancel_requested:
                 self._logger.warning("Calibration cancelled.")
                 raise PmRobotError("Calibration cancelled.")
 
-            response = correction_method(frame_id=frame_name, use_iterative_sensing=True)
+            correction_method(frame_id=frame_name, use_iterative_sensing=True)
 
         time.sleep(1)
         
@@ -3038,108 +2523,29 @@ class PmRobotCalibrationNode(Node):
         result.success = False
 
         move_up = False
-
-        remeasure_after_correction = False
-
-        if use_confocal_top:
-            correction_method = self.correct_frame_confocal_top
-        else:
-            correction_method = self.correct_frame_laser
+        current_cal_transfrom_dict = {}
+        measurement_file_saved = False
 
         try:
             self._logger.warning(f"Starting calibration 'calibrate_smarpod'...")
-            
-            
-            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-                self.pm_robot_utils.pm_robot_config.set_to_real_HW()
-                self._logger.info(f"Using real hardware bringup configuration for smarpod calibration.")
-            else:
-                self.pm_robot_utils.pm_robot_config.set_to_simulation_HW()
-                self._logger.info(f"Using simulation hardware bringup configuration for smarpod calibration.")
-
-            
-            if not (self.pm_robot_utils.pm_robot_config.smarpod_station.get_activate_status()):
-                raise PmRobotError("Smarpod station is not activated in the configuration!")
-            
-            self._logger.info(f"Chuck: {self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck()}")
-
-
-            if (self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck_center() != "empty" and
-                self.pm_robot_utils.pm_robot_config.smarpod_station.get_current_chuck() != "empty"):
-                 raise PmRobotError("Smarpod station has already a chuck and a chuck center assigned. Please remove them before calibrating the smarpod station!") 
-            
-            #self.spawn_calibration_frames('CF_Smarpod_Calibration.json')
-
-            #unique_identifier = self.get_unique_identifier('CF_Smarpod_Calibration.json')
-
-            main_frame_name = ""
+            self._prepare_smarpod_calibration_run("calibrating the smarpod station")
 
             current_cal_transfrom:Transform = self.get_current_joint_calibration_transform(
                 HexapodConstants.CALIBRATION_FILE_JOINT_NAME
             )
             current_cal_transfrom_dict = self._transform_to_dict(current_cal_transfrom)
 
-            ###  MOVE HEXAPOD TO ZERO
             self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=1.0)
 
-
-            # do not do more than 1.8 degrees, as the gripper might collide with the calibration wafer when using the laser for measuring
-            #angles = [0.5, 1.0]
-            #angles = [0.5, 1.0, 1.5, 2.0]
-            angles = [1.5, 2.5]
-
-            pose_sequence = [
-                ("rx", 1, 0),
-                ("rx", -1, 0),
-                ("ry", 0, 1),
-                ("ry", 0, -1),
-                #("rxry", 1, 1),
-                #("rxry", -1, -1),
-                #("rxry", 1, -1),
-                #("rxry", -1, 1),
-            ]
-            
-            rz_angles =[0, 2]
-            
-            # in mm
-            #x_positions = [0, 2]
-            #y_positions = [0, 2]
-            x_positions = [0, 4]
-            y_positions = [0, 3]
-
-            positions = [
-                (x, y)
-                for x in x_positions
-                for y in y_positions
-                if not (x > 0 and y > 0)
-            ]
-
-            total_iterations = (
-                len(positions)
-                * len(rz_angles)
-                * len(pose_sequence)
-                * len(angles)
-            )
-
+            positions = get_hexapod_calibration_positions_mm()
+            orientation_commands = get_hexapod_orientation_commands()
+            total_iterations = len(positions) * len(orientation_commands)
             current_iteration = 0
 
-            start_z_offset = 5 * 1e-3
-
-            # move to initial state to check if we get a measurment value
-            move_success = False
-
-            if use_confocal_top:
-                move_success, msg = self.pm_robot_utils.move_confocal_top_to_frame(HexapodConstants.BALL_ENDEFFECTOR, 
-                                                                                   z_offset=((HexapodConstants.BALL_DIAMETER/2*1e-3)))
-            else:
-                move_success = self.pm_robot_utils.move_laser_to_frame(HexapodConstants.BALL_ENDEFFECTOR, 
-                                                                       z_offset=((HexapodConstants.BALL_DIAMETER/2*1e-3)))
-
-            if not move_success:
+            if not self._move_sensor_to_sphere_top(use_confocal_top):
                 raise PmRobotError(f"Could not move to desired position!")
             
             try:
-                # this will throw an exeption if fails
                 measurement_mm = self._get_measurement(use_confocal_top)
 
                 self._logger.warning(f"Initial measurement SUCCESSED! Current value {measurement_mm} mm.")
@@ -3148,73 +2554,50 @@ class PmRobotCalibrationNode(Node):
                 raise PmRobotError(f"Initial Measurement on calibration ball failed. Make sure the hexapod is already routhgly calibrated so that the distance sensor hits the top of the ball and shows a measurement value of 0.0!")
 
             for x_pos, y_pos in positions:
-                for rz in rz_angles:                
+                for command in orientation_commands:
+                    if goal_handle.is_cancel_requested:
+                        self._logger.warning("Calibration cancelled.")
+                        raise PmRobotError("Calibration cancelled.")
                     
-                    #move_success = False
+                    current_iteration += 1
+                    rx_cmd = command["rx_cmd"]
+                    ry_cmd = command["ry_cmd"]
+                    rz_cmd = command["rz_cmd"]
+                    pose_id = f"rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}_x{x_pos}_y{y_pos}"
 
-                    # if use_confocal_top:
-                    #     move_success, msg = self.pm_robot_utils.move_confocal_top_to_frame(BALL_ENDEFFECTOR, z_offset=((BALL_DIAMETER/2*1e-3)+start_z_offset))
-                    # else:
-                    #     move_success = self.pm_robot_utils.move_laser_to_frame(BALL_ENDEFFECTOR, z_offset=((BALL_DIAMETER/2*1e-3)+start_z_offset))
+                    self._logger.warning(f"Starting iteration {current_iteration}/{total_iterations}")   
 
-                    # if not move_success:
-                    #     raise PmRobotError(f"Could not move to desired position!")
+                    self._move_smarpod_absolute_pose(
+                        pose_id=pose_id,
+                        x_cmd_m=x_pos*1e-3,
+                        y_cmd_m=y_pos*1e-3,
+                        rx_cmd=rx_cmd,
+                        ry_cmd=ry_cmd,
+                        rz_cmd=rz_cmd,
+                        move_time=5.0,
+                        settle_time=3.0,
+                    )
+
+                    name_list = self.spawn_ball_frames(reference_frame=HexapodConstants.BALL_CALIBRATION_ENDEFFECTOR,
+                                    reference_parent_frame=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
+                                    ball_diameter_mm=HexapodConstants.BALL_DIAMETER)
                     
-                    for pose_name, rx, ry in pose_sequence:
-                        for angle in angles:
-
-                            if goal_handle.is_cancel_requested:
-                                self._logger.warning("Calibration cancelled.")
-                                raise PmRobotError("Calibration cancelled.")
-
-                            self._logger.warning(f"Starting iteration {current_iteration + 1}/{total_iterations}")   
-
-                            rx_cmd = angle * rx
-                            ry_cmd = angle * ry
-                            rz_cmd = rz
-                            x_cmd = x_pos
-                            y_cmd = y_pos
-
-                            pose_id = f"rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}_x{x_cmd}_y{y_cmd}"
-
-                            # the hexapod takes quite a while to move. so ~4 sec is mandatory.
-                            self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
-                                x_joint=x_cmd*1e-3,
-                                y_joint=y_cmd*1e-3,
-                                z_joint=0.0,
-                                rx_joint_deg=rx_cmd,
-                                ry_joint_deg=ry_cmd,
-                                rz_joint_deg=rz_cmd,
-                                time=4.0,
-                            )
-                            
-                            time.sleep(2.0)
-
-                            name_list = self.spawn_ball_frames(reference_frame=HexapodConstants.BALL_ENDEFFECTOR,
-                                            reference_parent_frame=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
-                                            ball_diameter_mm=HexapodConstants.BALL_DIAMETER)
-                            
-                            results_list = self.measure_frame_list(frame_names_list=name_list,
-                                                    use_confocal_top=use_confocal_top,
-                                                    fixed_frame_name=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
-                                                    goal_handle = goal_handle)
-                            
-                            move_up = True
-                            
-                            current_mes_dict = {
-                                "pose_id": pose_id,
-                                #"angle": angle,
-                                "rx_cmd": rx_cmd,
-                                "ry_cmd": ry_cmd,
-                                "rz_cmd": rz_cmd,
-                                "x_cmd": x_cmd,
-                                "y_cmd": y_cmd,
-                                "results_list": results_list,
-                                "current_iteration": current_iteration + 1,
-                            }
-
-                            calibration_data.append(current_mes_dict)
-                            current_iteration += 1
+                    results_list = self.measure_frame_list(frame_names_list=name_list,
+                                            use_confocal_top=use_confocal_top,
+                                            fixed_frame_name=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
+                                            goal_handle = goal_handle)
+                    
+                    move_up = True
+                    calibration_data.append({
+                        "pose_id": pose_id,
+                        "rx_cmd": rx_cmd,
+                        "ry_cmd": ry_cmd,
+                        "rz_cmd": rz_cmd,
+                        "x_cmd": x_pos,
+                        "y_cmd": y_pos,
+                        "results_list": results_list,
+                        "current_iteration": current_iteration,
+                    })
             
             result.success = True
             result.message = "Calibration succeded!"
@@ -3241,9 +2624,10 @@ class PmRobotCalibrationNode(Node):
 
         finally:
             # save the calibration data
-            Path(self.calibration_log_dir).mkdir(parents=True, exist_ok=True)
+            measurement_dir = self.get_smarpod_measurement_dir_for_current_mode()
+            Path(measurement_dir).mkdir(parents=True, exist_ok=True)
 
-            file_path = f"{self.calibration_log_dir}calibration_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            file_path = get_calibrate_smarpod_measurement_file_path(measurement_dir)
             
             try:
                 calibration_output = {
@@ -3254,15 +2638,34 @@ class PmRobotCalibrationNode(Node):
                     "goal_handle": calibration_goal_inputs,
                     "calibration_data": calibration_data,
                 }
-                if not calibration_data  == []:
-                    with open(file_path, "w") as f:
-                        json.dump(calibration_output, f, indent=2)
+                if write_json_file(
+                    file_path=file_path,
+                    data=calibration_output,
+                    data_available=bool(calibration_data),
+                ):
+                    measurement_file_saved = True
                     self._logger.info(f"Calibration data saved to {file_path}")
                 else:
                     self._logger.info(f"Calibration data empty. No file saved!")
 
             except Exception as e:
                 self._logger.error(f"Could not save calibration data: {e}")
+
+            if result.success and measurement_file_saved:
+                assess_request = skills_srv.AssessHexapodCalibration.Request()
+                assess_response = skills_srv.AssessHexapodCalibration.Response()
+                assess_request.results_file_path = file_path
+                assess_response = self.assess_hexapod_calibration(
+                    assess_request,
+                    assess_response,
+                )
+                if not assess_response.success:
+                    result.success = False
+                    result.message = assess_response.message
+
+            elif result.success:
+                result.success = False
+                result.message = "Calibration succeeded, but no measurement file was saved for assessment."
 
             if move_up:
                 self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
@@ -3271,19 +2674,51 @@ class PmRobotCalibrationNode(Node):
             self.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
         
         return result
-    
+        
+    def spawn_smarpod_calibration_sphere_frame(self):
+        current_transform_sphere = self.get_current_joint_calibration_transform(HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE)
+            
+        spawn_request = ami_srv.CreateRefFrame.Request()
+        spawn_request.ref_frame.frame_name = "CAL_Sphere_Center"
+        spawn_request.ref_frame.parent_frame = HexapodConstants.SMARPOD_CS_PLATFORM_PIVOT
+
+        if (current_transform_sphere.translation.x != 0 and
+            current_transform_sphere.translation.y != 0 and
+            current_transform_sphere.translation.z != 0):
+
+            spawn_request.ref_frame.pose.position.x = current_transform_sphere.translation.x
+            spawn_request.ref_frame.pose.position.y = current_transform_sphere.translation.y
+            spawn_request.ref_frame.pose.position.z = current_transform_sphere.translation.z
+
+        else:
+            default_ball_transform:Transform = self.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.BALL_ENDEFFECTOR,
+                                            parent_frame=HexapodConstants.SMARPOD_CS_PLATFORM_PIVOT)
+            
+            spawn_request.ref_frame.pose.position.x = default_ball_transform.translation.x
+            spawn_request.ref_frame.pose.position.y = default_ball_transform.translation.y
+            spawn_request.ref_frame.pose.position.z = default_ball_transform.translation.z
+
+        _res = self.pm_robot_utils.create_ref_frame(spawn_request)
+
     def assess_hexapod_calibration(self, request:skills_srv.AssessHexapodCalibration.Request, response:skills_srv.AssessHexapodCalibration.Response):
         
         try:
+            
             sc = SphereCalibration.load_file(request.results_file_path)
 
             self.get_logger().warn(f"Start calculating the Smarpot Pivot Point!")
 
             analysis:CalibrationAnalysis = sc.run_calibration()
             
-            analysis.save_results(file_path=self.calibration_log_dir)
+            results_dir = get_smarpod_results_dir(
+                self.get_calibration_log_dir_for_current_mode(),
+                request.results_file_path,
+            )
+            Path(results_dir).mkdir(parents=True, exist_ok=True)
             
-            analysis.plot_results(file_path=self.calibration_log_dir)
+            analysis.save_results(file_path=get_smarpod_results_json_path(results_dir, request.results_file_path))
+            
+            analysis.plot_results(file_path=get_smarpod_results_base_path(results_dir, request.results_file_path))
             
             euler_angles = analysis.get_B_T_P_euler()
 
@@ -3331,8 +2766,10 @@ class PmRobotCalibrationNode(Node):
                         rel_transformation=B__T__C,
                         overwrite=True)
             
-            self.get_logger().error(f"Calibration values written successfully to the joint calibration.")
-
+            self.get_logger().info(f"Calibration values written successfully to the joint calibration.")
+            
+            self.spawn_smarpod_calibration_sphere_frame()
+            
             response.success = True
             
         except FileNotFoundError as e:
@@ -3533,22 +2970,39 @@ class PmRobotCalibrationNode(Node):
             raise ValueError(f"Invalid unit given {unit}!")
         
         threshold = 2 # um
-        
+        sig_change_happend = False
+
         if abs(_calibration_values.translation.x) > threshold:
             self._logger.warning(f"Calibration value for 'x' changed significantly ({_calibration_values.translation.x} um). You need to restart the PM Robot!")
+            sig_change_happend = True
 
         if abs(_calibration_values.translation.y) > threshold:
             self._logger.warning(f"Calibration value for 'y' changed significantly ({_calibration_values.translation.y} um). You need to restart the PM Robot!")
+            sig_change_happend = True
 
         if abs(_calibration_values.translation.z) > threshold:
             self._logger.warning(f"Calibration value for 'z' changed significantly ({_calibration_values.translation.z} um). You need to restart the PM Robot!")
+            sig_change_happend = True
+
+        if not sig_change_happend:
+            self._logger.warning(f"No significant change happend to the calibration data. You do NOT need to restart the PM Robot!")
+
+    def _get_translation_difference_transform(self, current_transform: Transform, new_transform: Transform) -> Transform:
+        difference = Transform()
+        difference.translation.x = new_transform.translation.x - current_transform.translation.x
+        difference.translation.y = new_transform.translation.y - current_transform.translation.y
+        difference.translation.z = new_transform.translation.z - current_transform.translation.z
+        difference.rotation.w = 1.0
+        return difference
 
     def log_calibration(self, 
                         file_name: str,
                         calibration_dict: dict) -> bool:
+        calibration_log_dir = self.get_calibration_log_dir_for_current_mode()
+
         # Ensure the log directory exists
-        if not os.path.exists(self.calibration_log_dir):
-            os.makedirs(self.calibration_log_dir)
+        if not os.path.exists(calibration_log_dir):
+            os.makedirs(calibration_log_dir)
 
         self._calibration_history_log(file_name)
 
@@ -3556,7 +3010,7 @@ class PmRobotCalibrationNode(Node):
         if not file_name.endswith(".json"):
             file_name += ".json"
 
-        file_path = os.path.join(self.calibration_log_dir, file_name)
+        file_path = os.path.join(calibration_log_dir, file_name)
 
         # Add a timestamp to the calibration data
         calibration_dict["timestamp"] = datetime.datetime.now().isoformat()
@@ -3602,6 +3056,27 @@ class PmRobotCalibrationNode(Node):
             return self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
         else:
             return self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=False)
+
+    def get_calibration_log_dir_for_current_mode(self) -> str:
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+            real_joint_config_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=True)
+            return os.path.join(
+                os.path.dirname(os.path.abspath(real_joint_config_path)),
+                'calibration_logs',
+                ''
+            )
+
+        return self.calibration_log_dir
+
+    def get_robot_configuration_dir_for_current_mode(self) -> str:
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+            real_joint_config_path = self.pm_robot_utils.pm_robot_config.get_joint_config_path(use_real_HW=True)
+            return os.path.join(os.path.dirname(os.path.abspath(real_joint_config_path)), '')
+
+        return self.calibration_log_dir
+
+    def get_smarpod_measurement_dir_for_current_mode(self) -> str:
+        return self.get_robot_configuration_dir_for_current_mode()
 
     def _joint_config_to_transform(self, joint_name: str, joint_config: dict) -> Transform:
         required_keys = (
@@ -3670,26 +3145,30 @@ class PmRobotCalibrationNode(Node):
                           unit = 'm',
                           overwrite = False)->bool:
         
+        self._logger.warning(f"Saving joint calibration for joint '{joint_name}'!")
+
+        rel_transformation_m = copy.deepcopy(rel_transformation)
+        
         if unit == 'm':
             pass
         elif unit == 'mm':
-            rel_transformation.translation.x = rel_transformation.translation.x * 1e-3
-            rel_transformation.translation.y = rel_transformation.translation.y * 1e-3
-            rel_transformation.translation.z = rel_transformation.translation.z * 1e-3
+            rel_transformation_m.translation.x = rel_transformation_m.translation.x * 1e-3
+            rel_transformation_m.translation.y = rel_transformation_m.translation.y * 1e-3
+            rel_transformation_m.translation.z = rel_transformation_m.translation.z * 1e-3
         elif unit == 'um':
-            rel_transformation.translation.x = rel_transformation.translation.x * 1e-6
-            rel_transformation.translation.y = rel_transformation.translation.y * 1e-6
-            rel_transformation.translation.z = rel_transformation.translation.z * 1e-6
+            rel_transformation_m.translation.x = rel_transformation_m.translation.x * 1e-6
+            rel_transformation_m.translation.y = rel_transformation_m.translation.y * 1e-6
+            rel_transformation_m.translation.z = rel_transformation_m.translation.z * 1e-6
         else:
             self._logger.fatal('Fatal error in calibration program. Invalid unit!')
             return False
         
         file_path = self.get_joint_config_file_path_for_current_mode()
 
-        self._log_calibration_result(rel_transformation, unit=unit)
-
         # Archive the original file before modifying it
-        self._archive_joint_config_file(file_path)
+        if not self._archive_joint_config_file(file_path):
+            self._logger.error("Saving joint calibration aborted because archiving failed.")
+            return False
 
         calibration_config = {}
         # check if the file exists
@@ -3708,10 +3187,17 @@ class PmRobotCalibrationNode(Node):
             #new_transform = get_relative_transform_for_transforms(current_transformation, rel_transformation)
             if not overwrite:
                 new_transform = get_relative_transform_for_transforms_calibration(  base_transform = current_transformation, 
-                                                                                    additional_transform = rel_transformation)
+                                                                                    additional_transform = rel_transformation_m)
+                calibration_change = rel_transformation_m
             else:
-                new_transform = rel_transformation
+                new_transform = rel_transformation_m
+                calibration_change = self._get_translation_difference_transform(
+                    current_transform=current_transformation,
+                    new_transform=new_transform,
+                )
                 self._logger.warning(f"Overwriting existing calibration data.")
+
+            self._log_calibration_result(calibration_change, unit='m')
 
             calibration_config[joint_name]['x_offset'] = float(new_transform.translation.x * 1e6)
             calibration_config[joint_name]['y_offset'] = float(new_transform.translation.y * 1e6)
@@ -3780,7 +3266,7 @@ class PmRobotCalibrationNode(Node):
             file_ext = os.path.splitext(base_name)[1]
             
             # Create filename with timestamp
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             archive_filename = f"{name_without_ext}_{timestamp}{file_ext}"
             archive_path = os.path.join(archive_dir, archive_filename)
             
@@ -3795,7 +3281,7 @@ class PmRobotCalibrationNode(Node):
             return False
 
     def _load_last_calibrations_data(self):
-        path = self.calibration_log_dir
+        path = self.get_calibration_log_dir_for_current_mode()
         file_name = 'last_calibrations.yaml'
 
         if os.path.exists(path + '/' + file_name):
@@ -3805,8 +3291,11 @@ class PmRobotCalibrationNode(Node):
             pass
 
     def _save_last_calibrations_data(self):
-        path = self.calibration_log_dir
+        path = self.get_calibration_log_dir_for_current_mode()
         file_name = 'last_calibrations.yaml'
+
+        if not os.path.exists(path):
+            os.makedirs(path)
 
         with open(path + '/' + file_name, 'w') as file:
             yaml.dump(self._last_calibrations_data, file)
