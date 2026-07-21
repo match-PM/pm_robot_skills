@@ -366,7 +366,7 @@ class PmRobotCalibrationNode(Node):
             response.success = process_success
             self.set_calibration_platelet_backward()
             
-        except PmRobotError as e:
+        except (PmRobotError, PmRobotMeasurementError) as e:
             self._logger.error(f"Error occurred during camera calibration: {e}")
             response.success = False
 
@@ -521,6 +521,9 @@ class PmRobotCalibrationNode(Node):
         circle_ind_1 = 1
         circle_ind_2 = 2
         circle_ind_3 = 3
+
+        if len(circle_list) != 4:
+            raise PmRobotMeasurementError(f"Camera calibration expects to find 4 circles. However {len(circle_list)} have been found!")
 
         circle_0 = circle_list[0]
         circle_1 = circle_list[1]
@@ -1074,7 +1077,7 @@ class PmRobotCalibrationNode(Node):
     def calibrate_calibration_cube_to_cam_top(self, request:EmptyWithSuccess.Request, response:EmptyWithSuccess.Response):
 
         self._logger.warning(f"Starting calibration 'calibrate_calibration_cube_to_cam_top'...")
-
+        move_up = False
         try:
             # Spawn the frames
 
@@ -1111,7 +1114,9 @@ class PmRobotCalibrationNode(Node):
                 raise PmRobotError("Vision process failed...")
                 
             #detected_point:vision_msg.VisionPoint = result.vision_response.results.points[0]
-
+            if len(result.vision_response.results.circles) != 1:
+                raise PmRobotMeasurementError(f"Did not find single circle while measuring the calibration cube. Found {len(result.vision_response.results.circles)}!")
+            
             circle:vision_msg.VisionCircle = result.vision_response.results.circles[0]
             detected_point:vision_msg.VisionPoint = circle.center_point
 
@@ -1130,14 +1135,16 @@ class PmRobotCalibrationNode(Node):
                 raise PmRobotError("Failed to save joint config...")
             
             response.success = True
+            move_up = True
         
-        except PmRobotError as e:
+        except (PmRobotError, PmRobotMeasurementError) as e:
             response.success = False
             self.get_logger().error(f"Calibration failed: {e}")
 
         finally:
             # move out of danger zone
-            self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 0.5)
+            if move_up:
+                self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 0.5)
 
         return response
     
@@ -2465,7 +2472,7 @@ class PmRobotCalibrationNode(Node):
                                 diameter=ball_diameter_mm)
             
             self.get_logger().warning(f"z_offset {z_offset}")
-            # request.ref_frame.pose.position.z = ref_pose.translation.z + ball_diameter_mm/2*1e-3 - z_offset * 1e-3
+            #request.ref_frame.pose.position.z = ref_pose.translation.z + ball_diameter_mm/2*1e-3 - z_offset * 1e-3
 
             spawn_response:ami_srv.CreateRefFrame.Response = self.client_create_ref_frame.call(request)  
 
@@ -2574,7 +2581,7 @@ class PmRobotCalibrationNode(Node):
                         rx_cmd=rx_cmd,
                         ry_cmd=ry_cmd,
                         rz_cmd=rz_cmd,
-                        move_time=5.0,
+                        move_time=7.0,
                         settle_time=3.0,
                     )
 
@@ -2662,6 +2669,8 @@ class PmRobotCalibrationNode(Node):
                 if not assess_response.success:
                     result.success = False
                     result.message = assess_response.message
+
+                self._calibration_history_log(history_entry="calibrate_smarpod")
 
             elif result.success:
                 result.success = False
@@ -2917,10 +2926,8 @@ class PmRobotCalibrationNode(Node):
         if not self.client_modify_pose_from_frame.wait_for_service(timeout_sec=1.0):
             self._logger.error('Modify pose from frame service not available...')
             return False
-        
-        request = ami_srv.ModifyPoseFromFrame.Request()
-        
-        response:ami_srv.ModifyPoseFromFrame.Response = self.client_modify_pose_from_frame.call(request)
+                
+        response:ami_srv.ModifyPoseFromFrame.Response = self.client_modify_pose_from_frame.call(modify_pose_request)
         
         return response.success
 
