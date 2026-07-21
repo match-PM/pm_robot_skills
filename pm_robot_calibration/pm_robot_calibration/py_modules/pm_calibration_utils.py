@@ -1,65 +1,25 @@
-from fileinput import filename
-from urllib import response
-from pathlib import Path
-from std_msgs.msg import String
-from rclpy.executors import MultiThreadedExecutor
 import yaml
-import sys
-import rclpy
 from rclpy.node import Node
-from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 import pm_skills_interfaces.srv as skills_srv
-import pm_skills_interfaces.action as skills_action
-
-from pm_robot_calibration.py_modules.hexapod_calibration_classes import MeasurementSet
-
-from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
-from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
 from pm_vision_interfaces.srv import ExecuteVision, CalibrateAngle, CalibratePixelPerUm
 import pm_vision_interfaces.msg as vision_msg
-from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
-from rclpy.action import ActionServer, GoalResponse, CancelResponse
-
+from geometry_msgs.msg import Vector3, Transform
+from rclpy.action import GoalResponse, CancelResponse
 from scipy.spatial.transform import Rotation as R
-
 import assembly_manager_interfaces.srv as ami_srv
-import assembly_manager_interfaces.msg as ami_msg
-
-from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerScene
-from assembly_manager_interfaces.srv import SpawnFramesFromDescription, ModifyPoseFromFrame
-from pm_msgs.srv import EmptyWithSuccess, ForceSensorGetMeasurement
-import numpy as np
-from circle_fit import circle_fit
-import matplotlib.pyplot as plt
-
-# import get_package_share_directory
+from assembly_manager_interfaces.srv import SpawnFramesFromDescription
+from pm_msgs.srv import EmptyWithSuccess
 from ament_index_python.packages import get_package_share_directory
-
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
-from pm_robot_primitive_skills.py_modules.PmRobotMeasurementError import PmRobotMeasurementError
-
-
-from assembly_scene_publisher.py_modules.geometry_functions import (multiply_ros_transforms, inverse_ros_transform)
-import time
 import os
 import datetime
 import copy
-import math
 import json
 import shutil
+from assembly_scene_publisher.py_modules.geometry_type_functions import get_relative_transform_for_transforms_calibration
 
-from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transform_for_frames)
-
-from assembly_scene_publisher.py_modules.geometry_type_functions import (get_relative_transform_for_transforms, 
-                                                                         get_relative_transform_for_transforms_calibration)
-
-
-from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
-                                                              RefFrameNotFoundError, 
-                                                              RefPlaneNotFoundError, 
-                                                              ComponentNotFoundError)
 TOOL_VACUUM_IDENT = 'pm_robot_vacuum_tools'
 TOOL_GRIPPER_1_JAW_IDENT = 'pm_robot_tool_parallel_gripper_1_jaw'
 TOOL_GRIPPER_2_JAW_IDENT = 'pm_robot_tool_parallel_gripper_2_jaws'
@@ -76,6 +36,8 @@ class CancelCalibrationException(Exception):
     pass
 
 class PmRobotCalibrationUtils():
+    DISPENSER_TRAVEL_DISTANCE = DISPENSER_TRAVEL_DISTANCE
+    LASER_CALIBRATION_TARGET_THICKNESS = LASER_CALIBRATION_TARGET_THICKNESS
     INFO_TEXT = """
     PM Robot Calibration Node
     This node is responsible for calibrating the PM robot.
@@ -214,7 +176,16 @@ class PmRobotCalibrationUtils():
             "y": round(transform.translation.y*1e6, 1),
             "z": round(transform.translation.z*1e6, 1)
         }
-        rx, ry, rz = R.from_quat([transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w]).as_euler('xyz', degrees=True)
+        quaternion = [
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
+        ]
+        if all(value == 0.0 for value in quaternion):
+            quaternion = [0.0, 0.0, 0.0, 1.0]
+
+        rx, ry, rz = R.from_quat(quaternion).as_euler('xyz', degrees=True)
 
         final_dict =     {
             "translation": translation_dict,
@@ -225,6 +196,102 @@ class PmRobotCalibrationUtils():
             }
         }
         return final_dict
+
+    def _transform_to_meters(self, transform: Transform, unit: str = 'm') -> Transform:
+        transform_m = copy.deepcopy(transform)
+
+        if unit == 'm':
+            pass
+        elif unit == 'mm':
+            transform_m.translation.x *= 1e-3
+            transform_m.translation.y *= 1e-3
+            transform_m.translation.z *= 1e-3
+        elif unit == 'um':
+            transform_m.translation.x *= 1e-6
+            transform_m.translation.y *= 1e-6
+            transform_m.translation.z *= 1e-6
+        else:
+            raise ValueError(f"Invalid unit given {unit}!")
+
+        if (transform_m.rotation.x == 0.0 and
+            transform_m.rotation.y == 0.0 and
+            transform_m.rotation.z == 0.0 and
+            transform_m.rotation.w == 0.0):
+            transform_m.rotation.w = 1.0
+
+        return transform_m
+
+    def _get_joint_value_difference_dict(self, previous_joint_value: dict, new_joint_value: dict) -> dict:
+        return {
+            "translation": {
+                axis: round(new_joint_value["translation"][axis] - previous_joint_value["translation"][axis], 1)
+                for axis in ("x", "y", "z")
+            },
+            "rotation": {
+                axis: round(new_joint_value["rotation"][axis] - previous_joint_value["rotation"][axis], 5)
+                for axis in ("rx", "ry", "rz")
+            },
+        }
+
+    def get_joint_value_update_dict(self,
+                                    joint_name: str,
+                                    rel_transformation: Transform,
+                                    unit: str = 'm',
+                                    overwrite: bool = False) -> dict:
+        rel_transformation_m = self._transform_to_meters(rel_transformation, unit=unit)
+        current_transform = Transform()
+        current_transform.rotation.w = 1.0
+        previous_joint_value_available = True
+        previous_joint_value_error = ""
+        
+        try:
+            current_transform = self.get_current_joint_calibration_transform(joint_name)
+        except PmRobotError as e:
+            previous_joint_value_available = False
+            previous_joint_value_error = str(e)
+
+        if overwrite:
+            new_transform = rel_transformation_m
+        else:
+            new_transform = get_relative_transform_for_transforms_calibration(
+                base_transform=current_transform,
+                additional_transform=rel_transformation_m,
+            )
+
+        previous_joint_value = self._transform_to_dict(current_transform)
+        new_joint_value = self._transform_to_dict(new_transform)
+
+        return {
+            "joint_name": joint_name,
+            "update_mode": "overwrite" if overwrite else "relative",
+            "unit": {
+                "translation": "um",
+                "rotation": "deg",
+            },
+            "previous_joint_value_available": previous_joint_value_available,
+            "previous_joint_value_error": previous_joint_value_error,
+            "previous_joint_value": previous_joint_value,
+            "new_joint_value": new_joint_value,
+            "joint_value_change": self._get_joint_value_difference_dict(
+                previous_joint_value=previous_joint_value,
+                new_joint_value=new_joint_value,
+            ),
+        }
+
+    def add_joint_value_update_to_calibration_dict(self,
+                                                  calibration_dict: dict,
+                                                  joint_name: str,
+                                                  rel_transformation: Transform,
+                                                  unit: str = 'm',
+                                                  overwrite: bool = False) -> dict:
+        calibration_dict = copy.deepcopy(calibration_dict)
+        calibration_dict["joint_value_update"] = self.get_joint_value_update_dict(
+            joint_name=joint_name,
+            rel_transformation=rel_transformation,
+            unit=unit,
+            overwrite=overwrite,
+        )
+        return calibration_dict
 
     
     def _goal_calibration_callback(self, goal_request):
@@ -352,7 +419,9 @@ class PmRobotCalibrationUtils():
             raise PmRobotError("Failed to move calibration target backward")
         
         
-    def _log_calibration_result(self, calibration_values:Transform, unit = 'm',):
+    def _log_calibration_result(self, 
+                                calibration_values:Transform, 
+                                unit = 'm',):
         _calibration_values = copy.deepcopy(calibration_values)
         if unit == 'm':
             _calibration_values.translation.x = _calibration_values.translation.x * 1e6
@@ -473,7 +542,9 @@ class PmRobotCalibrationUtils():
 
         return self.calibration_log_dir
 
-    def _joint_config_to_transform(self, joint_name: str, joint_config: dict) -> Transform:
+    def _joint_config_to_transform(self, 
+                                   joint_name: str, 
+                                   joint_config: dict) -> Transform:
         required_keys = (
             'x_offset',
             'y_offset',
@@ -695,9 +766,36 @@ class PmRobotCalibrationUtils():
         with open(path + '/' + file_name, 'w') as file:
             yaml.dump(self._last_calibrations_data, file)
             pass
-    
 
-    
+    def _get_circle_from_vision(self, process_file_name:str, camera_file_name:str, process_name:str):
+
+        request_execute_vision_bottom = ExecuteVision.Request()
+        request_execute_vision_bottom.camera_config_filename = camera_file_name
+        request_execute_vision_bottom.image_display_time = -1
+        request_execute_vision_bottom.process_filename = f"PM_Robot_Calibration/{process_file_name}"
+        request_execute_vision_bottom.process_uid = process_name
+
+        if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
+            self._logger.error('Vision Manager not available...')
+            return None, None
+        
+        response_execute_vision_bottom:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(request_execute_vision_bottom)
+        
+        if not response_execute_vision_bottom.success:
+            self._logger.error("Failed to execute vision for bottom camera")
+            return None, None
+        
+        if len(response_execute_vision_bottom.vision_response.results.circles) != 1:
+            self._logger.error("Vision did not find a single circle!")
+            return None, None
+        
+        circle:vision_msg.VisionCircle = response_execute_vision_bottom.vision_response.results.circles[0]
+
+        x_offset = circle.center_point.axis_value_1
+        y_offset = circle.center_point.axis_value_2
+
+        return x_offset, y_offset
+
 def main(args=None):
     pass
 

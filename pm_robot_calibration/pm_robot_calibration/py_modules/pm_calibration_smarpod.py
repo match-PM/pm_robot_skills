@@ -1,45 +1,11 @@
-from fileinput import filename
-from urllib import response
 from pathlib import Path
-from std_msgs.msg import String
-from rclpy.executors import MultiThreadedExecutor
-import yaml
-import sys
-import rclpy
 from rclpy.node import Node
-from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 import pm_skills_interfaces.srv as skills_srv
 import pm_skills_interfaces.action as skills_action
-
-from pm_robot_calibration.py_modules.hexapod_calibration_classes import MeasurementSet
-
-from pm_moveit_interfaces.srv import MoveToPose,  MoveToFrame
-from tf2_ros import Buffer, TransformListener, TransformBroadcaster, StaticTransformBroadcaster
-from pm_vision_interfaces.srv import ExecuteVision, CalibrateAngle, CalibratePixelPerUm
-import pm_vision_interfaces.msg as vision_msg
-from geometry_msgs.msg import Vector3, TransformStamped, Pose, PoseStamped, Quaternion, Transform
-from rclpy.action import ActionServer, GoalResponse, CancelResponse
-
-from scipy.spatial.transform import Rotation as R
-
+from geometry_msgs.msg import Transform
 import assembly_manager_interfaces.srv as ami_srv
-import assembly_manager_interfaces.msg as ami_msg
-
-from assembly_scene_publisher.py_modules.AssemblyScene import AssemblyManagerScene
-from assembly_manager_interfaces.srv import SpawnFramesFromDescription, ModifyPoseFromFrame
-from pm_msgs.srv import EmptyWithSuccess, ForceSensorGetMeasurement
-import numpy as np
-from circle_fit import circle_fit
-import matplotlib.pyplot as plt
-
-# import get_package_share_directory
-from ament_index_python.packages import get_package_share_directory
-
-from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 from pm_robot_primitive_skills.py_modules.PmRobotMeasurementError import PmRobotMeasurementError
-
 from pm_robot_calibration.py_modules.hexapod_calibration.sphere_calibration import SphereCalibration
 from pm_robot_calibration.py_modules.hexapod_calibration.calibration_analysis import CalibrationAnalysis
 from pm_robot_calibration.py_modules.hexapod_calibration.geometry_utils import sphere_z
@@ -52,29 +18,22 @@ from pm_robot_calibration.py_modules.hexapod_calibration.hexapod_calibration_run
     get_smarpod_results_dir,
     get_smarpod_results_json_path,
     get_test_calibrate_smarpod_file_path,
+    get_test_calibrate_smarpod_plot_path,
     write_json_file,
 )
-from assembly_scene_publisher.py_modules.geometry_functions import (multiply_ros_transforms, inverse_ros_transform)
+from pm_robot_calibration.py_modules.hexapod_calibration.pivot_calibration_plot import (
+    plot_smarpod_calibration_test_measurements,
+)
+from assembly_scene_publisher.py_modules.geometry_functions import (
+    multiply_ros_transforms,
+    inverse_ros_transform,
+)
 import time
-import os
 import datetime
-import copy
-import math
-import json
-import shutil
-
-from assembly_scene_publisher.py_modules.scene_functions import (get_rel_transform_for_frames)
-
-from assembly_scene_publisher.py_modules.geometry_type_functions import (get_relative_transform_for_transforms, 
-                                                                         get_relative_transform_for_transforms_calibration)
-
-
-from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
-                                                              RefFrameNotFoundError, 
-                                                              RefPlaneNotFoundError, 
-                                                              ComponentNotFoundError)
-
-from pm_robot_calibration.py_modules.pm_calibration_utils import (PmRobotCalibrationUtils, CancelCalibrationException)
+from pm_robot_calibration.py_modules.pm_calibration_utils import (
+    PmRobotCalibrationUtils,
+    CancelCalibrationException,
+)
 
 class HexapodConstants:
     FIXED_CS_SMARPOD_FRAME = "Smarpod_Station_Base_Calibration"
@@ -309,9 +268,9 @@ class PmRobotCalibrationSmarpod:
 
         finally:
             calibration_log_dir = self.pm_calibration_utils.get_calibration_log_dir_for_current_mode()
-            Path(calibration_log_dir).mkdir(parents=True, exist_ok=True)
-
             file_path = get_test_calibrate_smarpod_file_path(calibration_log_dir)
+            plot_file_path = get_test_calibrate_smarpod_plot_path(file_path)
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
             try:
                 calibration_output = {
@@ -319,6 +278,7 @@ class PmRobotCalibrationSmarpod:
                     "calibration_fixed_reference_frame": HexapodConstants.FIXED_CS_SMARPOD_FRAME,
                     "calibration_reference_frame": HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME,
                     "goal_handle": calibration_goal_inputs,
+                    "plot_file_path": plot_file_path,
                     "measurement_data": measurement_data,
                 }
                 if write_json_file(
@@ -328,6 +288,14 @@ class PmRobotCalibrationSmarpod:
                 ):
                     result.log_file_path = file_path
                     self._logger.info(f"Hexapod calibration test data saved to {file_path}")
+                    try:
+                        plot_smarpod_calibration_test_measurements(
+                            measurement_data=measurement_data,
+                            output_path=plot_file_path,
+                        )
+                        self._logger.info(f"Hexapod calibration test plot saved to {plot_file_path}")
+                    except Exception as e:
+                        self._logger.error(f"Could not save hexapod calibration test plot: {e}")
                 else:
                     self._logger.info("Hexapod calibration test data empty. No file saved.")
 
@@ -396,7 +364,7 @@ class PmRobotCalibrationSmarpod:
                                 y=entry[1]*grid_distance,
                                 diameter=ball_diameter_mm)
             
-            self.get_logger().warning(f"z_offset {z_offset}")
+            self._logger.warning(f"z_offset {z_offset}")
             #request.ref_frame.pose.position.z = ref_pose.translation.z + ball_diameter_mm/2*1e-3 - z_offset * 1e-3
 
             spawn_response:ami_srv.CreateRefFrame.Response = self.pm_calibration_utils.client_create_ref_frame.call(request)  
@@ -441,7 +409,7 @@ class PmRobotCalibrationSmarpod:
         return results
     
     def get_smarpod_measurement_dir_for_current_mode(self) -> str:
-        return self.pm_calibration_utils.get_robot_configuration_dir_for_current_mode()
+        return self.pm_calibration_utils.get_calibration_log_dir_for_current_mode()
     
     async def calibrate_smarpod_V3(self, goal_handle: skills_action.SmarpodCalibration.Goal):
         
@@ -653,7 +621,7 @@ class PmRobotCalibrationSmarpod:
             
             sc = SphereCalibration.load_file(request.results_file_path)
 
-            self.get_logger().warn(f"Start calculating the Smarpot Pivot Point!")
+            self._logger.warn(f"Start calculating the Smarpot Pivot Point!")
 
             analysis:CalibrationAnalysis = sc.run_calibration()
             
@@ -675,9 +643,9 @@ class PmRobotCalibrationSmarpod:
 
             B__T__J = analysis.get_B_T_P_ros_transform()
 
-            #self.get_logger().warn(f"euler: {str(euler_angles)}")
-            #self.get_logger().warn(f"translation pivot: {str(translation_pivot)}")
-            #self.get_logger().warn(f"translation ball: {str(translation_ball)}")
+            #self._logger.warn(f"euler: {str(euler_angles)}")
+            #self._logger.warn(f"translation pivot: {str(translation_pivot)}")
+            #self._logger.warn(f"translation ball: {str(translation_ball)}")
             
             current_transform_sphere = self.pm_calibration_utils.get_current_joint_calibration_transform(HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE)
             
@@ -685,12 +653,12 @@ class PmRobotCalibrationSmarpod:
             current_transform_sphere.translation.y = translation_ball[1]
             current_transform_sphere.translation.z = translation_ball[2]
 
-            #self.get_logger().warn(f"current transform: {str(current_transform_sphere)}")
+            #self._logger.warn(f"current transform: {str(current_transform_sphere)}")
             
             default_ball_transform:Transform = self.pm_calibration_utils.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.BALL_ENDEFFECTOR,
                                                             parent_frame=HexapodConstants.SMARPOD_CS_PIVOT_BASE_NAME)
             
-            self.get_logger().warn(f"current transform: {str(default_ball_transform)}")
+            self._logger.warn(f"current transform: {str(default_ball_transform)}")
 
 
             trans_fixed_calibrated:Transform = self.pm_calibration_utils.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
@@ -699,8 +667,15 @@ class PmRobotCalibrationSmarpod:
             C__T__J:Transform = self.pm_calibration_utils.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.SMARPOD_CS_PIVOT_BASE_NAME,
                                                                         parent_frame=HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME)
             
-            #self.get_logger().warn(f"Current Calibration Value: {str(trans_fixed_calibrated)}")
-            #self.get_logger().warn(f"Calibration Pivot: {str(C__T__J)}")
+            #self._logger.warn(f"Current Calibration Value: {str(trans_fixed_calibrated)}")
+            #self._logger.warn(f"Calibration Pivot: {str(C__T__J)}")
+
+            sphere_cal_dict = self.pm_calibration_utils.add_joint_value_update_to_calibration_dict(
+                calibration_dict=self.pm_calibration_utils._transform_to_dict(current_transform_sphere),
+                joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE,
+                rel_transformation=current_transform_sphere,
+                overwrite=True,
+            )
 
             self.pm_calibration_utils.save_joint_config(joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE,
                                    rel_transformation=current_transform_sphere,
@@ -709,11 +684,26 @@ class PmRobotCalibrationSmarpod:
             J__T__C = inverse_ros_transform(C__T__J, output_type=Transform)
             B__T__C = multiply_ros_transforms(B__T__J, J__T__C, output_type=Transform)
 
+            smarpod_cal_dict = self.pm_calibration_utils.add_joint_value_update_to_calibration_dict(
+                calibration_dict=self.pm_calibration_utils._transform_to_dict(B__T__C),
+                joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME,
+                rel_transformation=B__T__C,
+                overwrite=True,
+            )
+            
             self.pm_calibration_utils.save_joint_config(joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME,
                         rel_transformation=B__T__C,
                         overwrite=True)
+
+            self.pm_calibration_utils.log_calibration(file_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE,
+                                 calibration_dict=sphere_cal_dict)
             
-            self.get_logger().info(f"Calibration values written successfully to the joint calibration.")
+            self.pm_calibration_utils.log_calibration(file_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME,
+                                 calibration_dict=smarpod_cal_dict)
+            
+
+
+            self._logger.info(f"Calibration values written successfully to the joint calibration.")
             
             self.spawn_smarpod_calibration_sphere_frame()
             
@@ -724,20 +714,20 @@ class PmRobotCalibrationSmarpod:
                 "Assessing the hexapod calibration file failed: "
                 f"results file does not exist: {request.results_file_path}"
             )
-            self.get_logger().error(message)
-            self.get_logger().debug(str(e))
+            self._logger.error(message)
+            self._logger.debug(str(e))
             response.message = message
             response.success = False
 
         except PmRobotError as e:
             message = f"Assessing the hexapod calibration file failed: {e}"
-            self.get_logger().error(message)
+            self._logger.error(message)
             response.message = message
             response.success = False
 
         except Exception as e:
             message = f"Assessing the hexapod calibration file failed unexpectedly: {e}"
-            self.get_logger().error(message)
+            self._logger.error(message)
             response.message = message
             response.success = False
 
@@ -749,20 +739,7 @@ class PmRobotCalibrationSmarpod:
 
     
 def main(args=None):
-    rclpy.init(args=args)
-
-    node = PmRobotCalibrationSmarpod()
-
-    executor = MultiThreadedExecutor(num_threads=6) 
-
-    executor.add_node(node)
-
-    try:
-        executor.spin()
-    finally:
-        executor.shutdown()
-        node.destroy_node()
-        rclpy.shutdown()
+    pass
 
 
 if __name__ == '__main__':

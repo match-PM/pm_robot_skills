@@ -32,7 +32,6 @@ from numpy.typing import NDArray
 import matplotlib
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers 3d projection)
 
 
 # ----------------------------------------------------------------- helpers
@@ -647,3 +646,140 @@ def plot_pivot_calibration_individual(
         out_paths.append(p)
 
     return out_paths
+
+
+def plot_smarpod_calibration_test_measurements(
+    measurement_data: Sequence[dict],
+    output_path: str,
+    title: Optional[str] = None,
+) -> str:
+    """Plot scalar test measurements from ``test_hexapod_calibration``.
+
+    The test action stores one measurement per commanded pose.  This plot
+    keeps the raw order visible and also groups measurements by commanded
+    x/y position so a drift or position-dependent offset is easy to spot.
+    """
+    if not measurement_data:
+        raise ValueError("No test measurements available for plotting.")
+
+    ordered = sorted(
+        measurement_data,
+        key=lambda entry: int(entry.get("current_iteration", 0)),
+    )
+
+    iterations = np.asarray(
+        [float(entry.get("current_iteration", index + 1)) for index, entry in enumerate(ordered)],
+        dtype=np.float64,
+    )
+    measurements_um = np.asarray(
+        [float(entry["measurement_um"]) for entry in ordered],
+        dtype=np.float64,
+    )
+    x_cmd_um = np.asarray([float(entry.get("x_cmd_um", 0.0)) for entry in ordered], dtype=np.float64)
+    y_cmd_um = np.asarray([float(entry.get("y_cmd_um", 0.0)) for entry in ordered], dtype=np.float64)
+    rx_cmd = np.asarray([float(entry.get("rx_cmd", 0.0)) for entry in ordered], dtype=np.float64)
+    ry_cmd = np.asarray([float(entry.get("ry_cmd", 0.0)) for entry in ordered], dtype=np.float64)
+    rz_cmd = np.asarray([float(entry.get("rz_cmd", 0.0)) for entry in ordered], dtype=np.float64)
+    pose_ids = [str(entry.get("pose_id", f"pose_{int(iteration)}")) for entry, iteration in zip(ordered, iterations)]
+
+    baseline_um = float(measurements_um[0])
+    delta_um = measurements_um - baseline_um
+    position_ids = [
+        _position_set_id(x / 1000.0, y / 1000.0)
+        for x, y in zip(x_cmd_um, y_cmd_um)
+    ]
+    colour_by_id, unique_position_ids = _make_position_colours(position_ids)
+    colours = [colour_by_id[pid] for pid in position_ids]
+
+    fig, axes = plt.subplots(3, 1, figsize=(13, 11), constrained_layout=True)
+    fig.suptitle(title or "Smarpod calibration test measurements", fontsize=14)
+
+    axes[0].plot(iterations, measurements_um, color="0.35", linewidth=1.0, alpha=0.7)
+    axes[0].scatter(iterations, measurements_um, c=colours, s=34, zorder=3)
+    axes[0].axhline(baseline_um, color="k", linewidth=0.7, linestyle="--", alpha=0.6)
+    axes[0].set_ylabel("measurement (um)")
+    axes[0].set_title("Measured sensor value per test pose")
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].bar(iterations, delta_um, color=colours)
+    axes[1].axhline(0.0, color="k", linewidth=0.7, linestyle="--")
+    axes[1].set_ylabel("delta from first pose (um)")
+    axes[1].set_title("Measurement change relative to first pose")
+    axes[1].grid(True, axis="y", alpha=0.3)
+
+    for pid in unique_position_ids:
+        mask = np.array([pid == position_id for position_id in position_ids])
+        axes[2].scatter(
+            rx_cmd[mask],
+            delta_um[mask],
+            color=colour_by_id[pid],
+            s=34,
+            label=pid,
+        )
+    axes[2].axhline(0.0, color="k", linewidth=0.7, linestyle="--")
+    axes[2].set_xlabel("rx_cmd (deg)")
+    axes[2].set_ylabel("delta from first pose (um)")
+    axes[2].set_title("Measurement change vs commanded rx")
+    axes[2].grid(True, alpha=0.3)
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=colour_by_id[pid])
+        for pid in unique_position_ids
+    ]
+    axes[0].legend(
+        handles,
+        unique_position_ids,
+        fontsize=8,
+        loc="best",
+        title="position set",
+        title_fontsize=8,
+    )
+    axes[2].legend(fontsize=8, loc="best", title="position set", title_fontsize=8)
+
+    tick_step = max(1, int(np.ceil(len(pose_ids) / 18)))
+    tick_indices = list(range(0, len(pose_ids), tick_step))
+    for ax in axes[:2]:
+        ax.set_xticks(iterations[tick_indices])
+        ax.set_xticklabels(
+            [_format_short_label(pose_ids[index]) for index in tick_indices],
+            rotation=70,
+            ha="right",
+            fontsize=7,
+        )
+
+    summary = (
+        f"n={len(measurements_um)}  "
+        f"mean={np.mean(measurements_um):.2f} um  "
+        f"std={np.std(measurements_um):.2f} um  "
+        f"range={np.ptp(measurements_um):.2f} um"
+    )
+    axes[0].text(
+        0.01,
+        0.98,
+        summary,
+        transform=axes[0].transAxes,
+        va="top",
+        ha="left",
+        fontsize=9,
+        bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "0.8"},
+    )
+
+    command_summary = (
+        f"ry range: {np.min(ry_cmd):.2f}..{np.max(ry_cmd):.2f} deg, "
+        f"rz range: {np.min(rz_cmd):.2f}..{np.max(rz_cmd):.2f} deg"
+    )
+    axes[2].text(
+        0.01,
+        0.98,
+        command_summary,
+        transform=axes[2].transAxes,
+        va="top",
+        ha="left",
+        fontsize=9,
+        bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "0.8"},
+    )
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+    fig.savefig(output_path, dpi=140)
+    plt.close(fig)
+    return output_path

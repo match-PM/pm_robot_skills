@@ -86,8 +86,14 @@ def get_calibrate_smarpod_measurement_file_path(measurement_dir: str) -> str:
 def get_test_calibrate_smarpod_file_path(calibration_log_dir: str) -> str:
     return os.path.join(
         calibration_log_dir,
+        "test_calibrate_smarpod",
         f"test_calibrate_smarpod_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     )
+
+
+def get_test_calibrate_smarpod_plot_path(test_results_file_path: str) -> str:
+    stem, _ext = os.path.splitext(test_results_file_path)
+    return f"{stem}_measurements.png"
 
 
 def get_smarpod_results_dir(calibration_log_dir: str, measurement_file_path: str) -> str:
