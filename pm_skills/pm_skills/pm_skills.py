@@ -469,13 +469,21 @@ class PmSkills(Node):
 
                 detected_position = None
 
-                contact_detected = False
+                # contact_detected = False
 
                 scan_start_time = time.time()
                 search_iterations = 0
                 refine_iterations = 0
                 contact_force = [math.nan, math.nan, math.nan]
                 frame_position_contact = [math.nan, math.nan, math.nan]
+
+                hard_contact_threshold = [150.0, 
+                                          150.0, 
+                                          150.0
+                ]
+
+                step_counter = 0
+                                          
                 
                 state = "SEARCH"
 
@@ -512,10 +520,11 @@ class PmSkills(Node):
                         else:
                             force_values = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
+                        step_counter += 1
                         self.csv_force_scan_step(
                             scan_number,
                             request,
-                            search_iterations + refine_iterations, 
+                            step_counter, 
                             "SEARCH",
                             step_size_m_search * 1e6,
                             force_values,
@@ -523,12 +532,17 @@ class PmSkills(Node):
                             datetime.now().isoformat()
                         )
 
-                        contact_detected = any(
+                        hard_contact = any(
+                            abs(force_values[i]) > hard_contact_threshold[i]
+                            for i in range(3)
+                        )
+
+                        possible_contact = any(
                             abs(force_values[i]) > force_threshold[i]
                             for i in range(3)
                         )
 
-                        if contact_detected:
+                        if hard_contact:
 
                             contact_position = [
                                 self.pm_robot_utils.get_current_joint_state(self.pm_robot_utils.X_Axis_JOINT_NAME),
@@ -553,10 +567,11 @@ class PmSkills(Node):
                             else:
                                 contact_force = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
+                            step_counter += 1
                             self.csv_force_scan_step(
                                 scan_number,
                                 request,
-                                search_iterations + refine_iterations, 
+                                step_counter, 
                                 "CONTACT",
                                 step_size_m_search * 1e6,
                                 contact_force,
@@ -569,11 +584,105 @@ class PmSkills(Node):
                             state = "CONTACT"
                             continue
 
+                        elif possible_contact:
+                            state = "CONTACT_CHECK"
+                            continue
+
                         else:
-                            # Kein Kontakt -> Position als gueltig speichern und weiterfahren
                             last_valid_position = current_position.copy()
                             travelled_distance_m += step_size_m_search
                             continue
+
+                    elif state == "CONTACT_CHECK":
+
+                        check_values = []
+
+                        # Mehrfach messen ohne den Roboter zu bewegen
+                        for _ in range(10):
+
+                            if not self.pm_robot_utils.is_unity_running():
+                                force_response = self.smart_gripper_force_client.call(
+                                    piezo_force_request
+                                )
+                                force = [
+                                    force_response.fx,
+                                    force_response.fy,
+                                    force_response.fz
+                                ]
+                            else:
+                                force = self.pm_robot_utils._current_force_sensor_data.data[:3]
+
+                            check_values.append(force)
+
+                            step_counter += 1
+                            self.csv_force_scan_step(
+                                scan_number,
+                                request,
+                                step_counter,
+                                "CONTACT_CHECK",
+                                step_size_m_search * 1e6,
+                                force,
+                                current_position,
+                                datetime.now().isoformat()
+                            )
+
+                            time.sleep(0.5)
+
+                        mean_force = [
+                            np.mean([v[0] for v in check_values]),
+                            np.mean([v[1] for v in check_values]),
+                            np.mean([v[2] for v in check_values]),
+                        ]
+
+                        confirmed_contact = any(
+                            abs(mean_force[i]) > force_threshold[i]
+                            for i in range(3)
+                        )
+
+                        if confirmed_contact:
+
+                            contact_position = current_position.copy()
+                            contact_force = mean_force.copy()
+
+                            step_counter += 1
+                            self.csv_force_scan_step(
+                                scan_number,
+                                request,
+                                step_counter,
+                                "CONTACT_CONFIRMED",
+                                step_size_m_search * 1e6,
+                                contact_force,
+                                contact_position,
+                                datetime.now().isoformat()
+                            )
+
+                            self.get_logger().info(
+                                f"Contact confirmed: {contact_force}"
+                            )
+
+                            state = "CONTACT"
+
+                        else:
+
+                            step_counter += 1
+                            self.csv_force_scan_step(
+                                scan_number,
+                                request,
+                                step_counter,
+                                "CONTACT_REJECTED",
+                                step_size_m_search * 1e6,
+                                mean_force,
+                                current_position,
+                                datetime.now().isoformat()
+                            )
+
+                            # Kontakt war nur Rauschen -> weitersuchen
+                            last_valid_position = current_position.copy()
+                            travelled_distance_m += step_size_m_search
+
+                            state = "SEARCH"
+
+                        continue
 
                     elif state == "CONTACT":                    
                         # Zurueck zur letzten kontaktfreien Position fahren
@@ -602,10 +711,11 @@ class PmSkills(Node):
                         else:
                             current_force = self.pm_robot_utils._current_force_sensor_data.data[:3]
 
-                        self.csv_force_scan_step(
+                        step_counter += 1
+                        self.csv_force_scan_step(   
                             scan_number,
                             request,
-                            search_iterations + refine_iterations, 
+                            step_counter, 
                             "moved back",
                             step_size_m_search * 1e6,
                             current_force,
@@ -712,7 +822,8 @@ class PmSkills(Node):
                     refine_iterations,
                     scan_time,
                     timestamp,
-                    success_flag
+                    success_flag,
+                    hard_contact_threshold
                 )
                 self.get_logger().info("Data saved to CSV.")
 
@@ -838,7 +949,8 @@ class PmSkills(Node):
         refine_iterations,
         scan_time,
         timestamp,
-        success_flag
+        success_flag,
+        hard_contact_threshold
     ):
 
         import os
@@ -853,7 +965,7 @@ class PmSkills(Node):
             f"S{request.step_size}"
             f"_fx{request.max_force.x:.1f}"
             f"_fy{request.max_force.y:.1f}"
-            f"_fz{request.max_force.z:.1f}" 
+            f"_fz{request.max_force.z:.1f}"
         )
 
         folder = os.path.join(base_folder, folder_name)
@@ -899,7 +1011,10 @@ class PmSkills(Node):
             "Search_iterations",
             "Refine_iterations",
             "Scan_time_s",
-            "Success"
+            "Success",
+            "hard_contact_Threshold_x",
+            "hard_contact_Threshold_y",
+            "hard_contact_Threshold_z",
         ]
 
         def safe_vec3(v):
@@ -946,7 +1061,10 @@ class PmSkills(Node):
                 "Search_iterations": search_iterations,
                 "Refine_iterations": refine_iterations,
                 "Scan_time_s": scan_time,
-                "Success": int(success_flag)
+                "Success": int(success_flag),
+                "hard_contact_Threshold_x": hard_contact_threshold[0],
+                "hard_contact_Threshold_y": hard_contact_threshold[1],
+                "hard_contact_Threshold_z": hard_contact_threshold[2],
             })
 
     def edge_scan_callback(self, request: pm_skill_srv.EdgeScan.Request, response: pm_skill_srv.EdgeScan.Response):
@@ -1064,7 +1182,7 @@ class PmSkills(Node):
             "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/messungen_neu"
         )
  
-        folder_name = f"EdgeScan_{request.target_frame}_with_movement2"
+        folder_name = f"EdgeScan_{request.target_frame}"
         folder = os.path.join(base_folder, folder_name)
         data_folder = os.path.join(folder, "data")
         os.makedirs(data_folder, exist_ok=True)
