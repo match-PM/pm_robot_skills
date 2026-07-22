@@ -1544,17 +1544,16 @@ class PmSkills(Node):
                                                                 state=False)
             
 
-            # open gripper if it is a parallel gripper
+            # open gripper if it is a parallel gripper, before moving down onto the part
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
                 self.logger.info(f"Opening parallel 1 jaw gripper for component '{request.component_name}'")
-                
-                # TODO: Implement the actual gripper opening logic here
+
+                # TODO: Implement the actual gripper opening logic here (no 1-jaw service available yet)
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
                 self.logger.info(f"Opening parallel 2 jaw gripper for component '{request.component_name}'")
                 self.pm_robot_utils.open_gripper_2_jaws()
-                # TODO: Implement the actual gripper opening logic here
-            
+
 
             move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame, z_offset=0.0)
 
@@ -1570,14 +1569,13 @@ class PmSkills(Node):
                     raise PmRobotError(f"Failed to enable vacuum for component '{request.component_name}'!")
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
-                self.logger.info(f"Opening parallel 1 jaw gripper for component '{request.component_name}'")
+                self.logger.info(f"Closing parallel 1 jaw gripper for component '{request.component_name}'")
 
-                # TODO: Implement the actual gripper opening logic here
+                # TODO: Implement the actual gripper closing logic here (no 1-jaw service available yet)
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
-                self.logger.info(f"Opening parallel 2 jaw gripper for component '{request.component_name}'")
-                self.pm_robot_utils.set_gripper_2_jaws_position(0.1)
-                # TODO: Implement the actual gripper opening logic here
+                self.logger.info(f"Closing parallel 2 jaw gripper for component '{request.component_name}'")
+                self.pm_robot_utils.close_gripper_2_jaws()
 
             disable_success = True
 
@@ -1810,10 +1808,21 @@ class PmSkills(Node):
             if not attach_component_success:
                 raise PmRobotError(f"Failed to attach component '{gripped_component}' to component '{target_component}'")
             
-            vaccum_off_success = self.pm_robot_utils.set_tool_vaccum(False)
+            # release the component depending on the active tool type
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == VacuumGripperConfig.TOOL_VACUUM_IDENT:
+                vaccum_off_success = self.pm_robot_utils.set_tool_vaccum(False)
 
-            if not vaccum_off_success:
-                raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
+                if not vaccum_off_success:
+                    raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
+
+            elif self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
+                self.logger.info(f"Opening parallel 1 jaw gripper to release component '{gripped_component}'")
+
+                # TODO: Implement the actual gripper opening logic here (no 1-jaw service available yet)
+
+            elif self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
+                self.logger.info(f"Opening parallel 2 jaw gripper to release component '{gripped_component}'")
+                self.pm_robot_utils.open_gripper_2_jaws()
 
             move_relatively_success, lift_msg = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
             if not move_relatively_success:
