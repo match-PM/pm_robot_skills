@@ -31,8 +31,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/DispenseAtPointsAdv.srv"
   "srv/ForceScan.srv"
   "srv/EdgeScan.srv"
+  "srv/AssessHexapodCalibration.srv"
   "action/EmptyCalibration.action"
   "action/SmarpodCalibration.action"
+  "action/TestHexapodCalibration.action"
   DEPENDENCIES geometry_msgs pm_vision_interfaces
 )
 

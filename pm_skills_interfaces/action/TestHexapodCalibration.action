@@ -1,0 +1,12 @@
+bool use_confocal_over_laser
+---
+bool success
+string message
+string log_file_path
+---
+bool active
+uint32 current_iteration
+uint32 total_iterations
+string pose_id
+float64 measurement_um
+string message

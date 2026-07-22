@@ -3,6 +3,7 @@ from setuptools import find_packages, setup
 package_name = 'pm_robot_calibration'
 
 submodules = 'pm_robot_calibration/py_modules'
+submodules_hexapod = 'pm_robot_calibration/py_modules/hexapod_calibration'
 
 setup(
     name=package_name,

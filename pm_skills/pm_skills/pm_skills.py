@@ -966,24 +966,44 @@ class PmSkills(Node):
 
         from pm_vision_interfaces.srv import ExecuteVision
         import pm_vision_interfaces.msg as vision_msg  
+        import random
  
         try:
             for i in range(request.num_repetitions):
                 scan_number = i + 1
                 self.get_logger().info(f"Starting edge scan {scan_number} of {request.num_repetitions}.")
+
+                offset_range = 0.003 # 3 mm
+
+                dx = random.uniform(-offset_range, offset_range)
+                dy = random.uniform(-offset_range, offset_range)
  
                 timestamp = datetime.now().isoformat()
  
                 # --- Schritt 1: Kamera zur Zielposition fahren ---
                 move_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(
+                    request.target_frame,
+                    x_offset=dx,
+                    y_offset=dy
+                )
+
+                if not move_success:
+                    response.success = False
+                    response.message = f"Could not move to target frame (+offset): {move_msg}"
+                    self.get_logger().error(response.message)
+                    return response
+
+                move_success, move_msg = self.pm_robot_utils.move_camera_top_to_frame(
                     request.target_frame
                 )
- 
+
                 if not move_success:
                     response.success = False
                     response.message = f"Could not move to target frame: {move_msg}"
                     self.get_logger().error(response.message)
                     return response
+                
+                time.sleep(0.2)
  
                 # --- Schritt 2: Vision-Messung durchfuehren ---
                 vision_request = ExecuteVision.Request()
@@ -1019,7 +1039,9 @@ class PmSkills(Node):
                     request=request,
                     x_detected=x_detected,
                     y_detected=y_detected,
-                    timestamp=timestamp
+                    timestamp=timestamp,
+                    dx=dx,
+                    dy=dy
                 )
  
             response.success = True
@@ -1033,7 +1055,7 @@ class PmSkills(Node):
  
         return response
  
-    def csv_edge_scan_step(self, scan_number, request, x_detected, y_detected, timestamp):
+    def csv_edge_scan_step(self, scan_number, request, x_detected, y_detected, timestamp, dx, dy):
  
         import os
         import csv
@@ -1042,7 +1064,7 @@ class PmSkills(Node):
             "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/messungen_neu"
         )
  
-        folder_name = f"EdgeScan_{request.target_frame}"
+        folder_name = f"EdgeScan_{request.target_frame}_with_movement2"
         folder = os.path.join(base_folder, folder_name)
         data_folder = os.path.join(folder, "data")
         os.makedirs(data_folder, exist_ok=True)
@@ -1057,6 +1079,8 @@ class PmSkills(Node):
             "TargetFrame",
             "X_detected_um",
             "Y_detected_um",
+            "dx_m",
+            "dy_m"
         ]
  
         row = {
@@ -1065,6 +1089,8 @@ class PmSkills(Node):
             "TargetFrame": request.target_frame,
             "X_detected_um": x_detected,
             "Y_detected_um": y_detected,
+            "dx_m": dx,
+            "dy_m": dy
         }
  
         with open(file_path, "a", newline="") as csvfile:
