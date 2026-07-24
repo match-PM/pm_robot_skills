@@ -123,7 +123,9 @@ class PmSkills(Node):
         self.attach_component = self.create_client(ami_srv.ChangeParentFrame, '/assembly_manager/change_obj_parent_frame')
         self.smart_gripper_force_client = self.create_client(pm_msg_srv.GripperGetForces, '/SmarAct_Gripper/GetForces')
         
-        self.dispense_2k_unity_client = self.create_client(EmptyWithSuccess, '/unity_skills/dispense_2k_unity')
+        # Passes the dispense start frame to Unity in the request so Unity can attach
+        # the visualized adhesive bead to that frame's parent component.
+        self.dispense_2k_unity_client = self.create_client(pm_skill_srv.DispensePathUnity, '/unity_skills/dispense_2k_unity')
 
         # Signalled by Unity when a 2K dispense motion has actually finished. The
         # dispense service only acks "accepted"; completion arrives on this topic.
@@ -2717,12 +2719,15 @@ class PmSkills(Node):
 
                 time.sleep(3.0) # wait for controller switch
 
-                # Call the Unity-specific dispensing service. The service only acks
-                # that the motion was accepted/started; completion is signalled later
-                # on '/unity_skills/dispense_2k_done'. Clear the event before calling
-                # so we don't consume a stale signal from a previous run.
+                # Call the Unity-specific dispensing service. The request carries the
+                # start frame so Unity can attach the adhesive bead to that frame's
+                # parent component. The service only acks that the motion was
+                # accepted/started; completion is signalled later on
+                # '/unity_skills/dispense_2k_done'. Clear the event before calling so we
+                # don't consume a stale signal from a previous run.
                 self.dispense_2k_unity_done_event.clear()
-                unity_request = EmptyWithSuccess.Request()
+                unity_request = pm_skill_srv.DispensePathUnity.Request()
+                unity_request.start_frame = request.target_frame_disp
                 unity_response = self.dispense_2k_unity_client.call(unity_request)
                 self.logger.info(f"Unity dispensing service response: success={unity_response.success}, message='{unity_response.message}'")
 

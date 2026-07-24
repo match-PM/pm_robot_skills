@@ -1,0 +1,7 @@
+# Triggers a 2K dispense in Unity. 'start_frame' is the frame the dispense path
+# starts at; Unity attaches the visualized adhesive bead to that frame's parent
+# component so it travels with the component.
+string start_frame
+---
+bool success
+string message
