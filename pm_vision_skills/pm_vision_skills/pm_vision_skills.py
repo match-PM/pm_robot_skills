@@ -17,6 +17,8 @@ from assembly_manager_interfaces.msg import RefFrameProperties
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
+from assembly_scene_publisher.py_modules.geometry_functions import quaternion_multiply
+from scipy.spatial.transform import Rotation as R
 import time
 
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
@@ -178,9 +180,15 @@ class VisionSkillsNode(Node):
                 detected_circles = result.vision_response.results.circles
                 detected_points = result.vision_response.results.points
 
-                #self._logger.warn(f"Result: {str(result.vision_response.results)}")
+                if len(detected_points) == 0 and len(detected_circles) == 0:
+                    raise PmRobotError("No points and circles detected. Vision process failed to detect the required features!")
+                
+                if len(detected_points) > 1 or len(detected_circles) > 1:
+                    raise PmRobotError("Multiple points or circles detected. Please make sure that the vision process detects only one feature!")
+
 
                 multiplier = 0.000001 # Convert to m  
+                result_angle = 0.0
                 
                 if len(detected_circles) == 0:
                     self._logger.warn("No circles detected...")
@@ -206,6 +214,8 @@ class VisionSkillsNode(Node):
 
                     if detected_cricle.center_point.axis_suffix_2 == 'z' or detected_cricle.center_point.axis_suffix_2 == 'Z':
                         result_vector.z = detected_cricle.center_point.axis_value_2*multiplier
+
+                    result_angle = detected_cricle.center_point.angle
 
 
                 if len(detected_points) == 0:
@@ -233,18 +243,14 @@ class VisionSkillsNode(Node):
 
                     if detected_point.axis_suffix_2 == 'z' or detected_point.axis_suffix_2 == 'Z':
                         result_vector.z = detected_point.axis_value_2*multiplier
-                
-                if len(detected_points) == 0 and len(detected_circles) == 0:
-                    raise PmRobotError("No points and circles detected. Vision process failed to detect the required features!")
-                
-                if len(detected_points) > 1 or len(detected_circles) > 1:
-                    raise PmRobotError("Multiple points or circles detected. Please make sure that the vision process detects only one feature!")
 
-                
+                    result_angle = detected_point.angle
+                                
                 result_vector.x = result_vector.x
                 result_vector.y = result_vector.y
                 result_vector.z = result_vector.z
                 response.result_vector = result_vector     
+                response.result_angle = result_angle
                 response.success = result.success
                 
                 #self._logger.info(f"Vision process executed...{result}")
@@ -307,6 +313,7 @@ class VisionSkillsNode(Node):
                 result:skills_srv.MeasureFrameVision.Response = self.measure_frame(measure_frame_request, response_em)
 
                 response.correction_values = result.result_vector
+                response.correction_angle = result.result_angle
                 response.vision_response = result.vision_response
                 response.component_name = result.component_name
                 response.component_uuid = result.component_uuid
@@ -318,6 +325,25 @@ class VisionSkillsNode(Node):
                 world_pose.transform.translation.x += result.result_vector.x
                 world_pose.transform.translation.y += result.result_vector.y
                 world_pose.transform.translation.z += result.result_vector.z
+
+                # Apply the measured rotation. The rotation axis is the one NOT present
+                # in the translation result_vector (i.e. the third axis). The translation
+                # may be zero in one or both populated axes; the rotation must still be
+                # applied around the un-translated axis.
+                correction_angle_deg = float(result.result_angle)
+                rot_axis = self._get_rotation_axis(result.vision_response)
+                if rot_axis is not None and abs(correction_angle_deg) > 1e-9:
+                    self._logger.info(
+                        f"Applying rotation of {correction_angle_deg} deg about {rot_axis}-axis "
+                        f"to frame '{request.frame_name}'."
+                    )
+                    world_pose.transform.rotation = self._apply_world_rotation(
+                        world_pose.transform.rotation, rot_axis, correction_angle_deg
+                    )
+                else:
+                    self._logger.debug(
+                        f"No rotation applied (angle={correction_angle_deg}, rot_axis={rot_axis})."
+                    )
 
                 adapt_frame_request = ami_srv.ModifyPoseAbsolut.Request()
                 adapt_frame_request.frame_name = request.frame_name
@@ -337,8 +363,17 @@ class VisionSkillsNode(Node):
                     raise PmRobotError("Adapting frame pose failed.")
                 
                 threshold = 2*1e-6
-                if abs(result.result_vector.x)<threshold and abs(result.result_vector.y) < threshold and request.remeasure_after_correction == True and not _ == 1:
-                    self._logger.info(f"Correction has been smaler than {threshold*1e6} um. Remesuring will not be triggered!")
+                angle_threshold_deg = 1e-3
+                if (abs(result.result_vector.x) < threshold
+                    and abs(result.result_vector.y) < threshold
+                    and abs(result.result_vector.z) < threshold
+                    and abs(result.result_angle) < angle_threshold_deg
+                    and request.remeasure_after_correction == True
+                    and not _ == 1):
+                    self._logger.info(
+                        f"Correction has been smaller than {threshold*1e6} um and "
+                        f"{angle_threshold_deg} deg. Remesuring will not be triggered!"
+                    )
                     return response
             
         except (RefFrameNotFoundError, PmRobotError) as e:
@@ -348,7 +383,70 @@ class VisionSkillsNode(Node):
             return response
 
         return response
-    
+
+    @staticmethod
+    def _get_rotation_axis(vision_response) -> str | None:
+        """Determine the rotation axis from a vision response.
+
+        The vision process produces translation deltas along two of the three
+        world axes (the axes that were selected via ``axis_suffix_1`` /
+        ``axis_suffix_2`` on the detected point/circle). The third axis is
+        the rotation axis. This works even if the translation is zero on
+        one or both of the populated axes (i.e. a pure rotation correction).
+
+        Returns:
+            ``'x'``, ``'y'`` or ``'z'`` for the rotation axis, or ``None`` if
+            it could not be determined (no detected point/circle, or the
+            configured axes do not uniquely identify a single third axis).
+        """
+        detected_point = None
+        if vision_response is None:
+            return None
+        results = getattr(vision_response, 'results', None)
+        if results is None:
+            return None
+        if getattr(results, 'points', None):
+            detected_point = results.points[0]
+        elif getattr(results, 'circles', None):
+            detected_point = results.circles[0].center_point
+        if detected_point is None:
+            return None
+
+        suffix_1 = (detected_point.axis_suffix_1 or '').lower()
+        suffix_2 = (detected_point.axis_suffix_2 or '').lower()
+        populated = {suffix_1, suffix_2} - {''}
+        if len(populated) != 2:
+            return None
+        for axis in ('x', 'y', 'z'):
+            if axis not in populated:
+                return axis
+        return None
+
+    @staticmethod
+    def _apply_world_rotation(orientation: Quaternion, rot_axis: str, angle_deg: float) -> Quaternion:
+        """Apply a rotation of ``angle_deg`` degrees about ``rot_axis`` in the world frame.
+
+        The rotation is applied as a world-frame rotation, i.e. the
+        quaternion is post-multiplied with the rotation quaternion so the
+        correction is expressed in the parent (world) frame.
+        """
+        if rot_axis == 'x':
+            euler = [angle_deg, 0.0, 0.0]
+        elif rot_axis == 'y':
+            euler = [0.0, angle_deg, 0.0]
+        elif rot_axis == 'z':
+            euler = [0.0, 0.0, angle_deg]
+        else:
+            raise ValueError(f"Unknown rotation axis '{rot_axis}'.")
+
+        q_corr = R.from_euler('xyz', euler, degrees=True).as_quat()
+        quat_corr = Quaternion()
+        quat_corr.x = float(q_corr[0])
+        quat_corr.y = float(q_corr[1])
+        quat_corr.z = float(q_corr[2])
+        quat_corr.w = float(q_corr[3])
+        return quaternion_multiply(orientation, quat_corr)
+
     def object_scene_callback(self, msg: ami_msg.ObjectScene):
         """Handles updates to the object scene and generates process files accordingly."""
         
