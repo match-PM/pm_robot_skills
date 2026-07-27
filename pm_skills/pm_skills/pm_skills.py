@@ -115,8 +115,14 @@ class PmSkills(Node):
         self.srv_check_frame_measureble_confocal_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_confocal_bottom', self.check_frame_mes_confocal_bottom, callback_group=self.callback_group_me)   
 
         self.srv_dispense_at_points = self.create_service(pm_msg_srv.DispenseAtPoints, self.get_name()+'/dispense_at_frames', self.dispense_at_frames_callback, callback_group=self.callback_group_me)
-        
-        self.srv_dispense_at_points_adv = self.create_service(pm_msg_srv.DispenseAtPoints, self.get_name()+'/dispense_at_frames_adv', self.dispense_at_frames_adv_callback, callback_group=self.callback_group_me)
+
+        self.srv_dispense_at_points_adv = self.create_service(pm_skill_srv.DispenseAtPointsAdv, self.get_name()+'/dispense_at_frames_adv', self.dispense_at_frames_adv_callback, callback_group=self.callback_group_me)
+
+        # Same skills for the 2K dispenser. It has no protection lid and is moved down/up
+        # with the '2K_Dispenser_Joint' cylinder only.
+        self.srv_dispense_2k_at_points = self.create_service(pm_msg_srv.DispenseAtPoints, self.get_name()+'/dispense_2k_at_frames', self.dispense_2k_at_frames_callback, callback_group=self.callback_group_me)
+
+        self.srv_dispense_2k_at_points_adv = self.create_service(pm_skill_srv.DispenseAtPointsAdv, self.get_name()+'/dispense_2k_at_frames_adv', self.dispense_2k_at_frames_adv_callback, callback_group=self.callback_group_me)
         self.srv_uv_cure_adv = self.create_service(pm_msg_srv.UVCuringSkill, self.get_name()+'/uv_cure', self.uv_cure_adv_callback, callback_group=self.callback_group_me)
 
         # clients
@@ -1261,7 +1267,11 @@ class PmSkills(Node):
                 measure_request.use_iterative_sensing = True
 
                 if initial_approach:
-                    move_success, move_msg = self.move_laser_to_frame(frame, z_offset=0.02)
+                    if request.confocal_laser:
+                        move_success, move_msg = self.move_confocal_top_to_frame(frame, z_offset=0.02)
+                    else:  
+                        move_success, move_msg = self.move_laser_to_frame(frame, z_offset=0.02)
+
                     if not move_success:
                         response.success = False
                         response.message = f"Moving laser to frame '{frame}' for initial approach failed: {move_msg}"
@@ -1326,7 +1336,7 @@ class PmSkills(Node):
         self.logger.info(f"Success")
         move_relative_request = MoveRelative.Request()
         move_relative_request.execute_movement = True
-        move_relative_request.translation.z = 0.03
+        move_relative_request.translation.z = 0.01
 
         move_relative_response: MoveRelative.Response = self.pm_robot_utils.client_move_laser_relative.call(move_relative_request)
 
@@ -2119,6 +2129,34 @@ class PmSkills(Node):
         else:
             response:pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_laser_to_frame.call(req)
             return response.success, response.message
+
+    def move_confocal_top_to_frame(self, frame_name:str, z_offset: float=None)-> tuple[bool, str]:
+        """
+        z_offset in m
+        """
+        call_async = False
+
+        if not self.pm_robot_utils.client_move_robot_confocal_top_to_frame.wait_for_service(timeout_sec=1.0):
+            self.logger.error("Service '/pm_moveit_server/move_confocal_top_to_frame' not available")
+            return False, "Service '/pm_moveit_server/move_confocal_top_to_frame' not available"
+
+        req = pm_moveit_srv.MoveToFrame.Request()
+        req.target_frame = frame_name
+        req.execute_movement = True
+
+        if z_offset is not None:
+            req.translation.z = z_offset
+
+        if call_async:
+            future = self.pm_robot_utils.client_move_robot_confocal_top_to_frame.call_async(req)
+            rclpy.spin_until_future_complete(self, future)
+            if future.result() is None:
+                self.logger.error('Service call failed %r' % (future.exception(),))
+                return False, f"Service call failed: {future.exception()}"
+            return future.result().success, future.result().message
+        else:
+            response:pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_confocal_top_to_frame.call(req)
+            return response.success, response.message
     
       
     def measure_with_laser_callback(self, 
@@ -2850,16 +2888,31 @@ class PmSkills(Node):
                 raise PmRobotError(f"Failed to move to X:{x}, Y:{y}, Z:{z} relative to frame '{start_frame}' during g-code testing")
 
     def dispense_at_frames_callback(self, request: pm_msg_srv.DispenseAtPoints.Request, response:pm_msg_srv.DispenseAtPoints.Response):
+        return self._dispense_at_frames(request, response, use_2k_dispenser=False)
+
+    def dispense_2k_at_frames_callback(self, request: pm_msg_srv.DispenseAtPoints.Request, response:pm_msg_srv.DispenseAtPoints.Response):
+        return self._dispense_at_frames(request, response, use_2k_dispenser=True)
+
+    def _dispense_at_frames(self, request: pm_msg_srv.DispenseAtPoints.Request,
+                            response:pm_msg_srv.DispenseAtPoints.Response,
+                            use_2k_dispenser: bool = False):
+        """
+        Dispenses at all requested frames with either the 1K or the 2K dispenser.
+
+        The sequence is identical for both dispensers (prepare once, dispense at every
+        point, retract afterwards). The 2K dispenser has no protection lid, so the
+        protection is only handled for the 1K dispenser.
+        """
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
 
         try:
             if len(request.dispense_points) == 0:
                 raise PmRobotError("Dispense points list is empty!")
-            
+
             dispenser_prepared = False
 
             for dispense_point in request.dispense_points:
-            
+
                 prop = ami_msg.RefFrameProperties()
                 prop.glue_pt_frame_properties.dispense_offset_mm = dispense_point.dispense_z_offset_mm
                 prop.glue_pt_frame_properties.is_glue_point = True
@@ -2868,26 +2921,38 @@ class PmSkills(Node):
 
                 dispense_point: pm_msg.DispensePoint
                 move_to_frame_request = pm_moveit_srv.MoveToFrame.Request()
-                
+
                 move_to_frame_request.target_frame = dispense_point.frame_name
                 move_to_frame_request.execute_movement = True
-                
-                
+
+
                 if not dispenser_prepared:
-                    self.pm_robot_utils.prepare_dispenser(move_to_frame_request)
+                    if use_2k_dispenser:
+                        self.pm_robot_utils.prepare_2k_dispenser(move_to_frame_request)
+                    else:
+                        self.pm_robot_utils.prepare_dispenser(move_to_frame_request)
                     dispenser_prepared = True
 
-                self.pm_robot_utils.dispense_at_frame(move_to_frame_request, 
-                                                dispense_point.frame_name,
-                                                time=dispense_point.time_ms,
-                                                dispense_z_offset_mm=dispense_point.dispense_z_offset_mm)
+                if use_2k_dispenser:
+                    self.pm_robot_utils.dispense_2k_at_frame(move_to_frame_request,
+                                                    dispense_point.frame_name,
+                                                    time_ms=dispense_point.time_ms,
+                                                    dispense_z_offset_mm=dispense_point.dispense_z_offset_mm)
+                else:
+                    self.pm_robot_utils.dispense_at_frame(move_to_frame_request,
+                                                    dispense_point.frame_name,
+                                                    time=dispense_point.time_ms,
+                                                    dispense_z_offset_mm=dispense_point.dispense_z_offset_mm)
 
                 self.pm_robot_utils.set_frame_properties(dispense_point.frame_name, prop)
-                        
-            self.pm_robot_utils.retract_dispenser()
-            time.sleep(0.5)
-            self.pm_robot_utils.close_protection()
-            
+
+            if use_2k_dispenser:
+                self.pm_robot_utils.retract_2k_dispenser()
+            else:
+                self.pm_robot_utils.retract_dispenser()
+                time.sleep(0.5)
+                self.pm_robot_utils.close_protection()
+
             response.success = True
 
         except PmRobotError as e:
@@ -2895,10 +2960,22 @@ class PmSkills(Node):
             response.success = False
             response.message = e.message
         return response
-    
 
-    
+
+
     def dispense_at_frames_adv_callback(self, request: pm_skill_srv.DispenseAtPointsAdv.Request, response:pm_skill_srv.DispenseAtPointsAdv.Response):
+        return self._dispense_at_frames_adv(request, response, use_2k_dispenser=False)
+
+    def dispense_2k_at_frames_adv_callback(self, request: pm_skill_srv.DispenseAtPointsAdv.Request, response:pm_skill_srv.DispenseAtPointsAdv.Response):
+        return self._dispense_at_frames_adv(request, response, use_2k_dispenser=True)
+
+    def _dispense_at_frames_adv(self, request: pm_skill_srv.DispenseAtPointsAdv.Request,
+                                response:pm_skill_srv.DispenseAtPointsAdv.Response,
+                                use_2k_dispenser: bool = False):
+        """
+        Dispenses at the given glue point frames, reading dispense time and offset from the
+        frame properties of the assembly scene. Uses the 2K dispenser if requested.
+        """
         dispense_request = pm_msg_srv.DispenseAtPoints.Request()
         dispense_response = pm_msg_srv.DispenseAtPoints.Response()
 
@@ -2930,7 +3007,8 @@ class PmSkills(Node):
 
                 dispense_request.dispense_points.append(dispense_point_msg)
 
-            response_disp = self.dispense_at_frames_callback(dispense_request, dispense_response)
+            response_disp = self._dispense_at_frames(dispense_request, dispense_response,
+                                                     use_2k_dispenser=use_2k_dispenser)
 
             response.success = response_disp.success
             response.message = response_disp.message
