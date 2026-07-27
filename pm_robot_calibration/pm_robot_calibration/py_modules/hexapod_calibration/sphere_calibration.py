@@ -64,9 +64,12 @@ def _rotation_matrix_zyx(rx: float, ry: float, rz: float) -> NDArray[np.float64]
     """Build a 3x3 rotation matrix from ZYX intrinsic Euler angles (rad).
 
     The rotation is ``R = Rz @ Ry @ Rx`` — i.e. roll about X is applied
-    first, then pitch about Y, then yaw about Z.  The hexapod's
-    ``P__T__Jn`` transform uses this convention, matching
-    ``SphereSet.sphere_set_transform``.
+    first, then pitch about Y, then yaw about Z.  This is the default
+    hexapod convention used by :func:`data_classes.rotation_matrix_zyx`
+    (and selected via :func:`data_classes.set_rotation_convention("zyx")`).
+    The actual commanded ``P__T__Jn`` is built by
+    ``SphereSet.sphere_set_transform`` and respects the active
+    convention; this helper is kept for parity / external use.
     """
     cx, sx = np.cos(rx), np.sin(rx)
     cy, sy = np.cos(ry), np.sin(ry)

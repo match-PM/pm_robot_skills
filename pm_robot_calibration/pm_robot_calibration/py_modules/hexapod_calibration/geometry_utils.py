@@ -74,6 +74,69 @@ def rotation_matrix_to_euler_zyx(R: NDArray[np.float64]) -> NDArray[np.float64]:
     return np.array([yaw, pitch, roll], dtype=np.float64)
 
 
+def rotation_matrix_to_euler_xyz(R: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Convert a 3D rotation matrix to XYZ intrinsic Euler angles (roll, pitch, yaw).
+
+    The rotation is decomposed as ``R = R_x(roll) @ R_y(pitch) @ R_z(yaw)``
+    where rotations are applied in the order: first roll (X), then pitch
+    (Y), then yaw (Z) in the *world* frame.
+
+    Returns
+    -------
+    np.ndarray shape (3,)
+        ``[roll, pitch, yaw]`` in radians.
+    """
+    # Check for gimbal lock (pitch = +/- 90 degrees).
+    if abs(R[0, 2]) < 1.0 - 1e-10:
+        # Normal case.
+        roll = np.arctan2(-R[1, 2], R[2, 2])
+        pitch = np.arcsin(R[0, 2])
+        yaw = np.arctan2(-R[0, 1], R[0, 0])
+    else:
+        # Gimbal lock: R[0, 2] = +/- 1.
+        if R[0, 2] > 0:
+            # pitch = +90 deg
+            pitch = np.pi / 2
+            roll = np.arctan2(R[1, 0], R[1, 1])
+            yaw = 0.0
+        else:
+            # pitch = -90 deg
+            pitch = -np.pi / 2
+            roll = np.arctan2(-R[1, 0], -R[1, 1])
+            yaw = 0.0
+    return np.array([roll, pitch, yaw], dtype=np.float64)
+
+
+def rotation_matrix_to_euler(
+    R: NDArray[np.float64],
+    convention: str = "zyx",
+) -> NDArray[np.float64]:
+    """Decompose a 3x3 rotation matrix into Euler angles of the given convention.
+
+    Parameters
+    ----------
+    R : (3, 3) array_like
+        Rotation matrix.
+    convention : str
+        ``"zyx"`` (default, returns ``(yaw, pitch, roll)``) or
+        ``"xyz"`` (returns ``(roll, pitch, yaw)``).
+
+    Returns
+    -------
+    np.ndarray shape (3,)
+        Euler angles in radians in the chosen convention.
+    """
+    key = convention.strip().lower()
+    if key == "zyx":
+        return rotation_matrix_to_euler_zyx(R)
+    if key == "xyz":
+        return rotation_matrix_to_euler_xyz(R)
+    raise ValueError(
+        f"Unknown rotation convention {convention!r}; "
+        f"choose one of: 'zyx', 'xyz'"
+    )
+
+
 def fit_sphere(points):
     """
     Fits a sphere to a set of 3D points.

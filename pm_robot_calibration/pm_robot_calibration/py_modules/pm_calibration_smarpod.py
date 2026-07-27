@@ -565,6 +565,7 @@ class PmRobotCalibrationSmarpod:
                 assess_request = skills_srv.AssessHexapodCalibration.Request()
                 assess_response = skills_srv.AssessHexapodCalibration.Response()
                 assess_request.results_file_path = file_path
+                assess_request.write_to_joint_config = True
                 assess_response = self.assess_hexapod_calibration(
                     assess_request,
                     assess_response,
@@ -625,27 +626,28 @@ class PmRobotCalibrationSmarpod:
 
             analysis:CalibrationAnalysis = sc.run_calibration()
             
-            results_dir = get_smarpod_results_dir(
-                self.pm_calibration_utils.get_calibration_log_dir_for_current_mode(),
-                request.results_file_path,
-            )
+            # Keep assessment artifacts with the explicitly supplied measurement
+            # file. The configured calibration log directory may belong to a
+            # different machine/user and must not override the request path.
+            results_dir = get_smarpod_results_dir(request.results_file_path)
             Path(results_dir).mkdir(parents=True, exist_ok=True)
             
             analysis.save_results(file_path=get_smarpod_results_json_path(results_dir, request.results_file_path))
             
             analysis.plot_results(file_path=get_smarpod_results_base_path(results_dir, request.results_file_path))
-            
-            euler_angles = analysis.get_B_T_P_euler()
 
-            translation_pivot = analysis.get_B_T_P_translation()
+            if not request.write_to_joint_config:
+                response.success = True
+                response.message = (
+                    "Hexapod calibration assessed successfully. Results and "
+                    "plots were saved; the joint configuration was not changed."
+                )
+                self._logger.info(response.message)
+                return response
 
             translation_ball = analysis.get_J_t_P_translation(unit='m')
 
             B__T__J = analysis.get_B_T_P_ros_transform()
-
-            #self._logger.warn(f"euler: {str(euler_angles)}")
-            #self._logger.warn(f"translation pivot: {str(translation_pivot)}")
-            #self._logger.warn(f"translation ball: {str(translation_ball)}")
             
             current_transform_sphere = self.pm_calibration_utils.get_current_joint_calibration_transform(HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE)
             
@@ -653,22 +655,8 @@ class PmRobotCalibrationSmarpod:
             current_transform_sphere.translation.y = translation_ball[1]
             current_transform_sphere.translation.z = translation_ball[2]
 
-            #self._logger.warn(f"current transform: {str(current_transform_sphere)}")
-            
-            default_ball_transform:Transform = self.pm_calibration_utils.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.BALL_ENDEFFECTOR,
-                                                            parent_frame=HexapodConstants.SMARPOD_CS_PIVOT_BASE_NAME)
-            
-            self._logger.warn(f"current transform: {str(default_ball_transform)}")
-
-
-            trans_fixed_calibrated:Transform = self.pm_calibration_utils.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.FIXED_CS_SMARPOD_FRAME,
-                                                                        parent_frame=HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME)
-            
             C__T__J:Transform = self.pm_calibration_utils.pm_robot_utils.get_transform_for_frame(frame_name=HexapodConstants.SMARPOD_CS_PIVOT_BASE_NAME,
                                                                         parent_frame=HexapodConstants.CALIBRATED_CS_SMARPOD_FRAME)
-            
-            #self._logger.warn(f"Current Calibration Value: {str(trans_fixed_calibrated)}")
-            #self._logger.warn(f"Calibration Pivot: {str(C__T__J)}")
 
             sphere_cal_dict = self.pm_calibration_utils.add_joint_value_update_to_calibration_dict(
                 calibration_dict=self.pm_calibration_utils._transform_to_dict(current_transform_sphere),
@@ -708,6 +696,10 @@ class PmRobotCalibrationSmarpod:
             self.spawn_smarpod_calibration_sphere_frame()
             
             response.success = True
+            response.message = (
+                "Hexapod calibration assessed successfully and written to "
+                "the joint configuration."
+            )
             
         except FileNotFoundError as e:
             message = (

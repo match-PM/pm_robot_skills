@@ -34,12 +34,16 @@ import numpy as np
 from geometry_msgs.msg import Transform
 from scipy.spatial.transform import Rotation as SciPyRotation
 
-from pm_robot_calibration.py_modules.hexapod_calibration.data_classes import(
+from pm_robot_calibration.py_modules.hexapod_calibration.data_classes import (
     CALIBRATION_SPHERE_DIAMETER_MM,
     CALIBRATION_SPHERE_RADIUS_MM,
+    get_rotation_convention,
 )
 
-from pm_robot_calibration.py_modules.hexapod_calibration.geometry_utils import rotation_matrix_to_euler_zyx
+from pm_robot_calibration.py_modules.hexapod_calibration.geometry_utils import (
+    rotation_matrix_to_euler_xyz,
+    rotation_matrix_to_euler_zyx,
+)
 
 from pm_robot_calibration.py_modules.hexapod_calibration.sphere_calibration import (
     PivotCalibrationResult,
@@ -280,9 +284,16 @@ class CalibrationAnalysis:
         self,
         unit: str = "deg",
         as_list: bool = False,
+        convention: Optional[str] = None,
     ) -> NDArray[np.float64]:
-        """Return the ZYX intrinsic Euler angles ``(yaw, pitch, roll)``
-        of ``B_T_P``.
+        """Return the Euler angles of ``B_T_P`` in the requested convention.
+
+        The returned triplet matches the convention used to fit the
+        calibration (see :func:`data_classes.set_rotation_convention`):
+
+        * ``"zyx"`` (default if ``data_classes.get_rotation_convention()``
+          is ``"zyx"``): ZYX intrinsic Euler → ``(yaw, pitch, roll)``.
+        * ``"xyz"``: XYZ intrinsic Euler → ``(roll, pitch, yaw)``.
 
         Parameters
         ----------
@@ -291,17 +302,33 @@ class CalibrationAnalysis:
         as_list : bool
             If ``True``, return a plain Python list instead of a numpy
             array.
+        convention : str, optional
+            Override the active convention (``"zyx"`` or ``"xyz"``).
+            Defaults to whatever was active when the calibration was
+            run (``data_classes.get_rotation_convention()``).
 
         Returns
         -------
         numpy.ndarray or list
-            ``(yaw, pitch, roll)`` of the rotation of
-            :math:`B \\to P` in the chosen unit.
+            Euler angles of the rotation of :math:`B \\to P` in the
+            chosen convention and unit.
         """
         _, factor = self._resolve_angle_unit(unit)
+        if convention is None:
+            convention = get_rotation_convention()
+        key = convention.strip().lower()
+        if key == "zyx":
+            decompose = rotation_matrix_to_euler_zyx
+        elif key == "xyz":
+            decompose = rotation_matrix_to_euler_xyz
+        else:
+            raise ValueError(
+                f"Unknown rotation convention {convention!r}; "
+                f"choose one of: 'zyx', 'xyz'"
+            )
         R = np.asarray(self.pivot_calibration.B_T_P[:3, :3],
                        dtype=np.float64)
-        euler_rad = rotation_matrix_to_euler_zyx(R)
+        euler_rad = decompose(R)
         vec = np.asarray(euler_rad, dtype=np.float64).reshape(3) * factor
         if as_list:
             return [float(v) for v in vec]
@@ -474,17 +501,32 @@ class CalibrationAnalysis:
                 f"{cal_result.B_T_P[i, 1]:+.6f}  "
                 f"{cal_result.B_T_P[i, 2]:+.6f}]"
             )
-        euler_rad = rotation_matrix_to_euler_zyx(cal_result.B_T_P[:3, :3])
-        euler_deg = tuple(math.degrees(float(v)) for v in euler_rad)
-        print("    ZYX intrinsic Euler (yaw, pitch, roll):")
-        print(
-            f"      radians: ({euler_rad[0]:+.6f}, {euler_rad[1]:+.6f}, "
-            f"{euler_rad[2]:+.6f})"
-        )
-        print(
-            f"      degrees: ({euler_deg[0]:+.4f}, {euler_deg[1]:+.4f}, "
-            f"{euler_deg[2]:+.4f})"
-        )
+        active_convention = get_rotation_convention()
+        if active_convention == "xyz":
+            euler_rad = rotation_matrix_to_euler_xyz(cal_result.B_T_P[:3, :3])
+            euler_deg = tuple(math.degrees(float(v)) for v in euler_rad)
+            print("    XYZ intrinsic Euler (roll, pitch, yaw):")
+            print(
+                f"      radians: ({euler_rad[0]:+.6f}, {euler_rad[1]:+.6f}, "
+                f"{euler_rad[2]:+.6f})"
+            )
+            print(
+                f"      degrees: ({euler_deg[0]:+.4f}, {euler_deg[1]:+.4f}, "
+                f"{euler_deg[2]:+.4f})"
+            )
+        else:
+            euler_rad = rotation_matrix_to_euler_zyx(cal_result.B_T_P[:3, :3])
+            euler_deg = tuple(math.degrees(float(v)) for v in euler_rad)
+            print("    ZYX intrinsic Euler (yaw, pitch, roll):")
+            print(
+                f"      radians: ({euler_rad[0]:+.6f}, {euler_rad[1]:+.6f}, "
+                f"{euler_rad[2]:+.6f})"
+            )
+            print(
+                f"      degrees: ({euler_deg[0]:+.4f}, {euler_deg[1]:+.4f}, "
+                f"{euler_deg[2]:+.4f})"
+            )
+        print(f"    rotation convention: {active_convention}")
         print()
         print("  J__t__P (pivot point -> sphere centre, mm):")
         print(
@@ -518,7 +560,11 @@ class CalibrationAnalysis:
 
         cal = self.pivot_calibration
         res_um = cal.residuals_mm * 1000.0
-        euler_rad = rotation_matrix_to_euler_zyx(cal.B_T_P[:3, :3])
+        active_convention = get_rotation_convention()
+        if active_convention == "xyz":
+            euler_rad = rotation_matrix_to_euler_xyz(cal.B_T_P[:3, :3])
+        else:
+            euler_rad = rotation_matrix_to_euler_zyx(cal.B_T_P[:3, :3])
         euler_deg = tuple(math.degrees(float(v)) for v in euler_rad)
         data = {
             "metadata": {
@@ -528,6 +574,7 @@ class CalibrationAnalysis:
                 "calibration_fixed_reference_frame": self.fixed_reference_frame,
                 "calibration_sphere_diameter_mm": self.diameter_mm,
                 "calibration_sphere_radius_mm": self.radius_mm,
+                "rotation_convention": active_convention,
                 "n_sphere_sets": self.n_sets,
                 "n_position_sets": self.n_position_sets,
                 "sphere_ids": self.sphere_ids,
@@ -562,6 +609,22 @@ class CalibrationAnalysis:
                         [float(cal.B_T_P[i, j]) for j in range(3)]
                         for i in range(3)
                     ],
+                    "rotation_euler_rad": {
+                        "roll":  float(euler_rad[0]),
+                        "pitch": float(euler_rad[1]),
+                        "yaw":   float(euler_rad[2]),
+                    },
+                    "rotation_euler_deg": {
+                        "roll":  float(euler_deg[0]),
+                        "pitch": float(euler_deg[1]),
+                        "yaw":   float(euler_deg[2]),
+                    },
+                    "rotation_euler_convention": active_convention,
+                    # Backwards-compat: keep the ZYX-named keys (yaw/pitch/roll)
+                    # populated for both conventions.  Under "xyz" the
+                    # value of "roll" is the same as "roll" above, but the
+                    # "yaw" key is the *last* intrinsic rotation (the
+                    # world-axis yaw), not the body-axis yaw.
                     "rotation_euler_zyx_rad": {
                         "yaw":   float(euler_rad[0]),
                         "pitch": float(euler_rad[1]),
