@@ -2,6 +2,7 @@ from urllib import request, response
 import rclpy
 import copy
 import time
+import threading
 import random
 
 from rclpy.node import Node
@@ -52,7 +53,7 @@ class PmSkills(Node):
     PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR = 'Gonio_Left_Part'
     PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR = 'Gonio_Right_Part'
     GRIP_RELATIVE_LIFT_DISTANCE = 0.05
-    RELEASE_LIFT_DISTANCE = 0.05
+    RELEASE_LIFT_DISTANCE = 0.02
     GRIP_APPROACH_OFFSET = 0.05
     #GRIP_SENSING_START_OFFSET = 0.0005
     GRIP_SENSING_START_OFFSET = 0.000500  # 500 um
@@ -123,6 +124,13 @@ class PmSkills(Node):
         self.smart_gripper_force_client = self.create_client(pm_msg_srv.GripperGetForces, '/SmarAct_Gripper/GetForces')
         
         self.dispense_2k_unity_client = self.create_client(EmptyWithSuccess, '/unity_skills/dispense_2k_unity')
+
+        # Signalled by Unity when a 2K dispense motion has actually finished. The
+        # dispense service only acks "accepted"; completion arrives on this topic.
+        # Subscription is in the reentrant group so it can fire while the (mutually
+        # exclusive) dispense_2k_at_path callback is blocked waiting on the event.
+        self.dispense_2k_unity_done_event = threading.Event()
+        self.dispense_2k_unity_done_subscriber = self.create_subscription(std_msg.Bool, '/unity_skills/dispense_2k_done', self.dispense_2k_unity_done_callback, 10, callback_group=self.callback_group_re)
 
         self.simtime_subscriber = self.create_subscription(std_msg.Bool, '/sim_time', self.simtime_callback, 10, callback_group=self.callback_group_re)
 
@@ -1688,17 +1696,16 @@ class PmSkills(Node):
                                                                 state=False)
             
 
-            # open gripper if it is a parallel gripper
+            # open gripper if it is a parallel gripper, before moving down onto the part
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
                 self.logger.info(f"Opening parallel 1 jaw gripper for component '{request.component_name}'")
-                
-                # TODO: Implement the actual gripper opening logic here
+
+                # TODO: Implement the actual gripper opening logic here (no 1-jaw service available yet)
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
                 self.logger.info(f"Opening parallel 2 jaw gripper for component '{request.component_name}'")
                 self.pm_robot_utils.open_gripper_2_jaws()
-                # TODO: Implement the actual gripper opening logic here
-            
+
 
             move_tool_to_part_success, move_part_msg = self.move_gripper_to_frame(gripping_frame, z_offset=0.0)
 
@@ -1714,14 +1721,13 @@ class PmSkills(Node):
                     raise PmRobotError(f"Failed to enable vacuum for component '{request.component_name}'!")
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
-                self.logger.info(f"Opening parallel 1 jaw gripper for component '{request.component_name}'")
+                self.logger.info(f"Closing parallel 1 jaw gripper for component '{request.component_name}'")
 
-                # TODO: Implement the actual gripper opening logic here
+                # TODO: Implement the actual gripper closing logic here (no 1-jaw service available yet)
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
-                self.logger.info(f"Opening parallel 2 jaw gripper for component '{request.component_name}'")
-                self.pm_robot_utils.set_gripper_2_jaws_position(0.1)
-                # TODO: Implement the actual gripper opening logic here
+                self.logger.info(f"Closing parallel 2 jaw gripper for component '{request.component_name}'")
+                self.pm_robot_utils.close_gripper_2_jaws()
 
             disable_success = True
 
@@ -1954,10 +1960,21 @@ class PmSkills(Node):
             if not attach_component_success:
                 raise PmRobotError(f"Failed to attach component '{gripped_component}' to component '{target_component}'")
             
-            vaccum_off_success = self.pm_robot_utils.set_tool_vaccum(False)
+            # release the component depending on the active tool type
+            if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == VacuumGripperConfig.TOOL_VACUUM_IDENT:
+                vaccum_off_success = self.pm_robot_utils.set_tool_vaccum(False)
 
-            if not vaccum_off_success:
-                raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
+                if not vaccum_off_success:
+                    raise PmRobotError(f"Failed to deactivate vacuum for component '{gripped_component}'")
+
+            elif self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_1_JAW_IDENT:
+                self.logger.info(f"Opening parallel 1 jaw gripper to release component '{gripped_component}'")
+
+                # TODO: Implement the actual gripper opening logic here (no 1-jaw service available yet)
+
+            elif self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
+                self.logger.info(f"Opening parallel 2 jaw gripper to release component '{gripped_component}'")
+                self.pm_robot_utils.open_gripper_2_jaws()
 
             move_relatively_success, lift_msg = self.lift_gripper_relative(self.RELEASE_LIFT_DISTANCE)
             if not move_relatively_success:
@@ -2746,6 +2763,10 @@ class PmSkills(Node):
 
         return response
 
+    def dispense_2k_unity_done_callback(self, msg: std_msg.Bool):
+        if msg.data:
+            self.dispense_2k_unity_done_event.set()
+
     def dispense_2k_at_path(self, request: pm_msg_srv.DispenseAtPath.Request, response:pm_msg_srv.DispenseAtPath.Response):
 
         try:
@@ -2755,15 +2776,21 @@ class PmSkills(Node):
             disp_gen.load_from_file(request.sequence_file_path)
 
             self.logger.info(f"Loaded dispense sequence from file '{request.sequence_file_path}'!")
-
-            if not (self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0)):
-                raise PmRobotError(f"Service '{self.pm_robot_utils.client_move_robot_cam1_to_frame.srv_name}' not available!")
             
             move_request = pm_moveit_srv.MoveToFrame.Request()
-            move_request.execute_movement = False
+            move_request.execute_movement = True
             move_request.target_frame = request.target_frame_disp
 
-            response_move: pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+            self.pm_robot_utils.prepare_dispenser(move_request) 
+
+
+            if not (self.pm_robot_utils.client_move_robot_1k_dispenser_to_frame.wait_for_service(timeout_sec=1.0)):
+                raise PmRobotError(f"Service '{self.pm_robot_utils.client_move_robot_1k_dispenser_to_frame.srv_name}' not available!")
+            
+            response_move: pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_1k_dispenser_to_frame.call(move_request)
+
+            if not response_move.success:
+                raise PmRobotError(f"Failed to move dispenser to frame '{request.target_frame_disp}': {response_move.message}")
 
             start_joints = Point() 
             start_joints.x = response_move.joint_values[0]
@@ -2800,7 +2827,7 @@ class PmSkills(Node):
             elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
                 self.logger.warn(f"Unity mode detected!")
 
-                self.pm_robot_utils.extend_2k_dispenser()
+                # self.pm_robot_utils.extend_2k_dispenser()
 
                 self.logger.warn(f"Switching off controller!")
 
@@ -2808,15 +2835,26 @@ class PmSkills(Node):
 
                 time.sleep(3.0) # wait for controller switch
 
-                # Call the Unity-specific dispensing service
+                # Call the Unity-specific dispensing service. The service only acks
+                # that the motion was accepted/started; completion is signalled later
+                # on '/unity_skills/dispense_2k_done'. Clear the event before calling
+                # so we don't consume a stale signal from a previous run.
+                self.dispense_2k_unity_done_event.clear()
                 unity_request = EmptyWithSuccess.Request()
                 unity_response = self.dispense_2k_unity_client.call(unity_request)
-                time.sleep(10.0)
-                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True) 
-                time.sleep(5.0) # wait for controller switch
+                self.logger.info(f"Unity dispensing service response: success={unity_response.success}, message='{unity_response.message}'")
 
                 if not unity_response.success:
                     raise PmRobotError(f"Unity dispensing service failed: {unity_response.message}")
+
+                # Block until Unity reports the dispense motion has finished.
+                self.logger.info("Waiting for Unity to finish the dispense motion...")
+                if not self.dispense_2k_unity_done_event.wait(timeout=600.0):
+                    raise PmRobotError("Timed out waiting for Unity dispense completion signal!")
+                self.logger.info("Unity dispense motion finished.")
+
+                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True)
+                time.sleep(5.0) # wait for controller switch
             else:
                 # only for gazebo
                 self._test_gcode(g_code, start_frame=request.target_frame_disp)
@@ -2836,7 +2874,11 @@ class PmSkills(Node):
 
         finally:
             
-            self.pm_robot_utils.retract_2k_dispenser()
+            # self.pm_robot_utils.retract_2k_dispenser()
+
+            self.pm_robot_utils.retract_dispenser()
+            time.sleep(0.5)
+            self.pm_robot_utils.close_protection()
 
             success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0,0,-0.05,time=0.5) # move up after dispensing to be safe
             if not success:

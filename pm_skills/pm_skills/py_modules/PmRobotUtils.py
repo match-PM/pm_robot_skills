@@ -773,22 +773,23 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         tool_type = self.pm_robot_config.tool.get_active_tool_type()
 
         if tool_type == self.pm_robot_config.tool._gripper_vacuum.TOOL_VACUUM_IDENT:
-            gripper_tip = self.pm_robot_config.tool._gripper_vacuum.TOOL_TIP_LINK_NAME
+            gripper_links = [self.pm_robot_config.tool._gripper_vacuum.TOOL_TIP_LINK_NAME]
 
         elif tool_type == self.pm_robot_config.tool._gripper_1_jaw.TOOL_GRIPPER_1_JAW_IDENT:
-            raise PmRobotError("Not yet implemented for 1 jaw gripper!")
+            gripper_links = self.pm_robot_config.tool._gripper_1_jaw.TOOL_GRIPPER_1_JAW_LINK_NAMES
 
         elif tool_type == self.pm_robot_config.tool._gripper_2_jaw.TOOL_GRIPPER_2_JAW_IDENT:
-            raise PmRobotError("Not yet implemented for 2 jaw gripper!")
-        
+            gripper_links = self.pm_robot_config.tool._gripper_2_jaw.TOOL_GRIPPER_2_JAW_LINK_NAMES
+
         else:
             raise PmRobotError(f"Tool type '{tool_type}' not supported for setting gripper link collision!")
 
-        #tip_name = 'PM_Robot_Vacuum_Tool_Tip'
-
-        self.set_collision(part_name, 
-                            gripper_tip,
-                            state)
+        # Disable/enable collision between the part and every gripper link that can contact it
+        # (the vacuum tip, or the individual jaws of a parallel gripper).
+        for gripper_link in gripper_links:
+            self.set_collision(part_name,
+                               gripper_link,
+                               state)
             
     def set_gripper_component_collision(self, component_name:str, state:bool):
         """
@@ -849,9 +850,9 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         Set the position of the 2-jaw gripper jaws.
 
         Args:
-            position (float): Target jaw opening position (meters).
-                - 0.0  -> jaws fully closed
-                - 0.1  -> jaws fully open (maximum opening)
+            position (float): Target jaw position (meters).
+                - 0.0  -> jaws fully open
+                - 0.1  -> jaws fully closed
         Raises:
             PmRobotError: If the service is not available or the request fails.
         """
@@ -885,7 +886,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         """
         Fully close the 2-jaw gripper (position = 0.1).
         """
-        self.set_gripper_2_jaws_position(0.1)
+        self.set_gripper_2_jaws_position(0.001)
 
         return None
 
