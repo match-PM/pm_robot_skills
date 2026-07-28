@@ -32,6 +32,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ForceScan.srv"
   "srv/EdgeScan.srv"
   "srv/AssessHexapodCalibration.srv"
+  "srv/DispensePathUnity.srv"
   "action/EmptyCalibration.action"
   "action/SmarpodCalibration.action"
   "action/TestHexapodCalibration.action"

@@ -29,6 +29,135 @@ CALIBRATION_SPHERE_DIAMETER_MM: float = 6.35
 CALIBRATION_SPHERE_RADIUS_MM: float = CALIBRATION_SPHERE_DIAMETER_MM / 2.0
 
 
+# ============================================================ rotation conv.
+# The hexapod's commanded pose is stored as three Euler angles
+# (rx_cmd, ry_cmd, rz_cmd) in degrees.  The convention used to convert
+# them into the 3x3 rotation block of the commanded P__T__Jn transform
+# is configurable at runtime via :func:`set_rotation_convention`.
+#
+# Supported conventions:
+#   * ``"zyx"`` (default) -- ZYX intrinsic Euler: ``R = Rz @ Ry @ Rx``
+#     (roll about X applied first, then pitch about Y, then yaw about Z
+#     in the *moving* body frame).  This is the convention originally
+#     hard-coded into ``SphereSet.sphere_set_transform`` and matches the
+#     calibration measurements well.
+#   * ``"xyz"`` -- XYZ intrinsic Euler: ``R = Rx @ Ry @ Rz``
+#     (roll about X applied first, then pitch about Y, then yaw about Z
+#     in the *world* frame).  Useful for investigating whether the
+#     hexapod kinematics use a different convention.
+#
+# All other modules (e.g. ``geometry_utils.rotation_matrix_to_euler``,
+# ``CalibrationAnalysis.get_B_T_P_euler``) read back the active
+# convention from :func:`get_rotation_convention` so the reported
+# decomposition of ``B__T__P`` matches the convention used to fit it.
+SUPPORTED_ROTATION_CONVENTIONS: tuple[str, ...] = ("zyx", "xyz")
+_DEFAULT_ROTATION_CONVENTION: str = "zyx"
+_active_rotation_convention: str = _DEFAULT_ROTATION_CONVENTION
+
+
+def get_rotation_convention() -> str:
+    """Return the active hexapod rotation convention (``"zyx"`` or ``"xyz"``)."""
+    return _active_rotation_convention
+
+
+def set_rotation_convention(convention: str) -> str:
+    """
+    Set the hexapod rotation convention used by ``SphereSet``.
+
+    Parameters
+    ----------
+    convention : str
+        Either ``"zyx"`` (ZYX intrinsic Euler, ``R = Rz @ Ry @ Rx``,
+        the default) or ``"xyz"`` (XYZ intrinsic Euler, ``R = Rx @ Ry @ Rz``).
+
+    Returns
+    -------
+    str
+        The previous convention, so callers can restore it.
+
+    Raises
+    ------
+    ValueError
+        If ``convention`` is not one of the supported values.
+
+    Examples
+    --------
+    >>> previous = set_rotation_convention("xyz")
+    >>> # ... run calibration ...
+    >>> set_rotation_convention(previous)
+
+    Notes
+    -----
+    The convention only affects the *commanded* ``P__T__Jn`` transform
+    that is fed into the pivot calibration.  The pivot calibration
+    solver and the resulting ``B__T__P`` / ``J__t__P`` are unchanged in
+    math; the only difference is which kinematic model is assumed.
+
+    """
+    global _active_rotation_convention
+    key = convention.strip().lower()
+    if key not in SUPPORTED_ROTATION_CONVENTIONS:
+        valid = ", ".join(SUPPORTED_ROTATION_CONVENTIONS)
+        raise ValueError(
+            f"Unknown rotation convention {convention!r}; "
+            f"choose one of: {valid}"
+        )
+    previous = _active_rotation_convention
+    _active_rotation_convention = key
+    return previous
+
+
+def rotation_matrix_zyx(rx: float, ry: float, rz: float) -> np.ndarray:
+    """ZYX intrinsic Euler: ``R = Rz @ Ry @ Rx`` (default convention)."""
+    cx, sx = np.cos(rx), np.sin(rx)
+    cy, sy = np.cos(ry), np.sin(ry)
+    cz, sz = np.cos(rz), np.sin(rz)
+    Rx = np.array([[1.0, 0.0, 0.0],
+                   [0.0,  cx, -sx],
+                   [0.0,  sx,  cx]])
+    Ry = np.array([[ cy, 0.0,  sy],
+                   [0.0, 1.0, 0.0],
+                   [-sy, 0.0,  cy]])
+    Rz = np.array([[ cz, -sz, 0.0],
+                   [ sz,  cz, 0.0],
+                   [0.0, 0.0, 1.0]])
+    return Rz @ Ry @ Rx
+
+
+def rotation_matrix_xyz(rx: float, ry: float, rz: float) -> np.ndarray:
+    """XYZ intrinsic Euler: ``R = Rx @ Ry @ Rz`` (alternative convention)."""
+    cx, sx = np.cos(rx), np.sin(rx)
+    cy, sy = np.cos(ry), np.sin(ry)
+    cz, sz = np.cos(rz), np.sin(rz)
+    Rx = np.array([[1.0, 0.0, 0.0],
+                   [0.0,  cx, -sx],
+                   [0.0,  sx,  cx]])
+    Ry = np.array([[ cy, 0.0,  sy],
+                   [0.0, 1.0, 0.0],
+                   [-sy, 0.0,  cy]])
+    Rz = np.array([[ cz, -sz, 0.0],
+                   [ sz,  cz, 0.0],
+                   [0.0, 0.0, 1.0]])
+    return Rx @ Ry @ Rz
+
+
+def build_rotation_matrix(rx: float, ry: float, rz: float) -> np.ndarray:
+    """
+    Build the 3x3 rotation matrix using the currently active convention.
+
+    Dispatched by :func:`get_rotation_convention`.
+
+    """
+    convention = _active_rotation_convention
+    if convention == "zyx":
+        return rotation_matrix_zyx(rx, ry, rz)
+    if convention == "xyz":
+        return rotation_matrix_xyz(rx, ry, rz)
+    raise ValueError(  # pragma: no cover - guarded by set_rotation_convention
+        f"Unknown rotation convention {convention!r}"
+    )
+
+
 @dataclass
 class Point:
     x: float
@@ -309,24 +438,17 @@ class SphereSet:
 
     @property
     def sphere_set_transform(self) -> Optional[NDArray[np.float64]]:
-        """4x4 commanded transform for this sphere set."""
+        """4x4 commanded transform for this sphere set.
+
+        The rotation block is built from ``rx_cmd``, ``ry_cmd``,
+        ``rz_cmd`` using the hexapod's currently active rotation
+        convention (see :func:`set_rotation_convention`).  The default
+        is ``"zyx"`` (ZYX intrinsic Euler, ``R = Rz @ Ry @ Rx``).
+        """
         rx_rad = np.deg2rad(self.rx_cmd)
         ry_rad = np.deg2rad(self.ry_cmd)
         rz_rad = np.deg2rad(self.rz_cmd)
-
-        Rx = np.array([[1, 0, 0],
-                       [0, np.cos(rx_rad), -np.sin(rx_rad)],
-                       [0, np.sin(rx_rad), np.cos(rx_rad)]])
-
-        Ry = np.array([[np.cos(ry_rad), 0, np.sin(ry_rad)],
-                       [0, 1, 0],
-                       [-np.sin(ry_rad), 0, np.cos(ry_rad)]])
-
-        Rz = np.array([[np.cos(rz_rad), -np.sin(rz_rad), 0],
-                       [np.sin(rz_rad), np.cos(rz_rad), 0],
-                       [0, 0, 1]])
-
-        R = Rz @ Ry @ Rx
+        R = build_rotation_matrix(rx_rad, ry_rad, rz_rad)
         t = np.array([self.x_cmd, self.y_cmd, 0.0])
 
         transform = np.eye(4)
@@ -336,24 +458,14 @@ class SphereSet:
 
     @property
     def sphere_set_rotation_matrix(self) -> Optional[NDArray[np.float64]]:
-        """3x3 commanded rotation matrix for this sphere set."""
+        """3x3 commanded rotation matrix for this sphere set.
+
+        Uses the active rotation convention (see :func:`get_rotation_convention`).
+        """
         rx_rad = np.deg2rad(self.rx_cmd)
         ry_rad = np.deg2rad(self.ry_cmd)
         rz_rad = np.deg2rad(self.rz_cmd)
-
-        Rx = np.array([[1, 0, 0],
-                       [0, np.cos(rx_rad), -np.sin(rx_rad)],
-                       [0, np.sin(rx_rad), np.cos(rx_rad)]])
-
-        Ry = np.array([[np.cos(ry_rad), 0, np.sin(ry_rad)],
-                       [0, 1, 0],
-                       [-np.sin(ry_rad), 0, np.cos(ry_rad)]])
-
-        Rz = np.array([[np.cos(rz_rad), -np.sin(rz_rad), 0],
-                       [np.sin(rz_rad), np.cos(rz_cmd := rz_rad), 0],
-                       [0, 0, 1]])
-
-        return Rz @ Ry @ Rx
+        return build_rotation_matrix(rx_rad, ry_rad, rz_rad)
 
     @property
     def sphere_set_translation_vector(self) -> Optional[NDArray[np.float64]]:

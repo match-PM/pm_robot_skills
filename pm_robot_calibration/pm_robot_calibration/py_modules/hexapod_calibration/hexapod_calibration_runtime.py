@@ -98,10 +98,12 @@ def get_test_calibrate_smarpod_plot_path(test_results_file_path: str) -> str:
     return f"{stem}_measurements.png"
 
 
-def get_smarpod_results_dir(calibration_log_dir: str, measurement_file_path: str) -> str:
+def get_smarpod_results_dir(measurement_file_path: str) -> str:
+    """Return the results directory next to the supplied measurement file."""
+    measurement_dir = os.path.dirname(os.path.abspath(measurement_file_path))
     measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
     return os.path.join(
-        calibration_log_dir,
+        measurement_dir,
         'calibrate_smarpod_results',
         measurement_stem,
         ''
@@ -110,7 +112,7 @@ def get_smarpod_results_dir(calibration_log_dir: str, measurement_file_path: str
 
 def get_smarpod_results_base_path(results_dir: str, measurement_file_path: str) -> str:
     measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
-    return os.path.join(results_dir, measurement_stem)
+    return os.path.join(results_dir, f"{measurement_stem}.png")
 
 
 def get_smarpod_results_json_path(results_dir: str, measurement_file_path: str) -> str:

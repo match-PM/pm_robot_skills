@@ -9,13 +9,13 @@ All residuals are plotted in **micrometres**.
 
 Plots produced (default filenames shown):
 
-1. ``<stem>_01_3d_centers.png`` -- measured vs predicted sphere centres
-   in 3D, coloured by position set.
-2. ``<stem>_02_residual_vs_rx.png`` -- per-axis residual vs commanded rx.
-3. ``<stem>_03_residual_vs_x.png`` -- per-axis residual vs commanded x
+1. ``<stem>_01_residual_vs_rx.png`` -- per-axis residual vs commanded rx.
+2. ``<stem>_02_residual_vs_x.png`` -- per-axis residual vs commanded x
    (with a y_cmd background band so the position sets separate).
-4. ``<stem>_04_residual_norms.png`` -- residual-norm bar chart, coloured
-   by position set.
+3. ``<stem>_03_residual_norms.png`` -- total 3D residual magnitude,
+   coloured by position set.
+4. ``<stem>_04_signed_radial_distance_errors.png`` -- signed
+   radial-distance error relative to the solved pivot.
 5. ``<stem>_05_sphere_fit_error_<pos_id>.png`` -- for every position set
    (x_cmd, y_cmd constant), the radial fit residual of every measured
    point to the fitted sphere, grouped by sphere id (so the 9 balls
@@ -32,6 +32,10 @@ from numpy.typing import NDArray
 import matplotlib
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
+from matplotlib.projections import get_projection_names
+
+
+_HAS_3D_PROJECTION = "3d" in get_projection_names()
 
 
 # ----------------------------------------------------------------- helpers
@@ -103,30 +107,44 @@ def _plot_3d_centers(
 ) -> plt.Figure:
     """3D scatter of measured vs predicted sphere centres."""
     fig = plt.figure(figsize=(9, 7), constrained_layout=True)
-    ax = fig.add_subplot(1, 1, 1, projection="3d")
+    subplot_kwargs = {"projection": "3d"} if _HAS_3D_PROJECTION else {}
+    ax = fig.add_subplot(1, 1, 1, **subplot_kwargs)
     for pid in unique_position_ids:
         mask = np.array([pid == p for p in position_ids])
+        measured_coordinates = (
+            (measured[mask, 0], measured[mask, 1], measured[mask, 2])
+            if _HAS_3D_PROJECTION
+            else (measured[mask, 0], measured[mask, 1])
+        )
+        predicted_coordinates = (
+            (predicted[mask, 0], predicted[mask, 1], predicted[mask, 2])
+            if _HAS_3D_PROJECTION
+            else (predicted[mask, 0], predicted[mask, 1])
+        )
         ax.scatter(
-            measured[mask, 0], measured[mask, 1], measured[mask, 2],
-            color=colour_by_id[pid], marker="o", s=30,
+            *measured_coordinates, color=colour_by_id[pid], marker="o", s=30,
             label=f"measured {pid}",
         )
         ax.scatter(
-            predicted[mask, 0], predicted[mask, 1], predicted[mask, 2],
-            color=colour_by_id[pid], marker="x", s=40,
+            *predicted_coordinates, color=colour_by_id[pid], marker="x", s=40,
         )
     for n in range(measured.shape[0]):
-        ax.plot(
+        coordinates = [
             [measured[n, 0], predicted[n, 0]],
             [measured[n, 1], predicted[n, 1]],
-            [measured[n, 2], predicted[n, 2]],
-            color=colours[n], alpha=0.4, linewidth=0.8,
-        )
+        ]
+        if _HAS_3D_PROJECTION:
+            coordinates.append([measured[n, 2], predicted[n, 2]])
+        ax.plot(*coordinates, color=colours[n], alpha=0.4, linewidth=0.8)
     ax.set_xlabel("X (mm)")
     ax.set_ylabel("Y (mm)")
-    ax.set_zlabel("Z (mm)")
-    ax.set_title(f"{title_prefix}\nmeasured (●) vs predicted (×) sphere centres\n"
-                 "lines: per-set residual")
+    if _HAS_3D_PROJECTION:
+        ax.set_zlabel("Z (mm)")
+    projection_label = "3D" if _HAS_3D_PROJECTION else "XY projection"
+    ax.set_title(
+        f"{title_prefix}\nmeasured (●) vs predicted (×) sphere centres "
+        f"({projection_label})\nlines: per-set residual"
+    )
     ax.legend(loc="upper left", fontsize=8, framealpha=0.8)
     return fig
 
@@ -201,7 +219,7 @@ def _plot_residual_norms(
     colour_by_id: dict,
     title_prefix: str,
 ) -> plt.Figure:
-    """Residual-norm bar chart, sorted by position set, then rx, ry, rz."""
+    """Total 3D residual magnitudes, sorted by position set and command."""
     fig, ax = plt.subplots(figsize=(13, 6), constrained_layout=True)
     composite = sorted(
         range(len(set_ids)),
@@ -220,8 +238,8 @@ def _plot_residual_norms(
         [_format_short_label(lbl) for lbl in sorted_labels],
         rotation=90, fontsize=6,
     )
-    ax.set_ylabel("|residual| (um)")
-    ax.set_title(f"{title_prefix}\nPer-set residual norm "
+    ax.set_ylabel("3D error magnitude (um)")
+    ax.set_title(f"{title_prefix}\nPer-set total 3D error magnitude "
                  "(sorted by position set, then rx, ry, rz)")
     ax.grid(True, axis="y", alpha=0.3)
     handles = [
@@ -230,6 +248,35 @@ def _plot_residual_norms(
     ]
     ax.legend(handles, unique_position_ids, fontsize=8, loc="upper right",
               title="position set", title_fontsize=8)
+    return fig
+
+
+def _plot_signed_radial_distance_errors(
+    set_ids: list[str],
+    cmds: dict,
+    signed_distance_errors_um: NDArray[np.float64],
+    colours: list,
+    unique_position_ids: list[str],
+    colour_by_id: dict,
+    title_prefix: str,
+) -> plt.Figure:
+    """Signed radial-distance errors, sorted by position set and command."""
+    fig = _plot_residual_norms(
+        set_ids,
+        cmds,
+        signed_distance_errors_um,
+        colours,
+        unique_position_ids,
+        colour_by_id,
+        title_prefix,
+    )
+    ax = fig.axes[0]
+    ax.axhline(0.0, color="k", linewidth=0.6, linestyle="--")
+    ax.set_ylabel("signed radial-distance error (um)\n"
+                  "= predicted distance - measured distance")
+    ax.set_title(f"{title_prefix}\nPer-set signed radial-distance error "
+                 "(relative to solved pivot; sorted by position set, "
+                 "then rx, ry, rz)")
     return fig
 
 
@@ -389,6 +436,11 @@ def plot_pivot_calibration_errors(
     predicted = np.asarray(result.predicted_centers_mm, dtype=np.float64)
     residuals = np.asarray(result.residuals_mm, dtype=np.float64)
     residual_norms = np.linalg.norm(residuals, axis=1)
+    pivot_mm = np.asarray(result.B_T_P[:3, 3], dtype=np.float64)
+    signed_distance_errors = (
+        np.linalg.norm(predicted - pivot_mm, axis=1)
+        - np.linalg.norm(measured - pivot_mm, axis=1)
+    )
     set_ids = list(result.sphere_set_ids)
     cmds = _extract_set_command(sphere_sets, set_ids)
 
@@ -410,32 +462,26 @@ def plot_pivot_calibration_errors(
         fontsize=14,
     )
 
-    # Panel 1: 3D scatter of measured vs predicted, connected by lines.
-    ax3d = fig.add_subplot(2, 2, 1, projection="3d")
-    for pid in unique_position_ids:
-        mask = np.array([pid == p for p in position_ids])
-        ax3d.scatter(
-            measured[mask, 0], measured[mask, 1], measured[mask, 2],
-            color=colour_by_id[pid], marker="o", s=30,
-            label=f"measured {pid}",
-        )
-        ax3d.scatter(
-            predicted[mask, 0], predicted[mask, 1], predicted[mask, 2],
-            color=colour_by_id[pid], marker="x", s=40,
-        )
-    for n in range(measured.shape[0]):
-        ax3d.plot(
-            [measured[n, 0], predicted[n, 0]],
-            [measured[n, 1], predicted[n, 1]],
-            [measured[n, 2], predicted[n, 2]],
-            color=colours[n], alpha=0.4, linewidth=0.8,
-        )
-    ax3d.set_xlabel("X (mm)")
-    ax3d.set_ylabel("Y (mm)")
-    ax3d.set_zlabel("Z (mm)")
-    ax3d.set_title("Measured (●) vs predicted (×) sphere centres\n"
-                   "lines: per-set residual")
-    ax3d.legend(loc="upper left", fontsize=8, framealpha=0.8)
+    composite = sorted(
+        range(len(set_ids)),
+        key=lambda n: (position_ids[n], cmds[set_ids[n]]["rx_cmd"],
+                       cmds[set_ids[n]]["ry_cmd"],
+                       cmds[set_ids[n]]["rz_cmd"]),
+    )
+    sorted_colours = [colours[i] for i in composite]
+    sorted_labels = [set_ids[i] for i in composite]
+
+    # Panel 1: signed radial-distance error.
+    ax1 = fig.add_subplot(2, 2, 1)
+    ax1.bar(
+        range(len(composite)),
+        signed_distance_errors[composite] * 1000.0,
+        color=sorted_colours,
+    )
+    ax1.axhline(0.0, color="k", linewidth=0.6, linestyle="--")
+    ax1.set_ylabel("signed radial-distance error (um)")
+    ax1.set_title("Signed radial-distance error relative to solved pivot")
+    ax1.grid(True, axis="y", alpha=0.3)
 
     # Panel 2: residual per axis vs commanded rx.
     ax2 = fig.add_subplot(2, 2, 2)
@@ -482,23 +528,16 @@ def plot_pivot_calibration_errors(
 
     # Panel 4: residual-norm bar chart, coloured by position set.
     ax4 = fig.add_subplot(2, 2, 4)
-    composite = sorted(
-        range(len(set_ids)),
-        key=lambda n: (position_ids[n], cmds[set_ids[n]]["rx_cmd"],
-                       cmds[set_ids[n]]["ry_cmd"],
-                       cmds[set_ids[n]]["rz_cmd"]),
-    )
     sorted_residuals = residual_norms[composite] * 1000.0
-    sorted_colours = [colours[i] for i in composite]
-    sorted_labels = [set_ids[i] for i in composite]
     ax4.bar(range(len(sorted_residuals)), sorted_residuals, color=sorted_colours)
     ax4.set_xticks(range(len(sorted_labels)))
     ax4.set_xticklabels(
         [_format_short_label(lbl) for lbl in sorted_labels],
         rotation=90, fontsize=6,
     )
-    ax4.set_ylabel("|residual| (um)")
-    ax4.set_title("Per-set residual norm (sorted by position set, then rx, ry, rz)")
+    ax4.set_ylabel("3D error magnitude (um)")
+    ax4.set_title("Per-set total 3D error magnitude "
+                  "(sorted by position set, then rx, ry, rz)")
     ax4.grid(True, axis="y", alpha=0.3)
     handles = [
         plt.Rectangle((0, 0), 1, 1, color=colour_by_id[pid])
@@ -544,6 +583,11 @@ def plot_pivot_calibration_individual(
     predicted = np.asarray(result.predicted_centers_mm, dtype=np.float64)
     residuals = np.asarray(result.residuals_mm, dtype=np.float64)
     residual_norms = np.linalg.norm(residuals, axis=1)
+    pivot_mm = np.asarray(result.B_T_P[:3, 3], dtype=np.float64)
+    signed_distance_errors = (
+        np.linalg.norm(predicted - pivot_mm, axis=1)
+        - np.linalg.norm(measured - pivot_mm, axis=1)
+    )
     set_ids = list(result.sphere_set_ids)
     cmds = _extract_set_command(sphere_sets, set_ids)
 
@@ -560,6 +604,7 @@ def plot_pivot_calibration_individual(
     y_cmd = np.array([cmds[sid]["y_cmd"] for sid in set_ids])
     residuals_um = residuals * 1000.0
     residual_norms_um = residual_norms * 1000.0
+    signed_distance_errors_um = signed_distance_errors * 1000.0
 
     title_prefix = title or "Pivot calibration"
 
@@ -596,39 +641,39 @@ def plot_pivot_calibration_individual(
 
     out_paths: list[str] = []
 
-    # 1. 3D measured vs predicted centres.
-    fig = _plot_3d_centers(
-        measured, predicted, colours, position_ids,
-        unique_position_ids, colour_by_id, title_prefix,
-    )
-    p = _build_path(base_path, "_01_3d_centers")
-    fig.savefig(p, dpi=140)
-    plt.close(fig)
-    out_paths.append(p)
-
-    # 2. Residual per axis vs rx.
+    # 1. Residual per axis vs rx.
     fig = _plot_residual_vs_rx(rx_cmd, residuals_um, title_prefix)
-    p = _build_path(base_path, "_02_residual_vs_rx")
+    p = _build_path(base_path, "_01_residual_vs_rx")
     fig.savefig(p, dpi=140)
     plt.close(fig)
     out_paths.append(p)
 
-    # 3. Residual per axis vs x (with position-set background bands).
+    # 2. Residual per axis vs x (with position-set background bands).
     fig = _plot_residual_vs_x(
         x_cmd, y_cmd, ry_cmd, residuals_um,
         unique_position_ids, colour_by_id, position_ids, title_prefix,
     )
-    p = _build_path(base_path, "_03_residual_vs_x")
+    p = _build_path(base_path, "_02_residual_vs_x")
     fig.savefig(p, dpi=140)
     plt.close(fig)
     out_paths.append(p)
 
-    # 4. Residual-norm bar chart.
+    # 3. Total 3D error-magnitude bar chart.
     fig = _plot_residual_norms(
         set_ids, cmds, residual_norms_um, colours,
         unique_position_ids, colour_by_id, title_prefix,
     )
-    p = _build_path(base_path, "_04_residual_norms")
+    p = _build_path(base_path, "_03_residual_norms")
+    fig.savefig(p, dpi=140)
+    plt.close(fig)
+    out_paths.append(p)
+
+    # 4. Signed radial-distance-error bar chart.
+    fig = _plot_signed_radial_distance_errors(
+        set_ids, cmds, signed_distance_errors_um, colours,
+        unique_position_ids, colour_by_id, title_prefix,
+    )
+    p = _build_path(base_path, "_04_signed_radial_distance_errors")
     fig.savefig(p, dpi=140)
     plt.close(fig)
     out_paths.append(p)
