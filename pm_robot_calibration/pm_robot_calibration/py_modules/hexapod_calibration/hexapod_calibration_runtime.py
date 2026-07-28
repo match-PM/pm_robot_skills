@@ -15,7 +15,9 @@ def get_hexapod_calibration_positions_mm() -> list[tuple[float, float]]:
 
 
 def get_hexapod_orientation_commands() -> list[dict]:
-    angles = [1.5, 2.5]
+    #angles = [1.5, 2.5]
+    angles = [2, 4.5]
+    
     pose_sequence = [
         ("rx", 1, 0),
         ("rx", -1, 0),
@@ -50,13 +52,13 @@ def get_hexapod_calibration_test_poses() -> list[dict]:
             "ry_cmd": 0.0,
             "rz_cmd": 0.0,
         })
-
+        
         for command in get_hexapod_orientation_commands():
             rx_cmd = command["rx_cmd"]
             ry_cmd = command["ry_cmd"]
             rz_cmd = command["rz_cmd"]
             poses.append({
-                "pose_id": f"x{x_cmd_um:.0f}um_y{y_cmd_um:.0f}um_{command['pose_name']}_rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}",
+                "pose_id": f"x{x_cmd_um:.0f}um_y{y_cmd_um:.0f}um_rx{rx_cmd}_ry{ry_cmd}_rz{rz_cmd}",
                 "x_cmd_um": x_cmd_um,
                 "y_cmd_um": y_cmd_um,
                 "rx_cmd": rx_cmd,

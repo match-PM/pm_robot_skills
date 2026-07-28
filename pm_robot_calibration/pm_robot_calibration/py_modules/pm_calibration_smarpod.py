@@ -45,6 +45,8 @@ class HexapodConstants:
     CALIBRATION_FILE_JOINT_NAME_SPHERE = "CAL_Smarpod_J__t__P"
     SMARPOD_CS_PIVOT_BASE_NAME = "Smarpod_Pivot_Base_Origin"
     SMARPOD_CS_PLATFORM_PIVOT = "Smarpod_Top_Plate"
+    MOVE_TIME = 6.0
+    SETTLE_TIME = 8.0
 
 class PmRobotCalibrationSmarpod:
     def __init__(self, node: Node, utils: PmRobotCalibrationUtils):
@@ -107,7 +109,7 @@ class PmRobotCalibrationSmarpod:
         rz_cmd: float,
         move_time: float,
         settle_time: float,
-    ):
+        ):
         move_success = self.pm_calibration_utils.pm_robot_utils.send_smarpod_trajectory_goal_absolut(
             x_joint=x_cmd_m,
             y_joint=y_cmd_m,
@@ -117,8 +119,9 @@ class PmRobotCalibrationSmarpod:
             rz_joint_deg=rz_cmd,
             time=move_time,
         )
+        
         if not move_success:
-            raise PmRobotError(f"Could not move hexapod to pose {pose_id}.")
+            self._logger.error(f"Did not reach joint limits!!!")
 
         time.sleep(settle_time)
 
@@ -187,8 +190,8 @@ class PmRobotCalibrationSmarpod:
                     rx_cmd=rx_cmd,
                     ry_cmd=ry_cmd,
                     rz_cmd=rz_cmd,
-                    move_time=6.0,
-                    settle_time=3.0,
+                    move_time=HexapodConstants.MOVE_TIME,
+                    settle_time=HexapodConstants.SETTLE_TIME,
                 )
 
                 move_success = self._move_sensor_to_sphere_top(use_confocal_top)
@@ -305,7 +308,13 @@ class PmRobotCalibrationSmarpod:
             if move_up:
                 self.pm_calibration_utils.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
 
-            self.pm_calibration_utils.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
+            self.pm_calibration_utils.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
+                                                                                          y_joint=0.0, 
+                                                                                          z_joint=0.0, 
+                                                                                          rx_joint_deg=0.0,
+                                                                                          ry_joint_deg=0.0,
+                                                                                          rz_joint_deg=0.0,
+                                                                                          time=2.0)
 
             if not goal_finished:
                 goal_handle.abort()
@@ -416,6 +425,8 @@ class PmRobotCalibrationSmarpod:
         goal = goal_handle.request
         use_confocal_top = goal.use_confocal_over_laser
 
+        calibration_complete = False
+
         calibration_data = []
         calibration_run_timestamp = datetime.datetime.now().isoformat()
         calibration_goal_inputs = {
@@ -478,8 +489,8 @@ class PmRobotCalibrationSmarpod:
                         rx_cmd=rx_cmd,
                         ry_cmd=ry_cmd,
                         rz_cmd=rz_cmd,
-                        move_time=5.0,
-                        settle_time=3.0,
+                        move_time=HexapodConstants.MOVE_TIME,
+                        settle_time=HexapodConstants.SETTLE_TIME
                     )
 
                     name_list = self.spawn_ball_frames(reference_frame=HexapodConstants.BALL_CALIBRATION_ENDEFFECTOR,
@@ -507,6 +518,7 @@ class PmRobotCalibrationSmarpod:
             result.message = "Calibration succeded!"
             goal_handle.succeed()
             goal_finished = True
+            calibration_complete = True
         
         except PmRobotMeasurementError as e:
             message = f"Error measuring the calibration ball: {e}"
@@ -547,6 +559,7 @@ class PmRobotCalibrationSmarpod:
                     "current_calibration_transformation": current_cal_transfrom_dict, 
                     "goal_handle": calibration_goal_inputs,
                     "calibration_data": calibration_data,
+                    "calibration_complete": calibration_complete
                 }
                 if write_json_file(
                     file_path=file_path,
@@ -583,7 +596,13 @@ class PmRobotCalibrationSmarpod:
                 self.pm_calibration_utils.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.05, 1.0)
 
             # Move smarpod back to zero position
-            self.pm_calibration_utils.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, y_joint=0.0, z_joint=0.0, time=2.0)
+            self.pm_calibration_utils.pm_robot_utils.send_smarpod_trajectory_goal_absolut(x_joint=0.0, 
+                                                                                          y_joint=0.0, 
+                                                                                          z_joint=0.0, 
+                                                                                          rx_joint_deg=0.0,
+                                                                                          ry_joint_deg=0.0,
+                                                                                          rz_joint_deg=0.0,
+                                                                                          time=2.0)
 
             if not goal_finished:
                 goal_handle.abort()
@@ -671,7 +690,6 @@ class PmRobotCalibrationSmarpod:
             #self._logger.warn(f"Calibration Pivot: {str(C__T__J)}")
 
             sphere_cal_dict = self.pm_calibration_utils.add_joint_value_update_to_calibration_dict(
-                calibration_dict=self.pm_calibration_utils._transform_to_dict(current_transform_sphere),
                 joint_name=HexapodConstants.CALIBRATION_FILE_JOINT_NAME_SPHERE,
                 rel_transformation=current_transform_sphere,
                 overwrite=True,

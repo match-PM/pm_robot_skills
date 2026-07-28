@@ -19,6 +19,7 @@ import copy
 import json
 import shutil
 from assembly_scene_publisher.py_modules.geometry_type_functions import get_relative_transform_for_transforms_calibration
+from typing import Optional
 
 TOOL_VACUUM_IDENT = 'pm_robot_vacuum_tools'
 TOOL_GRIPPER_1_JAW_IDENT = 'pm_robot_tool_parallel_gripper_1_jaw'
@@ -279,12 +280,17 @@ class PmRobotCalibrationUtils():
         }
 
     def add_joint_value_update_to_calibration_dict(self,
-                                                  calibration_dict: dict,
-                                                  joint_name: str,
-                                                  rel_transformation: Transform,
-                                                  unit: str = 'm',
-                                                  overwrite: bool = False) -> dict:
-        calibration_dict = copy.deepcopy(calibration_dict)
+                                                joint_name: str,
+                                                rel_transformation: Transform,
+                                                calibration_dict: Optional[dict] = None,                                                  
+                                                unit: str = 'm',
+                                                overwrite: bool = False) -> dict:
+            
+        if calibration_dict is not None:
+            calibration_dict = copy.deepcopy(calibration_dict)
+        else:
+            calibration_dict = {}
+
         calibration_dict["joint_value_update"] = self.get_joint_value_update_dict(
             joint_name=joint_name,
             rel_transformation=rel_transformation,
