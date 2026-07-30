@@ -30,6 +30,7 @@ from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundErr
                                                               ComponentNotFoundError)
 
 class VisionSkillsNode(Node):
+    SERVICE_CALL_TIMEOUT_SEC = 60.0
 
     def __init__(self):
         super().__init__('pm_skills')
@@ -53,6 +54,32 @@ class VisionSkillsNode(Node):
         # overwriting the callback function!!
         self.pm_robot_utils.object_scene_callback = self.object_scene_callback
         self.pm_robot_utils.start_object_scene_subscribtion()   
+
+    def _call_service_with_timeout(self,
+                                   client,
+                                   request,
+                                   service_name: str,
+                                   timeout_sec: float = SERVICE_CALL_TIMEOUT_SEC):
+        future = client.call_async(request)
+        deadline = time.monotonic() + timeout_sec
+
+        while rclpy.ok() and not future.done() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        
+        if not future.done():
+            client.remove_pending_request(future)
+            raise PmRobotError(
+                f"Service '{service_name}' did not return within {timeout_sec:.1f} seconds."
+            )
+
+        if future.exception() is not None:
+            raise PmRobotError(f"Service '{service_name}' failed: {future.exception()}")
+
+        result = future.result()
+        if result is None:
+            raise PmRobotError(f"Service '{service_name}' returned no response.")
+
+        return result
 
 
     def measure_frame(self, 
@@ -122,7 +149,11 @@ class VisionSkillsNode(Node):
                 raise PmRobotError("Service 'MoveCamToFrame' not available...")
 
             #result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_tool_to_frame.call(move_request)
-            result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+            result_tool_to_bottom_cam:MoveToFrame.Response = self._call_service_with_timeout(
+                self.pm_robot_utils.client_move_robot_cam1_to_frame,
+                move_request,
+                'MoveCamToFrame'
+            )
 
             #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
             
@@ -148,7 +179,11 @@ class VisionSkillsNode(Node):
                 if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
                     raise PmRobotError("Service 'MoveCamToFrame' not available...")
                 
-                result_move_tool:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_cam1_to_frame.call(move_request)
+                result_move_tool:MoveToFrame.Response = self._call_service_with_timeout(
+                    self.pm_robot_utils.client_move_robot_cam1_to_frame,
+                    move_request,
+                    'MoveCamToFrame'
+                )
 
                 if not result_move_tool.success:
                     raise PmRobotError("Failed to move tool to frame with both cameras. Cannot execute vision measurement!")
@@ -170,7 +205,11 @@ class VisionSkillsNode(Node):
                 #self._logger.warn(f"Using process file: {vision_request.process_filename}...")
                 #self._logger.warn(f"Using camera config file: {vision_request.camera_config_filename}...")
                 
-                result:ExecuteVision.Response = self.pm_robot_utils.client_execute_vision.call(vision_request)
+                result:ExecuteVision.Response = self._call_service_with_timeout(
+                    self.pm_robot_utils.client_execute_vision,
+                    vision_request,
+                    'ExecuteVision'
+                )
 
                 response.vision_response = result.vision_response
 
@@ -356,7 +395,11 @@ class VisionSkillsNode(Node):
                 if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
                     raise PmRobotError("Service 'ModifyPoseAbsolut' not available.")
                 
-                result_adapt:ami_srv.ModifyPoseAbsolut.Response = self.pm_robot_utils.client_adapt_frame_absolut.call(adapt_frame_request)
+                result_adapt:ami_srv.ModifyPoseAbsolut.Response = self._call_service_with_timeout(
+                    self.pm_robot_utils.client_adapt_frame_absolut,
+                    adapt_frame_request,
+                    'ModifyPoseAbsolut'
+                )
                 response.success = result_adapt.success
 
                 if not result_adapt.success:
