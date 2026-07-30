@@ -5,7 +5,7 @@ A :class:`CalibrationAnalysis` is created from a
 :class:`sphere_calibration.SphereCalibration` and bundles together:
 
 * the **fitted pivots** (one per sphere set) from
-  :meth:`fit_pivot_per_set`
+  :meth:`fit_sphere_per_set`
 * the **pivot calibration result** (B__T__P and J__t__P) from
   :meth:`solve_pivot_calibration`
 
@@ -62,6 +62,9 @@ class CalibrationAnalysis:
     pivot_calibration: PivotCalibrationResult
     diameter_mm: float = CALIBRATION_SPHERE_DIAMETER_MM
     radius_mm: float = CALIBRATION_SPHERE_RADIUS_MM
+    initial_diameter_mm: float = CALIBRATION_SPHERE_DIAMETER_MM
+    initial_radius_mm: float = CALIBRATION_SPHERE_RADIUS_MM
+    fit_sphere_radius: bool = False
 
     # ------------------------------------------------------------------
     # Construction
@@ -72,21 +75,32 @@ class CalibrationAnalysis:
         sphere_calibration: SphereCalibration,
         diameter_mm: Optional[float] = None,
         radius_mm: Optional[float] = None,
+        fit_sphere_radius: bool = False,
     ) -> "CalibrationAnalysis":
         """Run the full analysis: pivot fit per set + pivot calibration.
 
         Pass ``diameter_mm`` (e.g. 6.35) or ``radius_mm`` (e.g. 3.175)
         to override the module-level default.  ``diameter_mm`` takes
         precedence if both are given; pass ``None`` for both to use
-        :data:`data_classes.CALIBRATION_SPHERE_DIAMETER_MM`.
+        :data:`data_classes.CALIBRATION_SPHERE_DIAMETER_MM`.  If
+        ``fit_sphere_radius`` is true, this value is used only as the
+        starting radius and each sphere set gets its own fitted radius.
         """
         if diameter_mm is None and radius_mm is None:
             diameter_mm = CALIBRATION_SPHERE_DIAMETER_MM
         if diameter_mm is None:
             diameter_mm = 2.0 * float(radius_mm)
         radius_mm = 0.5 * float(diameter_mm)
+        initial_diameter_mm = float(diameter_mm)
+        initial_radius_mm = float(radius_mm)
 
-        pivots = sphere_calibration.fit_pivot_per_set(radius_mm=radius_mm)
+        pivots = sphere_calibration.fit_sphere_per_set(
+            radius_mm=radius_mm,
+            fit_radius=fit_sphere_radius,
+        )
+        if fit_sphere_radius and pivots:
+            radius_mm = sum(float(result.radius_mm) for result in pivots.values()) / len(pivots)
+            diameter_mm = 2.0 * radius_mm
         pivot_calibration = sphere_calibration.solve_pivot_calibration(
             pivots=pivots,
         )
@@ -96,6 +110,9 @@ class CalibrationAnalysis:
             pivot_calibration=pivot_calibration,
             diameter_mm=float(diameter_mm),
             radius_mm=float(radius_mm),
+            initial_diameter_mm=initial_diameter_mm,
+            initial_radius_mm=initial_radius_mm,
+            fit_sphere_radius=bool(fit_sphere_radius),
         )
 
     # ------------------------------------------------------------------
@@ -566,20 +583,28 @@ class CalibrationAnalysis:
         else:
             euler_rad = rotation_matrix_to_euler_zyx(cal.B_T_P[:3, :3])
         euler_deg = tuple(math.degrees(float(v)) for v in euler_rad)
+        goal_handle = self.sphere_calibration.goal_handle or {}
         data = {
             "metadata": {
                 "filename": self.filename,
                 "timestamp": self.timestamp,
+                "cal_id": goal_handle.get("cal_id"),
+                "comments": goal_handle.get("comments"),
+                "goal_handle": goal_handle,
                 "calibration_reference_frame": self.reference_frame,
                 "calibration_fixed_reference_frame": self.fixed_reference_frame,
                 "calibration_sphere_diameter_mm": self.diameter_mm,
                 "calibration_sphere_radius_mm": self.radius_mm,
+                "initial_sphere_diameter_mm": self.initial_diameter_mm,
+                "initial_sphere_radius_mm": self.initial_radius_mm,
+                "fit_sphere_radius": self.fit_sphere_radius,
+                "fit_sphere_diameter": self.fit_sphere_radius,
                 "rotation_convention": active_convention,
                 "n_sphere_sets": self.n_sets,
                 "n_position_sets": self.n_position_sets,
                 "sphere_ids": self.sphere_ids,
             },
-            "pivots": {
+            "sphere_fits_by_set": {
                 sphere_set_id: {
                     "sphere_set_id": sphere_set_id,
                     "center_mm": {
@@ -783,7 +808,7 @@ class CalibrationAnalysis:
         for d in diameters_mm:
             d = float(d)
             r = 0.5 * d
-            pivots = self.sphere_calibration.fit_pivot_per_set(radius_mm=r)
+            pivots = self.sphere_calibration.fit_sphere_per_set(radius_mm=r)
             cal = self.sphere_calibration.solve_pivot_calibration(pivots=pivots)
             results.append({
                 "diameter_mm": d,

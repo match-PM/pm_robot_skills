@@ -182,7 +182,7 @@ class PivotCalibrationResult:
     where ``P__T__Jn`` is the ideal transform commanded by the
     hexapod and ``T(J__t__P)`` is a pure translation by the (static)
     sphere offset.  ``B__T__Pn`` is the measured sphere centre for
-    set ``n``, recovered by :meth:`SphereCalibration.fit_pivot_per_set`.
+    set ``n``, recovered by :meth:`SphereCalibration.fit_sphere_per_set`.
     """
 
     # The two unknowns we are solving for.
@@ -442,9 +442,10 @@ class SphereCalibration:
             ids.update(sphere_set.sphere_measurements.sphere_ids)
         return sorted(ids)
 
-    def fit_pivot_per_set(
+    def fit_sphere_per_set(
         self,
         radius_mm: Optional[float] = None,
+        fit_radius: bool = False,
     ) -> dict[str, SphereFitResult]:
         """Fit **one** sphere with known radius per sphere set.
 
@@ -462,9 +463,24 @@ class SphereCalibration:
             per sphere set (e.g. 48 entries for this calibration).
         """
         return {
-            sphere_set.sphere_set_id: SphereSet.fit_pivot(sphere_set, radius_mm)
+            sphere_set.sphere_set_id: SphereSet.fit_sphere(
+                sphere_set,
+                radius_mm,
+                fit_radius=fit_radius,
+            )
             for sphere_set in self.sphere_sets
         }
+
+    def fit_pivot_per_set(
+        self,
+        radius_mm: Optional[float] = None,
+        fit_radius: bool = False,
+    ) -> dict[str, SphereFitResult]:
+        """Deprecated compatibility alias for :meth:`fit_sphere_per_set`."""
+        return self.fit_sphere_per_set(
+            radius_mm=radius_mm,
+            fit_radius=fit_radius,
+        )
 
     def get_sphere_set_by_iteration(
         self,
@@ -479,6 +495,7 @@ class SphereCalibration:
         self,
         diameter_mm: Optional[float] = None,
         radius_mm: Optional[float] = None,
+        fit_sphere_radius: bool = False,
     ) -> "CalibrationAnalysis":
         """Run the full pivot analysis: fit per set + solve B__T__P / J__t__P.
 
@@ -487,7 +504,9 @@ class SphereCalibration:
         as a ``radius_mm`` (3.175 for the same ball).  ``diameter_mm``
         takes precedence if both are given.  Pass ``None`` for either
         to use the module default from
-        :data:`data_classes.CALIBRATION_SPHERE_DIAMETER_MM`.
+        :data:`data_classes.CALIBRATION_SPHERE_DIAMETER_MM`.  If
+        ``fit_sphere_radius`` is true, this value is used as the starting
+        radius and the fitted sphere radius is used for the assessment.
 
         Returns a :class:`calibration_analysis.CalibrationAnalysis`
         that bundles every result and exposes ``print_results``,
@@ -502,6 +521,7 @@ class SphereCalibration:
             self,
             diameter_mm=diameter_mm,
             radius_mm=radius_mm,
+            fit_sphere_radius=fit_sphere_radius,
         )
 
     def solve_pivot_calibration(
@@ -533,8 +553,8 @@ class SphereCalibration:
         ----------
         pivots : dict[str, SphereFitResult], optional
             Mapping ``sphere_set_id -> SphereFitResult`` as returned by
-            :meth:`fit_pivot_per_set`.  Defaults to running
-            ``fit_pivot_per_set()`` on this calibration.
+            :meth:`fit_sphere_per_set`.  Defaults to running
+            ``fit_sphere_per_set()`` on this calibration.
         max_iterations : int
             Maximum number of Gauss-Newton iterations.
         position_tolerance_mm, angle_tolerance_rad
@@ -548,7 +568,7 @@ class SphereCalibration:
             stats (grouped by ``(x_cmd, y_cmd)``).
         """
         if pivots is None:
-            pivots = self.fit_pivot_per_set()
+            pivots = self.fit_sphere_per_set()
         if not pivots:
             raise ValueError("No pivots supplied; cannot solve calibration.")
 

@@ -1,6 +1,7 @@
 bool use_confocal_over_laser True
 string cal_id
 string comments
+bool fit_sphere_radius
 ---
 bool success
 string message

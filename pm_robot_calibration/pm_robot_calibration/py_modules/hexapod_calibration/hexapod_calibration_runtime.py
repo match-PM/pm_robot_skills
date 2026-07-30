@@ -73,6 +73,7 @@ def write_json_file(file_path: str, data: dict, data_available: bool) -> bool:
     if not data_available:
         return False
 
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, "w") as f:
         json.dump(data, f, indent=2)
     return True
@@ -81,8 +82,67 @@ def write_json_file(file_path: str, data: dict, data_available: bool) -> bool:
 def get_calibrate_smarpod_measurement_file_path(measurement_dir: str) -> str:
     return os.path.join(
         measurement_dir,
+        "calibrate_smarpod_measurements",
         f"calibrate_smarpod_measurement_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     )
+
+
+def get_smarpod_ball_repeatability_measurement_file_path(measurement_dir: str) -> str:
+    return os.path.join(
+        measurement_dir,
+        "smarpod_ball_repeatability",
+        f"smarpod_ball_repeatability_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+
+
+def get_smarpod_ball_repeatability_results_dir(measurement_file_path: str) -> str:
+    measurement_dir = os.path.dirname(os.path.abspath(measurement_file_path))
+    measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
+    return os.path.join(
+        measurement_dir,
+        "smarpod_ball_repeatability_results",
+        measurement_stem,
+        ""
+    )
+
+
+def get_smarpod_ball_repeatability_results_json_path(results_dir: str, measurement_file_path: str) -> str:
+    measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
+    return os.path.join(results_dir, f"results_{measurement_stem}.json")
+
+
+def get_smarpod_ball_repeatability_plot_base_path(results_dir: str, measurement_file_path: str) -> str:
+    measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
+    return os.path.join(results_dir, measurement_stem)
+
+
+def get_hexapod_repeatability_measurement_file_path(measurement_dir: str) -> str:
+    return os.path.join(
+        measurement_dir,
+        "hexapod_repeatability",
+        f"hexapod_repeatability_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+
+
+def get_hexapod_repeatability_results_dir(measurement_file_path: str) -> str:
+    measurement_dir = os.path.dirname(os.path.abspath(measurement_file_path))
+    measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
+    return os.path.join(
+        measurement_dir,
+        "hexapod_repeatability_results",
+        measurement_stem,
+        ""
+    )
+
+
+def get_hexapod_repeatability_results_json_path(results_dir: str, measurement_file_path: str) -> str:
+    measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
+    return os.path.join(results_dir, f"results_{measurement_stem}.json")
+
+
+def get_hexapod_repeatability_plot_base_path(results_dir: str, measurement_file_path: str) -> str:
+    measurement_stem = os.path.splitext(os.path.basename(measurement_file_path))[0]
+    return os.path.join(results_dir, measurement_stem)
 
 
 def get_test_calibrate_smarpod_file_path(calibration_log_dir: str) -> str:

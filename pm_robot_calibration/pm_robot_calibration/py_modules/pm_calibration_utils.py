@@ -380,7 +380,8 @@ class PmRobotCalibrationUtils():
         request.remeasure_after_correction = remeasure_after_correction
         request.use_iterative_sensing = use_iterative_sensing
         response:skills_srv.CorrectFrameLaser.Response = self.client_correct_frame_with_laser.call(request)
-        
+
+        self._logger.warning(f"Laser measurement value: {response.correction_values.z*1e6} um")
         if not response.success:
             raise PmRobotError(f"Correction of frame '{frame_id}' with laser failed!")
         
@@ -642,11 +643,19 @@ class PmRobotCalibrationUtils():
             self._logger.error("Saving joint calibration aborted because archiving failed.")
             return False
 
-        calibration_config = {}
-        # check if the file exists
         try:
-            with open(file_path, 'r') as file:
-                calibration_config = yaml.load(file, Loader=yaml.FullLoader)
+            if os.path.isfile(file_path):
+                with open(file_path, 'r') as file:
+                    calibration_config = yaml.load(file, Loader=yaml.FullLoader)
+            else:
+                calibration_config = {}
+
+            if calibration_config is None:
+                calibration_config = {}
+
+            if not isinstance(calibration_config, dict):
+                self._logger.error(f"Joint calibration file is invalid: {file_path}")
+                return False
             
             joint_config = calibration_config.get(joint_name, None)
             current_transformation = Transform()
@@ -688,8 +697,6 @@ class PmRobotCalibrationUtils():
             calibration_config[joint_name]['ry_offset'] = float(pitch)
             calibration_config[joint_name]['rz_offset'] = float(yaw)
             
-        except FileNotFoundError:
-            calibration_config = {}
         except Exception as e:
             self._logger.error("Error: " + str(e))
             return False

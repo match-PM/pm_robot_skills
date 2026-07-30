@@ -478,24 +478,28 @@ class SphereSet:
     pose_translation_vector = sphere_set_translation_vector
 
     @classmethod
-    def fit_pivot(
+    def fit_sphere(
         cls,
         sphere_set: "SphereSet",
         radius_mm: Optional[float] = None,
+        fit_radius: bool = False,
     ) -> "SphereFitResult":
-        """Fit **one** sphere with a known radius to the 9 measurements.
+        """Fit **one** sphere to the measurements in a sphere set.
 
-        The pivot of a sphere set is the centre of the calibration sphere
-        in the calibration reference frame, recovered from the 9 surface
-        points measured by the Smarpod at the commanded configuration.
+        The result is the centre of the calibration sphere in the
+        calibration reference frame, recovered from the 9 surface points
+        measured by the Smarpod at the commanded configuration.
 
         Parameters
         ----------
         sphere_set : SphereSet
             The commanded configuration holding the 9 measurements.
         radius_mm : float, optional
-            Known sphere radius (mm).  Defaults to
-            ``CALIBRATION_SPHERE_RADIUS_MM`` (diameter 6.35 mm).
+            Known sphere radius (mm), or starting radius when
+            ``fit_radius`` is true.  Defaults to ``CALIBRATION_SPHERE_RADIUS_MM``.
+        fit_radius : bool
+            If true, optimise the sphere radius too.  If false, keep
+            ``radius_mm`` fixed.
 
         Returns
         -------
@@ -508,6 +512,7 @@ class SphereSet:
         """
         from pm_robot_calibration.py_modules.hexapod_calibration.geometry_utils import (
             fit_sphere_fixed_radius,
+            fit_sphere_variable_radius,
         )
 
         if radius_mm is None:
@@ -524,7 +529,14 @@ class SphereSet:
             [m.measurement_position.as_array() for m in measurements],
             dtype=np.float64,
         )
-        center_array, rms_error, _ = fit_sphere_fixed_radius(points, radius_mm)
+        if fit_radius:
+            center_array, fitted_radius_mm, rms_error, _ = fit_sphere_variable_radius(
+                points,
+                initial_radius=radius_mm,
+            )
+            radius_mm = fitted_radius_mm
+        else:
+            center_array, rms_error, _ = fit_sphere_fixed_radius(points, radius_mm)
         center_array = np.asarray(center_array, dtype=np.float64).reshape(3)
 
         distances = np.linalg.norm(points - center_array, axis=1)
@@ -544,6 +556,20 @@ class SphereSet:
                 measurement.sphere_id: float(residual)
                 for measurement, residual in zip(measurements, residuals)
             },
+        )
+
+    @classmethod
+    def fit_pivot(
+        cls,
+        sphere_set: "SphereSet",
+        radius_mm: Optional[float] = None,
+        fit_radius: bool = False,
+    ) -> "SphereFitResult":
+        """Deprecated compatibility alias for :meth:`fit_sphere`."""
+        return cls.fit_sphere(
+            sphere_set,
+            radius_mm=radius_mm,
+            fit_radius=fit_radius,
         )
 
     @classmethod

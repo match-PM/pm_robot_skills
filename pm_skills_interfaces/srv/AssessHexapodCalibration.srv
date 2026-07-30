@@ -1,5 +1,9 @@
 string results_file_path
 bool write_to_joint_config
+bool fit_sphere_diameter
 ---
 bool success
 string message
+geometry_msgs/Vector3 p_t_s
+geometry_msgs/Vector3 b_t_p
+float32[] b_t_p_euler_angles

@@ -68,6 +68,22 @@ class PmRobotCalibrationNode(Node):
             goal_callback=self.pm_calibration_utils._goal_calibration_callback,
             cancel_callback=self.pm_calibration_utils._cancel_calibration_callback
         )
+
+        self.test_smarpod_ball_repeatability_action_srv = ActionServer(self,
+            skills_action.SmarpodBallRepeatability,
+            f'/pm_robot_calibration/test_smarpod_ball_repeatability',
+            execute_callback=self.smarpod_calibration.test_smarpod_ball_repeatability,
+            goal_callback=self.pm_calibration_utils._goal_calibration_callback,
+            cancel_callback=self.pm_calibration_utils._cancel_calibration_callback
+        )
+
+        self.test_hexapod_repeatability_action_srv = ActionServer(self,
+            skills_action.HexapodRepeatability,
+            f'/pm_robot_calibration/test_hexapod_repeatability',
+            execute_callback=self.smarpod_calibration.test_hexapod_repeatability,
+            goal_callback=self.pm_calibration_utils._goal_calibration_callback,
+            cancel_callback=self.pm_calibration_utils._cancel_calibration_callback
+        )
     
 
     

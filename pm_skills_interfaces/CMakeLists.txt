@@ -35,6 +35,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/DispensePathUnity.srv"
   "action/EmptyCalibration.action"
   "action/SmarpodCalibration.action"
+  "action/SmarpodBallRepeatability.action"
+  "action/HexapodRepeatability.action"
   "action/TestHexapodCalibration.action"
   DEPENDENCIES geometry_msgs pm_vision_interfaces
 )

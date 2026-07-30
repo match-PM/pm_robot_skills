@@ -127,11 +127,11 @@ class PmRobotDistanceSensorCalibration:
                 overwrite=False,
             )
 
-            save_success = self.pm_calibration_utils.save_joint_config ( joint_name='Laser_Toolhead_TCP_Joint',
+            laser_save_success = self.pm_calibration_utils.save_joint_config ( joint_name='Laser_Toolhead_TCP_Joint',
                                                     rel_transformation=rel_trans,
                                                     overwrite=False)
             
-            save_success = self.pm_calibration_utils.save_joint_config ( joint_name='Camera_Station_TCP_Joint',
+            camera_bottom_save_success = self.pm_calibration_utils.save_joint_config ( joint_name='Camera_Station_TCP_Joint',
                                                     rel_transformation=rel_trans_camera_b_tcp,
                                                     overwrite=False)
             
@@ -142,7 +142,7 @@ class PmRobotDistanceSensorCalibration:
             self.pm_calibration_utils.log_calibration(file_name="calibrate_camera_bottom_tcp_z_on_laser_z",
                                 calibration_dict=camera_bottom_cal_dict)
 
-            if not save_success:
+            if not (laser_save_success and camera_bottom_save_success):
                 raise PmRobotError("Saving of configuration failed!")
 
             # move out of danger zone
@@ -611,11 +611,15 @@ class PmRobotDistanceSensorCalibration:
 
             rel_trans = Transform()
             
-            transform_z = (confocal_transform_z - laser_transform_z)
+            transform_z = confocal_transform_z - laser_transform_z
 
-            rel_trans.translation.z = transform_z
+            # After both sensors are moved onto the same physical surface, this
+            # residual is the current TCP error. The joint update must compensate
+            # it in the opposite direction; adding it makes repeated passes drift.
+            rel_trans.translation.z = -transform_z
 
-            self._logger.warning(f"Calibration value z: {rel_trans.translation.z*1e6} um.")
+            self._logger.warning(f"Measured confocal top residual z: {transform_z*1e6} um.")
+            self._logger.warning(f"Applied confocal top TCP correction z: {rel_trans.translation.z*1e6} um.")
 
             cal_dict = self.pm_calibration_utils.add_joint_value_update_to_calibration_dict(
                 calibration_dict=self.pm_calibration_utils._transform_to_dict(rel_trans),

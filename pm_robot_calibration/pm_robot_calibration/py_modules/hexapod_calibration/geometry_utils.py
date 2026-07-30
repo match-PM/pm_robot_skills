@@ -278,6 +278,67 @@ def fit_sphere_fixed_radius(
     return center_array, rms_error, iterations
 
 
+def fit_sphere_variable_radius(
+    points,
+    initial_radius: float,
+    max_iterations: int = 200,
+    tolerance_mm: float = 1e-9,
+):
+    """
+    Fit a sphere centre and radius, seeded with the supplied radius.
+
+    This uses Gauss-Newton on the radial residuals
+    ``(||p_i - c|| - radius)``.  ``initial_radius`` is only the starting
+    radius; the returned radius is free to move to the least-squares value.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError("points must have shape (N, 3)")
+    if points.shape[0] < 4:
+        raise ValueError(
+            "At least 4 points are required to fit a sphere centre and "
+            f"radius; got {points.shape[0]}"
+        )
+    if initial_radius <= 0:
+        raise ValueError(f"initial_radius must be positive; got {initial_radius}")
+
+    center_array, _, _ = fit_sphere(points)
+    center_array = np.asarray(center_array, dtype=np.float64).reshape(3)
+    radius = float(initial_radius)
+
+    iterations = 0
+    for iterations in range(1, max_iterations + 1):
+        diffs = points - center_array
+        distances = np.linalg.norm(diffs, axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            unit = diffs / distances[:, None]
+        residuals = distances - radius
+
+        J_center = -unit
+        J_radius = -np.ones((points.shape[0], 1), dtype=np.float64)
+        J = np.hstack([J_center, J_radius])
+        rhs = -residuals
+        try:
+            delta, _, _, _ = np.linalg.lstsq(J, rhs, rcond=None)
+        except np.linalg.LinAlgError:
+            break
+
+        center_array = center_array + delta[:3]
+        radius = radius + float(delta[3])
+        if radius <= 0:
+            raise ValueError(f"fitted radius became non-positive: {radius}")
+
+        step = float(np.linalg.norm(delta[:3]))
+        radius_step = abs(float(delta[3]))
+        if step < tolerance_mm and radius_step < tolerance_mm:
+            break
+
+    distances = np.linalg.norm(points - center_array, axis=1)
+    residuals = distances - radius
+    rms_error = float(np.sqrt(np.mean(residuals ** 2)))
+    return center_array, radius, rms_error, iterations
+
+
 def sphere_z(x:float, y:float, diameter:float)->float:
     """
     Calculate the z height on a sphere.

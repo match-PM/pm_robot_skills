@@ -193,8 +193,6 @@ class PmRobotCalibrationCameras:
         self.pm_calibration_utils.log_calibration(file_name='Cam1_Toolhead_TCP_Joint', calibration_dict=cal_dict)
 
 
-        save_success = True
-
         return save_success
         
 

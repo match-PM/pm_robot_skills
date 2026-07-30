@@ -81,7 +81,10 @@ class PmRobotCalibrationGripper:
                 rel_transformation=relative_transform,
             )
 
-            self.pm_calibration_utils.save_joint_config('1K_Dispenser_TCP_Joint', relative_transform)
+            save_success = self.pm_calibration_utils.save_joint_config('1K_Dispenser_TCP_Joint', relative_transform)
+
+            if not save_success:
+                raise PmRobotError("Saving of configuration failed!")
 
             self.pm_calibration_utils.log_calibration(file_name='calibrate_1K_dispenser_xy_on_cam_bottom', calibration_dict=cal_dict)
                 
@@ -189,7 +192,10 @@ class PmRobotCalibrationGripper:
                 rel_transformation=rel_transform,
             )
 
-            self.pm_calibration_utils.save_joint_config('1K_Dispenser_TCP_Joint', rel_transform)
+            save_success = self.pm_calibration_utils.save_joint_config('1K_Dispenser_TCP_Joint', rel_transform)
+
+            if not save_success:
+                raise PmRobotError("Saving of configuration failed!")
 
             self.pm_calibration_utils.log_calibration(file_name='calibrate_1K_dispenser_z_on_calibration_cube', calibration_dict=cal_dict)
             
@@ -330,7 +336,10 @@ class PmRobotCalibrationGripper:
                         rel_transformation=rel_t_joint,
                     )
 
-                    self.pm_calibration_utils.save_joint_config('T_Axis_Joint', rel_t_joint)
+                    save_success = self.pm_calibration_utils.save_joint_config('T_Axis_Joint', rel_t_joint)
+
+                    if not save_success:
+                        raise PmRobotError("Saving of T-axis configuration failed!")
 
                     self.pm_calibration_utils.log_calibration(file_name='calibrate_gripper_T_axis', calibration_dict=t_axis_dict)
 
@@ -357,7 +366,10 @@ class PmRobotCalibrationGripper:
                 joint_name='PM_Robot_Tool_TCP_Joint',
                 rel_transformation=relative_transform,
             )
-            self.pm_calibration_utils.save_joint_config('PM_Robot_Tool_TCP_Joint', relative_transform)
+            save_success = self.pm_calibration_utils.save_joint_config('PM_Robot_Tool_TCP_Joint', relative_transform)
+
+            if not save_success:
+                raise PmRobotError("Saving of gripper TCP configuration failed!")
             self.pm_calibration_utils.log_calibration(file_name='PM_Robot_Tool_TCP_Joint', calibration_dict=cal_dict)
 
             response.success = True
@@ -449,9 +461,14 @@ class PmRobotCalibrationGripper:
             overwrite=False,
         )
 
-        self.pm_calibration_utils.save_joint_config('PM_Robot_Tool_TCP_Joint', 
+        save_success = self.pm_calibration_utils.save_joint_config('PM_Robot_Tool_TCP_Joint', 
                                default_transformation, 
                                overwrite=False)
+
+        if not save_success:
+            self._logger.error("Saving of gripper plane configuration failed!")
+            response.success = False
+            return response
 
         # move out of danger zone
         self.pm_robot_utils.send_xyz_trajectory_goal_relative(0.0, 0.0, -0.04, 0.5)

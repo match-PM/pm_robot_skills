@@ -828,3 +828,248 @@ def plot_smarpod_calibration_test_measurements(
     fig.savefig(output_path, dpi=140)
     plt.close(fig)
     return output_path
+
+
+def plot_smarpod_ball_repeatability_results(
+    repeatability_results: dict,
+    output_base_path: str,
+    title: Optional[str] = None,
+) -> list[str]:
+    """Save repeatability plots for fitted sphere centres and fit residuals."""
+    runs = repeatability_results.get("runs", [])
+    if not runs:
+        raise ValueError("No repeatability runs available for plotting.")
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_base_path)) or ".", exist_ok=True)
+
+    iterations = np.asarray(
+        [int(run.get("iteration", index)) for index, run in enumerate(runs)],
+        dtype=np.int32,
+    )
+    centers = np.asarray(
+        [
+            [
+                float(run["center_mm"]["x"]),
+                float(run["center_mm"]["y"]),
+                float(run["center_mm"]["z"]),
+            ]
+            for run in runs
+        ],
+        dtype=np.float64,
+    )
+    mean_center = centers.mean(axis=0)
+    center_delta_um = (centers - mean_center) * 1000.0
+    center_delta_norm_um = np.linalg.norm(center_delta_um, axis=1)
+    rms_fit_um = np.asarray(
+        [float(run.get("rms_fit_error_um", 0.0)) for run in runs],
+        dtype=np.float64,
+    )
+    max_fit_um = np.asarray(
+        [float(run.get("max_abs_fit_error_um", 0.0)) for run in runs],
+        dtype=np.float64,
+    )
+    radius_mm = np.asarray(
+        [float(run.get("radius_mm", 0.0)) for run in runs],
+        dtype=np.float64,
+    )
+    metadata = repeatability_results.get("metadata", {}) or {}
+    initial_radius_mm = float(metadata.get("initial_sphere_radius_mm", radius_mm[0]))
+    radius_delta_um = (radius_mm - initial_radius_mm) * 1000.0
+
+    title_prefix = title or "Smarpod ball repeatability"
+    written: list[str] = []
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    axes[0].plot(iterations, center_delta_um[:, 0], marker="o", label="x")
+    axes[0].plot(iterations, center_delta_um[:, 1], marker="o", label="y")
+    axes[0].plot(iterations, center_delta_um[:, 2], marker="o", label="z")
+    axes[0].axhline(0.0, color="0.4", linewidth=0.8)
+    axes[0].set_ylabel("center delta (um)")
+    axes[0].legend(loc="best")
+    axes[0].grid(True, alpha=0.25)
+
+    axes[1].plot(iterations, center_delta_norm_um, color="0.2", marker="o")
+    axes[1].set_xlabel("measurement iteration")
+    axes[1].set_ylabel("3D center delta (um)")
+    axes[1].grid(True, alpha=0.25)
+    fig.suptitle(f"{title_prefix}\nfitted center repeatability")
+    fig.tight_layout()
+    path = _build_path(output_base_path, "_01_center_repeatability", ".png")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    written.append(path)
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    axes[0].plot(iterations, rms_fit_um, marker="o", label="RMS")
+    axes[0].plot(iterations, max_fit_um, marker="s", label="max abs")
+    axes[0].set_ylabel("sphere fit residual (um)")
+    axes[0].set_title(f"{title_prefix}\nsphere fit residuals")
+    axes[0].grid(True, alpha=0.25)
+    axes[0].legend(loc="best")
+
+    axes[1].plot(iterations, radius_delta_um, marker="o", color="0.25")
+    axes[1].axhline(0.0, color="0.4", linewidth=0.8)
+    axes[1].axhline(np.mean(radius_delta_um), color="0.45", linewidth=0.8, linestyle="--")
+    axes[1].set_xlabel("measurement iteration")
+    axes[1].set_ylabel("radius delta (um)")
+    axes[1].grid(True, alpha=0.25)
+    fig.tight_layout()
+    path = _build_path(output_base_path, "_02_fit_residuals", ".png")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    written.append(path)
+
+    ball_ids = sorted({
+        ball_id
+        for run in runs
+        for ball_id in (run.get("ball_measurements_mm") or {}).keys()
+    })
+    if ball_ids:
+        fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+        axis_names = ("x", "y", "z")
+        cmap = plt.get_cmap("tab10", max(len(ball_ids), 1))
+        first_run = runs[0].get("ball_measurements_mm") or {}
+
+        for ball_index, ball_id in enumerate(ball_ids):
+            baseline = first_run.get(ball_id)
+            if baseline is None:
+                continue
+            colour = cmap(ball_index)
+            for axis_index, axis_name in enumerate(axis_names):
+                values_um = []
+                valid_iterations = []
+                for run, iteration in zip(runs, iterations):
+                    measurement = (run.get("ball_measurements_mm") or {}).get(ball_id)
+                    if measurement is None:
+                        continue
+                    values_um.append(
+                        (float(measurement[axis_name]) - float(baseline[axis_name])) * 1000.0
+                    )
+                    valid_iterations.append(iteration)
+                axes[axis_index].plot(
+                    valid_iterations,
+                    values_um,
+                    marker="o",
+                    linewidth=1.0,
+                    color=colour,
+                    label=ball_id if axis_index == 0 else None,
+                )
+
+        for axis_index, axis_name in enumerate(axis_names):
+            axes[axis_index].axhline(0.0, color="0.4", linewidth=0.8)
+            axes[axis_index].set_ylabel(f"{axis_name} delta (um)")
+            axes[axis_index].grid(True, alpha=0.25)
+        axes[-1].set_xlabel("measurement iteration")
+        axes[0].legend(loc="best", fontsize=7, ncol=3)
+        fig.suptitle(f"{title_prefix}\nball measurement pose comparison")
+        fig.tight_layout()
+        path = _build_path(output_base_path, "_03_ball_measurement_pose_comparison", ".png")
+        fig.savefig(path, dpi=180)
+        plt.close(fig)
+        written.append(path)
+
+    return written
+
+
+def plot_hexapod_repeatability_results(
+    repeatability_results: dict,
+    output_base_path: str,
+    title: Optional[str] = None,
+) -> list[str]:
+    """Save plots for confocal measurements after random hexapod poses."""
+    measurements = repeatability_results.get("measurements", [])
+    if not measurements:
+        raise ValueError("No hexapod repeatability measurements available for plotting.")
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_base_path)) or ".", exist_ok=True)
+
+    iterations = np.asarray(
+        [int(entry.get("current_iteration", index + 1)) for index, entry in enumerate(measurements)],
+        dtype=np.int32,
+    )
+    measurement_um = np.asarray(
+        [float(entry["measurement_um"]) for entry in measurements],
+        dtype=np.float64,
+    )
+    delta_um = np.asarray(
+        [float(entry.get("delta_from_baseline_um", 0.0)) for entry in measurements],
+        dtype=np.float64,
+    )
+    x_cmd_um = np.asarray(
+        [float(entry.get("x_cmd_mm", float(entry.get("x_cmd_m", 0.0)) * 1e3)) * 1e3 for entry in measurements],
+        dtype=np.float64,
+    )
+    y_cmd_um = np.asarray(
+        [float(entry.get("y_cmd_mm", float(entry.get("y_cmd_m", 0.0)) * 1e3)) * 1e3 for entry in measurements],
+        dtype=np.float64,
+    )
+    z_cmd_um = np.asarray(
+        [float(entry.get("z_cmd_mm", float(entry.get("z_cmd_m", 0.0)) * 1e3)) * 1e3 for entry in measurements],
+        dtype=np.float64,
+    )
+    rx_cmd = np.asarray([float(entry.get("rx_cmd_deg", 0.0)) for entry in measurements], dtype=np.float64)
+    ry_cmd = np.asarray([float(entry.get("ry_cmd_deg", 0.0)) for entry in measurements], dtype=np.float64)
+    rz_cmd = np.asarray([float(entry.get("rz_cmd_deg", 0.0)) for entry in measurements], dtype=np.float64)
+
+    title_prefix = title or "Hexapod repeatability"
+    written: list[str] = []
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+    axes[0].plot(iterations, measurement_um, marker="o", color="0.25")
+    axes[0].set_ylabel("measurement (um)")
+    axes[0].set_title(f"{title_prefix}\nconfocal measurement repeatability")
+    axes[0].grid(True, alpha=0.25)
+    axes[1].plot(iterations, delta_um, marker="o", color="tab:blue")
+    axes[1].axhline(0.0, color="0.4", linewidth=0.8)
+    axes[1].set_xlabel("measurement iteration")
+    axes[1].set_ylabel("delta from baseline (um)")
+    axes[1].grid(True, alpha=0.25)
+    fig.tight_layout()
+    path = _build_path(output_base_path, "_01_measurement_repeatability", ".png")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    written.append(path)
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+    axes[0].plot(iterations, x_cmd_um, marker="o", label="x")
+    axes[0].plot(iterations, y_cmd_um, marker="o", label="y")
+    axes[0].plot(iterations, z_cmd_um, marker="o", label="z")
+    axes[0].set_ylabel("translation command (um)")
+    axes[0].set_title(f"{title_prefix}\nrandom hexapod commands")
+    axes[0].legend(loc="best")
+    axes[0].grid(True, alpha=0.25)
+    axes[1].plot(iterations, rx_cmd, marker="o", label="rx")
+    axes[1].plot(iterations, ry_cmd, marker="o", label="ry")
+    axes[1].plot(iterations, rz_cmd, marker="o", label="rz")
+    axes[1].set_xlabel("measurement iteration")
+    axes[1].set_ylabel("rotation command (deg)")
+    axes[1].legend(loc="best")
+    axes[1].grid(True, alpha=0.25)
+    fig.tight_layout()
+    path = _build_path(output_base_path, "_02_random_pose_commands", ".png")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    written.append(path)
+
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8), constrained_layout=True)
+    command_series = (
+        ("x (um)", x_cmd_um),
+        ("y (um)", y_cmd_um),
+        ("z (um)", z_cmd_um),
+        ("rx (deg)", rx_cmd),
+        ("ry (deg)", ry_cmd),
+        ("rz (deg)", rz_cmd),
+    )
+    for ax, (label, values) in zip(axes.flat, command_series):
+        ax.scatter(values, delta_um, s=34)
+        ax.axhline(0.0, color="0.4", linewidth=0.8)
+        ax.set_xlabel(label)
+        ax.set_ylabel("delta (um)")
+        ax.grid(True, alpha=0.25)
+    fig.suptitle(f"{title_prefix}\nmeasurement delta vs random command")
+    path = _build_path(output_base_path, "_03_delta_vs_command", ".png")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    written.append(path)
+
+    return written
