@@ -17,7 +17,6 @@ from assembly_manager_interfaces.msg import RefFrameProperties
 import assembly_manager_interfaces.srv as ami_srv
 import assembly_manager_interfaces.msg as ami_msg
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world
-from assembly_scene_publisher.py_modules.geometry_functions import quaternion_multiply
 from scipy.spatial.transform import Rotation as R
 import time
 
@@ -54,6 +53,7 @@ class VisionSkillsNode(Node):
         # overwriting the callback function!!
         self.pm_robot_utils.object_scene_callback = self.object_scene_callback
         self.pm_robot_utils.start_object_scene_subscribtion()   
+        self._last_measure_camera_tcp_frame = None
 
     def _call_service_with_timeout(self,
                                    client,
@@ -120,6 +120,7 @@ class VisionSkillsNode(Node):
 
             if request.frame_name == '':
                 raise PmRobotError("Frame name is empty. Please provide a valid frame name to measure!")
+            self._last_measure_camera_tcp_frame = None
             
             if not self.pm_robot_utils.client_execute_vision.wait_for_service(timeout_sec=1.0):
                 raise PmRobotError("Service 'ExecuteVision' not available...")
@@ -187,6 +188,9 @@ class VisionSkillsNode(Node):
 
                 if not result_move_tool.success:
                     raise PmRobotError("Failed to move tool to frame with both cameras. Cannot execute vision measurement!")
+                self._last_measure_camera_tcp_frame = self.pm_robot_utils.TCP_CAMERA_TOP
+            else:
+                self._last_measure_camera_tcp_frame = self.pm_robot_utils.TCP_CAMERA_BOTTOM
 
             # Measure the frame
             if (self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE or 
@@ -337,19 +341,26 @@ class VisionSkillsNode(Node):
             else:
                 measure_frame_request.vision_process_file_name = f"Assembly_Manager/{_obj_name}/{request.frame_name}{extention}.json"
 
-            response_em = skills_srv.MeasureFrameVision.Response()
-
             self._logger.warn(f"Requesting measure frame for frame: {request.frame_name}...using process file: {measure_frame_request.vision_process_file_name}")
             
             if request.remeasure_after_correction == True:
-                iter = 2
+                iterations = 2
 
             else:
-                iter = 1
+                iterations = 1
 
-            for _ in range(iter):
-                
-                result:skills_srv.MeasureFrameVision.Response = self.measure_frame(measure_frame_request, response_em)
+            for i in range(iterations):
+                if i > 0:
+                    self._logger.info(
+                        f"Remeasuring frame '{request.frame_name}' after correction "
+                        f"({i + 1}/{iterations})."
+                    )
+
+                response_em = skills_srv.MeasureFrameVision.Response()
+                result:skills_srv.MeasureFrameVision.Response = self.measure_frame(
+                    measure_frame_request,
+                    response_em
+                )
 
                 response.correction_values = result.result_vector
                 response.correction_angle = result.result_angle
@@ -371,14 +382,25 @@ class VisionSkillsNode(Node):
                 # applied around the un-translated axis.
                 correction_angle_deg = float(result.result_angle)
                 rot_axis = self._get_rotation_axis(result.vision_response)
+                modify_orientation = False
+                
                 if rot_axis is not None and abs(correction_angle_deg) > 1e-9:
+                    camera_tcp_frame = self._last_measure_camera_tcp_frame
+                    if camera_tcp_frame is None:
+                        raise PmRobotError("Could not determine camera TCP used for vision measurement.")
+                    camera_pose: TransformStamped = get_transform_for_frame_in_world(
+                        camera_tcp_frame,
+                        self.tf_buffer,
+                        self._logger
+                    )
                     self._logger.info(
                         f"Applying rotation of {correction_angle_deg} deg about {rot_axis}-axis "
-                        f"to frame '{request.frame_name}'."
+                        f"to frame '{request.frame_name}' from camera TCP '{camera_tcp_frame}'."
                     )
                     world_pose.transform.rotation = self._apply_world_rotation(
-                        world_pose.transform.rotation, rot_axis, correction_angle_deg
+                        camera_pose.transform.rotation, rot_axis, correction_angle_deg
                     )
+                    modify_orientation = True
                 else:
                     self._logger.debug(
                         f"No rotation applied (angle={correction_angle_deg}, rot_axis={rot_axis})."
@@ -391,6 +413,7 @@ class VisionSkillsNode(Node):
                 adapt_frame_request.pose.position.z = world_pose.transform.translation.z
                 adapt_frame_request.pose.orientation = world_pose.transform.rotation
                 adapt_frame_request.set_vision_measured = True
+                adapt_frame_request.modify_orientation = modify_orientation
 
                 if not self.pm_robot_utils.client_adapt_frame_absolut.wait_for_service(timeout_sec=1.0):
                     raise PmRobotError("Service 'ModifyPoseAbsolut' not available.")
@@ -412,7 +435,7 @@ class VisionSkillsNode(Node):
                     and abs(result.result_vector.z) < threshold
                     and abs(result.result_angle) < angle_threshold_deg
                     and request.remeasure_after_correction == True
-                    and not _ == 1):
+                    and i != 1):
                     self._logger.info(
                         f"Correction has been smaller than {threshold*1e6} um and "
                         f"{angle_threshold_deg} deg. Remesuring will not be triggered!"
@@ -457,38 +480,38 @@ class VisionSkillsNode(Node):
 
         suffix_1 = (detected_point.axis_suffix_1 or '').lower()
         suffix_2 = (detected_point.axis_suffix_2 or '').lower()
-        populated = {suffix_1, suffix_2} - {''}
-        if len(populated) != 2:
-            return None
-        for axis in ('x', 'y', 'z'):
-            if axis not in populated:
-                return axis
-        return None
+        return {
+            frozenset(('x', 'y')): 'z',
+            frozenset(('x', 'z')): 'y',
+            frozenset(('y', 'z')): 'x',
+        }.get(frozenset((suffix_1, suffix_2)))
 
     @staticmethod
     def _apply_world_rotation(orientation: Quaternion, rot_axis: str, angle_deg: float) -> Quaternion:
-        """Apply a rotation of ``angle_deg`` degrees about ``rot_axis`` in the world frame.
+        """Apply ``angle_deg`` only to the requested Euler rotation component.
 
-        The rotation is applied as a world-frame rotation, i.e. the
-        quaternion is post-multiplied with the rotation quaternion so the
-        correction is expressed in the parent (world) frame.
+        For example, measurements with ``x`` and ``y`` suffixes correct only
+        the ``z`` rotation component.
         """
-        if rot_axis == 'x':
-            euler = [angle_deg, 0.0, 0.0]
-        elif rot_axis == 'y':
-            euler = [0.0, angle_deg, 0.0]
-        elif rot_axis == 'z':
-            euler = [0.0, 0.0, angle_deg]
-        else:
+        axis_index = {'x': 0, 'y': 1, 'z': 2}.get(rot_axis)
+        if axis_index is None:
             raise ValueError(f"Unknown rotation axis '{rot_axis}'.")
 
-        q_corr = R.from_euler('xyz', euler, degrees=True).as_quat()
-        quat_corr = Quaternion()
-        quat_corr.x = float(q_corr[0])
-        quat_corr.y = float(q_corr[1])
-        quat_corr.z = float(q_corr[2])
-        quat_corr.w = float(q_corr[3])
-        return quaternion_multiply(orientation, quat_corr)
+        current_euler = R.from_quat([
+            orientation.x,
+            orientation.y,
+            orientation.z,
+            orientation.w,
+        ]).as_euler('xyz', degrees=True)
+        current_euler[axis_index] += angle_deg
+
+        q_new = R.from_euler('xyz', current_euler, degrees=True).as_quat()
+        result = Quaternion()
+        result.x = float(q_new[0])
+        result.y = float(q_new[1])
+        result.z = float(q_new[2])
+        result.w = float(q_new[3])
+        return result
 
     def object_scene_callback(self, msg: ami_msg.ObjectScene):
         """Handles updates to the object scene and generates process files accordingly."""

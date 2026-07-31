@@ -475,8 +475,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             
             if result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
                 wait_success = self.wait_for_joints_reached(
-                    joint_names=["SP_X_Joint", "SP_Y_Joint", "SP_Z_Joint",
-                                 "SP_A_Joint", "SP_B_Joint", "SP_C_Joint"],
+                    joint_names=goal.trajectory.joint_names,
                     target_joint_values=goal.trajectory.points[0].positions,
                     tolerance=[0.000001],
                     timeout=5.0)
@@ -570,6 +569,22 @@ class PmRobotUtils(PrimitiveSkillsUtils):
 
             bool: True if the robot reached the desired joint positions, False otherwise.
         """
+        if len(joint_names) != len(target_joint_values):
+            self._node.get_logger().error(
+                f"Joint names/target values length mismatch: {len(joint_names)} names, "
+                f"{len(target_joint_values)} values."
+            )
+            return False
+
+        if len(tolerance) == 1 and len(joint_names) > 1:
+            tolerance = tolerance * len(joint_names)
+        elif len(tolerance) != len(joint_names):
+            self._node.get_logger().error(
+                f"Joint names/tolerance length mismatch: {len(joint_names)} names, "
+                f"{len(tolerance)} tolerances."
+            )
+            return False
+
         start_time = time.time()
         while True:
             current_joint_positions = [self.get_current_joint_state(name) for name in joint_names]
