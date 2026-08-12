@@ -1,0 +1,38 @@
+# Assembly-scene frame defining the beginning of the scan line.
+string start_frame
+# Assembly-scene frame defining the end of the scan line.
+string end_frame
+# Optional assembly-scene frame moved to the selected profile extremum.
+# Leave empty to acquire and plot the profile without correcting a frame.
+string frame_to_correct
+# Positive Z offset applied to the selected sensor pose, in millimetres.
+float64 sensor_offset_mm
+# Maximum distance between adjacent measurements, in millimetres.
+float64 step_size_mm
+# Refine around the coarse minimum/maximum when true.
+bool use_min_max_refinement
+# Total refinement window in micrometres; must be > 0 and <= 200 when enabled.
+float64 refinement_length_um
+# Select the largest measurement when true, otherwise select the smallest.
+bool use_max_value
+---
+bool success
+string message
+float64[] path_positions_mm
+float64[] measurements_mm
+uint32 selected_index
+float64 selected_path_position_mm
+float64 selected_measurement_mm
+geometry_msgs/Pose corrected_pose
+geometry_msgs/Vector3 correction_values
+bool used_hexapod
+string plot_file_path
+string csv_file_path
+---
+uint32 current_step
+uint32 total_steps
+float64 path_position_mm
+float64 measurement_mm
+bool using_hexapod
+string sensor_name
+string message
