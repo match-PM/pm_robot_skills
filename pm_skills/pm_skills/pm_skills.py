@@ -1195,10 +1195,10 @@ class PmSkills(Node):
         import csv
  
         base_folder = (
-            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/messungen_neu"
+            "/home/pmlab/pm_Server/01_PM_Zelle/03_PM_DataBase/pm_assembly_database/RSAP_Processes/Bente/documentation_and_plots/measurements"
         )
  
-        folder_name = f"EdgeScan_{request.target_frame}"
+        folder_name = f"EdgeScan_{request.target_frame}_"
         folder = os.path.join(base_folder, folder_name)
         data_folder = os.path.join(folder, "data")
         os.makedirs(data_folder, exist_ok=True)

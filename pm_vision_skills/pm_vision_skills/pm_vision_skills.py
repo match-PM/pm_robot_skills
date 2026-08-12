@@ -380,7 +380,7 @@ class VisionSkillsNode(Node):
                 # in the translation result_vector (i.e. the third axis). The translation
                 # may be zero in one or both populated axes; the rotation must still be
                 # applied around the un-translated axis.
-                correction_angle_deg = float(result.result_angle)
+                correction_angle_deg = -float(result.result_angle)
                 rot_axis = self._get_rotation_axis(result.vision_response)
                 modify_orientation = False
                 
