@@ -39,6 +39,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/HexapodRepeatability.action"
   "action/TestHexapodCalibration.action"
   "action/CorrectFrameLineScan.action"
+  "action/RectSpiralSearch.action"
   DEPENDENCIES geometry_msgs pm_vision_interfaces
 )
 

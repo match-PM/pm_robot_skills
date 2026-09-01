@@ -16,6 +16,7 @@ import std_msgs.msg as std_msg
 from pm_msgs.srv import EmptyWithSuccess
 
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
+from pm_skills.py_modules.pm_alignment_search_skills import PmAlignmentSearchSkills
 from pm_skills.py_modules.pm_dispensing_skills import PmDispensingSkills
 from pm_skills.py_modules.pm_force_skills import PmForceSkills
 from pm_skills.py_modules.pm_gonio_skills import PmGonioSkills
@@ -63,6 +64,7 @@ class PmSkills(Node):
         self.gripper_skills = PmGripperSkills(self)
         self.measurement_skills = PmMeasurementSkills(self)
         self.line_scan_skills = PmLineScanSkills(self)
+        self.alignment_search_skills = PmAlignmentSearchSkills(self)
         self.dispensing_skills = PmDispensingSkills(self)
         self.uv_skills = PmUvSkills(self)
         self.skill_domains = (
@@ -71,6 +73,7 @@ class PmSkills(Node):
             self.gripper_skills,
             self.measurement_skills,
             self.line_scan_skills,
+            self.alignment_search_skills,
             self.dispensing_skills,
             self.uv_skills,
         )
@@ -114,6 +117,15 @@ class PmSkills(Node):
             execute_callback=self.line_scan_skills.correct_frame_confocal_line_scan,
             goal_callback=self.line_scan_skills.goal_callback,
             cancel_callback=self.line_scan_skills.cancel_callback,
+            callback_group=self.callback_group_re,
+        )
+        self.rect_spiral_search_action = ActionServer(
+            self,
+            pm_skill_action.RectSpiralSearch,
+            '/pm_skills/rect_spiral_search',
+            execute_callback=self.alignment_search_skills.rect_spiral_search,
+            goal_callback=self.alignment_search_skills.goal_callback,
+            cancel_callback=self.alignment_search_skills.cancel_callback,
             callback_group=self.callback_group_re,
         )
         

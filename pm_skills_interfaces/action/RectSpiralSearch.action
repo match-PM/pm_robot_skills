@@ -1,0 +1,39 @@
+# Full search extents about the current frame position, in micrometres.
+# Exactly two values must be positive and finite; the third must be zero.
+float64 x_um
+float64 y_um
+float64 z_um
+# Exact number of center-out rectangular turns.
+uint32 spiral_turns 3
+# Time in seconds for the longest spiral segment. Shorter segments are scaled
+# proportionally so that every segment has the same commanded linear speed.
+float64 segment_time_s 2.0
+# Assembly-scene frame which is moved during the search.
+string frame_name
+# Topic carrying either std_msgs/Bool or std_msgs/Float64. The action subscribes
+# to both types and uses the type of the first message received.
+string alignment_topic
+# Optional output image path. Leave empty to disable plot generation. A .png
+# suffix is added when a non-empty path has no suffix.
+string rsap_path
+---
+bool success
+string message
+bool used_hexapod
+float64 best_value
+bool best_bool_value
+geometry_msgs/Vector3 best_offset_um
+uint32 visited_points
+string rsap_path
+# Every topic sample paired with its measured position in frame-local axes.
+float64[] sample_offset_x_um
+float64[] sample_offset_y_um
+float64[] sample_offset_z_um
+float64[] sample_values
+---
+uint32 current_point
+uint32 total_points
+geometry_msgs/Vector3 current_offset_um
+float64 current_value
+bool current_bool_value
+uint32 sample_count

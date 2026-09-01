@@ -49,10 +49,6 @@ class PmLineScanSkills(PmSkillDomain):
     ROBOT_APPROACH_CLEARANCE_M = 0.04
     TF_WAIT_TIMEOUT_S = 10.0
     TF_RETRY_INTERVAL_S = 0.1
-    SMARPOD_TOP_FRAMES = {
-        'Smarpod_Top_Plate',
-        'Smarpod_Part_Spawn'
-    }
 
     ROBOT_TRANSLATION_JOINTS = (
         PmRobotUtils.X_Axis_JOINT_NAME,
@@ -1123,9 +1119,10 @@ class PmLineScanSkills(PmSkillDomain):
                     f'{refinement_sample_count} refined); '
                     f'the maximum is {self.MAX_SAMPLES}. Increase step_size_mm.'
                 )
+            
+            start_on_smarpod = self.pm_robot_utils.assembly_scene_analyzer.frame_is_on_smarpod(goal.start_frame)
+            end_on_smarpod = self.pm_robot_utils.assembly_scene_analyzer.frame_is_on_smarpod(goal.end_frame)
 
-            start_on_smarpod = self._frame_is_on_smarpod(goal.start_frame)
-            end_on_smarpod = self._frame_is_on_smarpod(goal.end_frame)
             if start_on_smarpod != end_on_smarpod:
                 raise PmRobotError(
                     'Start and end frames must both be on the hexapod platform or both be stationary.'
