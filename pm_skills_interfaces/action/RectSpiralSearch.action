@@ -13,8 +13,9 @@ string frame_name
 # Topic carrying either std_msgs/Bool or std_msgs/Float64. The action subscribes
 # to both types and uses the type of the first message received.
 string alignment_topic
-# Optional output image path. Leave empty to disable plot generation. A .png
-# suffix is added when a non-empty path has no suffix.
+# Optional output root. Each plot/CSV pair is stored in its own timestamped
+# folder below <rsap_path>/rect_spiral_search. An image filename is also accepted
+# for compatibility. Leave empty to disable file generation.
 string rsap_path
 ---
 bool success

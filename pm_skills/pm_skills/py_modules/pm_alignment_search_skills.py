@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import csv
+from datetime import datetime, timezone
 import math
 from pathlib import Path
 import threading
@@ -60,12 +61,22 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         self._signal_lock = threading.Lock()
         self._signal_event = threading.Event()
         self._latest_signal: float | bool | None = None
+        self._latest_ros_time_ns: int | None = None
+        self._latest_wall_time_ns: int | None = None
         self._signal_is_bool: bool | None = None
         self._recording = False
         self._sampling_joint_names: Sequence[str] = ()
         self._center_joints: Sequence[float] = ()
         self._frame_orientation = Quaternion(w=1.0)
-        self._samples: list[tuple[tuple[float, float, float], float | bool]] = []
+        self._samples: list[
+            tuple[
+                tuple[float, float, float],
+                float | bool,
+                int,
+                int,
+                tuple[float, float, float],
+            ]
+        ] = []
 
     @staticmethod
     def _active_axes(goal: pm_skill_action.RectSpiralSearch.Goal) -> list[int]:
@@ -189,8 +200,13 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         )
         return cls._rotate(vector, inverse)
 
-    def _capture_sample(self, value: float | bool) -> None:
-        """Associate a signal message with the latest controller joint state."""
+    def _capture_sample(
+        self,
+        value: float | bool,
+        ros_time_ns: int,
+        wall_time_ns: int,
+    ) -> None:
+        """Associate a timestamped signal message with the controller position."""
         current = [
             self.pm_robot_utils.get_current_joint_state(name)
             for name in self._sampling_joint_names[:3]
@@ -202,9 +218,17 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             for index in range(3)
         )
         local_offset_um = self._inverse_rotate(world_offset_um, self._frame_orientation)
-        self._samples.append((local_offset_um, value))
+        self._samples.append((
+            local_offset_um,
+            value,
+            ros_time_ns,
+            wall_time_ns,
+            tuple(current),
+        ))
 
     def _signal_callback(self, message: Bool | Float64) -> None:
+        ros_time_ns = self.node.get_clock().now().nanoseconds
+        wall_time_ns = time.time_ns()
         with self._signal_lock:
             message_is_bool = isinstance(message, Bool)
             if self._signal_is_bool is None:
@@ -214,8 +238,10 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             elif self._signal_is_bool != message_is_bool:
                 return
             self._latest_signal = message.data
+            self._latest_ros_time_ns = ros_time_ns
+            self._latest_wall_time_ns = wall_time_ns
             if self._recording:
-                self._capture_sample(message.data)
+                self._capture_sample(message.data, ros_time_ns, wall_time_ns)
             self._signal_event.set()
 
     def _wait_for_signal(self, timeout_s: float | None = None) -> float | bool:
@@ -280,7 +306,16 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             raise PmRobotError('MoveIt returned mismatched joint names and values.')
         return dict(zip(response.joint_names, response.joint_values))
 
-    def _plan_pose(self, pose: Pose, use_hexapod: bool) -> dict[str, float]:
+    def _plan_pose(
+        self,
+        pose: Pose,
+        use_hexapod: bool,
+        endeffector_frame: str,
+        local_offset_um: Sequence[float],
+        check_index: int | None = None,
+        check_count: int | None = None,
+    ) -> dict[str, float]:
+        """Check a target pose for the selected moving assembly frame."""
         client = (
             self._move_smarpod_to_pose_client
             if use_hexapod else self._move_tool_to_pose_client
@@ -289,10 +324,71 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             raise PmRobotError(f"Service '{client.srv_name}' is not available.")
         request = pm_moveit_srv.MoveToPose.Request()
         request.move_to_pose = pose
+        request.endeffector_frame_override = endeffector_frame
         request.execute_movement = False
+        mover = 'SmarPod' if use_hexapod else 'robot tool'
+        self._logger.info(
+            f'Checking {mover} pose for frame {endeffector_frame!r}: '
+            f'local_offset_um=({local_offset_um[0]:.3f}, '
+            f'{local_offset_um[1]:.3f}, {local_offset_um[2]:.3f}), '
+            f'world_position_m=({pose.position.x:.9f}, '
+            f'{pose.position.y:.9f}, {pose.position.z:.9f}), '
+            f'world_orientation_xyzw=({pose.orientation.x:.6f}, '
+            f'{pose.orientation.y:.6f}, {pose.orientation.z:.6f}, '
+            f'{pose.orientation.w:.6f}).'
+        )
         response = client.call(request)
         if not response.success:
-            raise PmRobotError(f'Collision check failed: {response.message}')
+            is_initial_pose = all(
+                math.isclose(value, 0.0, abs_tol=1e-9)
+                for value in local_offset_um
+            )
+            check_name = (
+                'initial search position'
+                if is_initial_pose
+                else 'search boundary corner'
+            )
+            check_progress = ''
+            if check_index is not None and check_count is not None:
+                check_progress = f' {check_index}/{check_count}'
+            moveit_message = response.message.strip() or 'no details supplied'
+            normalized_message = moveit_message.lower()
+            if 'collisions between:' in normalized_message:
+                diagnosis = (
+                    'MoveIt reported collision contacts; inspect the listed '
+                    'link pairs and the Allowed Collision Matrix.'
+                )
+            elif 'ik solution not found' in normalized_message:
+                diagnosis = (
+                    'MoveIt could not find inverse kinematics for this pose. '
+                    'Verify the frame transform and SmarPod workspace/joint limits.'
+                )
+            elif 'planing failed' in normalized_message or 'planning failed' in normalized_message:
+                diagnosis = (
+                    'Inverse kinematics succeeded, but MoveIt could not plan from '
+                    'the current state to that joint target. No collision contacts '
+                    'were reported. Verify that the current joint state, TF, and '
+                    'planning scene agree; inspect joint limits and the state in '
+                    'RViz; then retry. A planner timeout can also cause this.'
+                )
+            else:
+                diagnosis = (
+                    'MoveIt rejected the pose. Inspect the pm_moveit server log and '
+                    'the planning scene in RViz for the underlying reason.'
+                )
+            raise PmRobotError(
+                f'Preflight pose check{check_progress} failed at the {check_name} '
+                f'for {mover} frame {endeffector_frame!r}. '
+                f'Local offset=({local_offset_um[0]:.3f}, '
+                f'{local_offset_um[1]:.3f}, {local_offset_um[2]:.3f}) um; '
+                f'world target position=({pose.position.x:.9f}, '
+                f'{pose.position.y:.9f}, {pose.position.z:.9f}) m, '
+                f'orientation=({pose.orientation.x:.6f}, '
+                f'{pose.orientation.y:.6f}, {pose.orientation.z:.6f}, '
+                f'{pose.orientation.w:.6f}) xyzw. {diagnosis} '
+                f'MoveIt response: {moveit_message!r}. The alignment subscription '
+                f'was not started and no search motion was executed.'
+            )
         return self._joint_map(response)
 
     def _move(
@@ -335,14 +431,68 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         return math.sqrt(sum((b - a) ** 2 for a, b in zip(start, end)))
 
     @staticmethod
+    def _best_result(
+        samples: Sequence[tuple[Sequence[float], float | bool]],
+        bool_signal: bool,
+    ) -> tuple[tuple[float, float, float], float | bool]:
+        """Select a result, falling back to the initial pose if no contrast exists."""
+        if bool_signal:
+            bool_values = [bool(value) for _, value in samples]
+            if all(value == bool_values[0] for value in bool_values):
+                return (0.0, 0.0, 0.0), bool_values[0]
+            true_offsets = [offset for offset, value in samples if bool(value)]
+            count = len(true_offsets)
+            centroid = tuple(
+                sum(offset[axis] for offset in true_offsets) / count
+                for axis in range(3)
+            )
+            return centroid, True
+        float_values = [float(value) for _, value in samples]
+        if all(value == float_values[0] for value in float_values):
+            return (0.0, 0.0, 0.0), float_values[0]
+        best_offset, best_value = max(samples, key=lambda sample: sample[1])
+        return tuple(best_offset), best_value
+
+    @staticmethod
+    def _output_image_path(
+        path_text: str,
+        timestamp: str | None = None,
+    ) -> str:
+        """Create a folder for one plot/CSV measurement pair."""
+        requested_path = Path(path_text).expanduser()
+        image_suffixes = {
+            '.eps', '.jpeg', '.jpg', '.pdf', '.pgf', '.png', '.ps', '.raw',
+            '.rgba', '.svg', '.svgz', '.tif', '.tiff', '.webp',
+        }
+        if requested_path.suffix.lower() in image_suffixes:
+            output_root = requested_path.parent
+            image_stem = requested_path.stem
+            image_suffix = requested_path.suffix
+        else:
+            output_root = requested_path
+            image_stem = 'rect_spiral_search'
+            image_suffix = '.png'
+        run_timestamp = timestamp or datetime.now().strftime(
+            '%Y%m%d_%H%M%S_%f'
+        )
+        output_directory = output_root / 'rect_spiral_search' / run_timestamp
+        output_directory.mkdir(parents=True, exist_ok=False)
+        image_name = f'{image_stem}{image_suffix}'
+        return str((output_directory / image_name).resolve())
+
+    @staticmethod
     def _save_plot(
         path_text: str,
         axes: Sequence[int],
         path_offsets: Sequence[Sequence[float]],
-        samples: Sequence[tuple[Sequence[float], float | bool]],
+        samples: Sequence[
+            tuple[Sequence[float], float | bool, int, int, Sequence[float]]
+        ],
         bool_signal: bool,
+        selected_offset: Sequence[float],
+        selected_value: float | bool,
     ) -> str:
-        """Save the commanded spiral and measured signal map as a PNG plot."""
+        """Save the signal map and visibly mark the selected result."""
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='Unable to import Axes3D.*')
             import matplotlib
@@ -354,10 +504,7 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             '.eps', '.jpeg', '.jpg', '.pdf', '.pgf', '.png', '.ps', '.raw',
             '.rgba', '.svg', '.svgz', '.tif', '.tiff', '.webp',
         }
-        if path.is_dir():
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            path = path / f'rect_spiral_search_{timestamp}.png'
-        elif not path.suffix:
+        if not path.suffix:
             path = path.with_suffix('.png')
         elif path.suffix.lower() not in supported_suffixes:
             path = path.with_name(f'{path.stem}_rect_spiral_search.png')
@@ -366,9 +513,9 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         first_axis, second_axis = axes
         path_first = [point[first_axis] for point in path_offsets]
         path_second = [point[second_axis] for point in path_offsets]
-        sample_first = [point[first_axis] for point, _ in samples]
-        sample_second = [point[second_axis] for point, _ in samples]
-        values = [value for _, value in samples]
+        sample_first = [sample[0][first_axis] for sample in samples]
+        sample_second = [sample[0][second_axis] for sample in samples]
+        values = [sample[1] for sample in samples]
 
         figure, plot = plt.subplots(figsize=(8, 7))
         plot.plot(path_first, path_second, color='0.75', linewidth=1.0, label='spiral')
@@ -381,21 +528,121 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                         [sample_second[index] for index in indices],
                         c=color, marker=marker, s=24, label=str(state),
                     )
-            plot.legend()
         else:
             colors = [float(value) for value in values]
             collection = plot.scatter(
                 sample_first, sample_second, c=colors, cmap='viridis', s=18,
             )
             figure.colorbar(collection, ax=plot, label='Alignment value')
+        plot.scatter(
+            [selected_offset[first_axis]],
+            [selected_offset[second_axis]],
+            s=260,
+            facecolors='none',
+            edgecolors='magenta',
+            linewidths=2.5,
+            marker='o',
+            label='selected result',
+            zorder=6,
+        )
+        plot.scatter(
+            [selected_offset[first_axis]],
+            [selected_offset[second_axis]],
+            s=90,
+            c='black',
+            linewidths=2.0,
+            marker='+',
+            zorder=7,
+        )
+        horizontal_midpoint = (min(path_first) + max(path_first)) / 2.0
+        vertical_midpoint = (min(path_second) + max(path_second)) / 2.0
+        annotation_x = (
+            -12 if selected_offset[first_axis] >= horizontal_midpoint else 12
+        )
+        annotation_y = (
+            -12 if selected_offset[second_axis] >= vertical_midpoint else 12
+        )
+        plot.annotate(
+            f'Selected: {selected_value}\n'
+            f'({selected_offset[first_axis]:.3f}, '
+            f'{selected_offset[second_axis]:.3f}) µm',
+            xy=(
+                selected_offset[first_axis],
+                selected_offset[second_axis],
+            ),
+            xytext=(annotation_x, annotation_y),
+            textcoords='offset points',
+            horizontalalignment='right' if annotation_x < 0 else 'left',
+            verticalalignment='top' if annotation_y < 0 else 'bottom',
+            arrowprops={'arrowstyle': '->', 'color': 'magenta'},
+            bbox={
+                'boxstyle': 'round,pad=0.3',
+                'facecolor': 'white',
+                'edgecolor': 'magenta',
+                'alpha': 0.9,
+            },
+            zorder=8,
+        )
+        plot.legend(
+            loc='upper center',
+            bbox_to_anchor=(0.5, -0.12),
+            ncol=3,
+        )
         plot.set_xlabel(f'Frame {axis_names[first_axis]} offset [µm]')
         plot.set_ylabel(f'Frame {axis_names[second_axis]} offset [µm]')
         plot.set_title('Rectangular spiral alignment map')
         plot.set_aspect('equal', adjustable='box')
         plot.grid(True, alpha=0.25)
         figure.tight_layout()
-        figure.savefig(path, dpi=180)
+        figure.savefig(path, dpi=180, bbox_inches='tight')
         plt.close(figure)
+        return str(path.resolve())
+
+    @staticmethod
+    def _save_csv(
+        image_path: str,
+        samples: Sequence[
+            tuple[Sequence[float], float | bool, int, int, Sequence[float]]
+        ],
+    ) -> str:
+        """Save timestamped measurements and positions beside the plot."""
+        path = Path(image_path).with_suffix('.csv')
+        with path.open('w', newline='', encoding='utf-8') as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow([
+                'sample_index',
+                'ros_time_ns',
+                'ros_time_s',
+                'wall_time_unix_ns',
+                'wall_time_utc',
+                'value',
+                'local_offset_x_um',
+                'local_offset_y_um',
+                'local_offset_z_um',
+                'controller_position_x_m',
+                'controller_position_y_m',
+                'controller_position_z_m',
+            ])
+            for index, sample in enumerate(samples):
+                offset, value, ros_time_ns, wall_time_ns, position = sample
+                wall_time_utc = datetime.fromtimestamp(
+                    wall_time_ns / 1e9,
+                    tz=timezone.utc,
+                ).isoformat(timespec='microseconds')
+                writer.writerow([
+                    index,
+                    ros_time_ns,
+                    f'{ros_time_ns / 1e9:.9f}',
+                    wall_time_ns,
+                    wall_time_utc,
+                    value,
+                    offset[0],
+                    offset[1],
+                    offset[2],
+                    position[0],
+                    position[1],
+                    position[2],
+                ])
         return str(path.resolve())
 
     @staticmethod
@@ -425,25 +672,6 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             if on_hexapod == on_gripper:
                 raise PmRobotError('The frame must be on exactly one mover.')
             result.used_hexapod = on_hexapod
-
-            topic = self._alignment_topic(goal)
-            signal_deadline = time.monotonic() + self.SIGNAL_TIMEOUT_S
-            message_type, signal_is_bool = self._detect_signal_type(
-                topic, signal_deadline
-            )
-            self._signal_event.clear()
-            with self._signal_lock:
-                self._latest_signal = None
-                self._signal_is_bool = signal_is_bool
-                self._samples = []
-                self._recording = False
-            subscriptions = [self.node.create_subscription(
-                message_type, topic, self._signal_callback, 10
-            )]
-            # Refuse to plan or move until the selected signal source proves
-            # that it is alive. The topic message itself need not be retained
-            # as a positioned sample because no controller pose is established yet.
-            self._wait_for_signal(signal_deadline - time.monotonic())
 
             extents = (goal.x_um, goal.y_um, goal.z_um)
             path_offsets = self.generate_rect_spiral(extents, goal.spiral_turns)
@@ -477,12 +705,16 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             checked_offsets = list(dict.fromkeys([path_offsets[0]] + corner_offsets))
             if len(checked_offsets) != 5:
                 raise PmRobotError('Could not construct all four collision-check corners.')
-            checked = {
-                offset: self._plan_pose(
-                    self._pose_with_local_offset(base_pose, offset), on_hexapod
+            checked = {}
+            for check_index, offset in enumerate(checked_offsets, start=1):
+                checked[offset] = self._plan_pose(
+                    self._pose_with_local_offset(base_pose, offset),
+                    on_hexapod,
+                    goal.frame_name,
+                    offset,
+                    check_index,
+                    len(checked_offsets),
                 )
-                for offset in checked_offsets
-            }
             joint_names = self.SMARPOD_JOINTS if on_hexapod else self.ROBOT_JOINTS
             center_map = checked[path_offsets[0]]
             missing = [name for name in joint_names if name not in center_map]
@@ -493,11 +725,40 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             self._center_joints = center_joints
             self._frame_orientation = base_pose.orientation
 
+            topic = self._alignment_topic(goal)
+            signal_deadline = time.monotonic() + self.SIGNAL_TIMEOUT_S
+            message_type, signal_is_bool = self._detect_signal_type(
+                topic, signal_deadline
+            )
+            self._signal_event.clear()
+            with self._signal_lock:
+                self._latest_signal = None
+                self._latest_ros_time_ns = None
+                self._latest_wall_time_ns = None
+                self._signal_is_bool = signal_is_bool
+                self._samples = []
+                self._recording = False
+            subscriptions = [self.node.create_subscription(
+                message_type, topic, self._signal_callback, 10
+            )]
+            # Start consuming the signal only after every collision-check pose
+            # has been calculated, but still prove the source is alive before moving.
+            self._wait_for_signal(signal_deadline - time.monotonic())
+
             self._move(center_joints, on_hexapod, goal.segment_time_s)
             self._signal_event.clear()
             center_value = self._wait_for_signal()
             with self._signal_lock:
-                self._capture_sample(center_value)
+                if (
+                    self._latest_ros_time_ns is None
+                    or self._latest_wall_time_ns is None
+                ):
+                    raise PmRobotError('The alignment sample has no receive timestamp.')
+                self._capture_sample(
+                    center_value,
+                    self._latest_ros_time_ns,
+                    self._latest_wall_time_ns,
+                )
                 self._recording = True
 
             feedback = pm_skill_action.RectSpiralSearch.Feedback()
@@ -537,7 +798,10 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             ]
             if not valid_samples:
                 raise PmRobotError('No finite alignment samples were received.')
-            best_offset, best_value = max(valid_samples, key=lambda sample: sample[1])
+            best_offset, best_value = self._best_result(
+                [(sample[0], sample[1]) for sample in valid_samples],
+                signal_is_bool,
+            )
             return_duration_s = (
                 self._segment_length(path_offsets[-1], best_offset)
                 / commanded_speed_um_s
@@ -550,13 +814,19 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             requested_plot_path = self._rsap_path(goal)
             saved_path = ''
             if requested_plot_path:
+                output_image_path = self._output_image_path(
+                    requested_plot_path
+                )
                 saved_path = self._save_plot(
-                    requested_plot_path,
+                    output_image_path,
                     active_axes,
                     path_offsets,
                     samples,
                     signal_is_bool,
+                    best_offset,
+                    best_value,
                 )
+                self._save_csv(saved_path, samples)
             if hasattr(result, 'rsap_path'):
                 result.rsap_path = saved_path
             else:
