@@ -16,6 +16,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(pm_vision_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/BoolStamped.msg"
+  "msg/Float64Stamped.msg"
   "srv/ConfocalLaser.srv"
   "srv/DispenseAdhesive.srv"
   "srv/ExecuteVision.srv"
@@ -40,7 +42,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/TestHexapodCalibration.action"
   "action/CorrectFrameLineScan.action"
   "action/RectSpiralSearch.action"
-  DEPENDENCIES geometry_msgs pm_vision_interfaces
+  DEPENDENCIES geometry_msgs pm_vision_interfaces std_msgs
 )
 
 if(BUILD_TESTING)

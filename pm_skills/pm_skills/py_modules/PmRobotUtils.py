@@ -1,6 +1,7 @@
 
 import math
 from platform import node
+from typing import Callable, Sequence
 
 from rclpy.node import Node
 import sys
@@ -228,6 +229,106 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         secs = int(time_float)
         nsecs = int((time_float - secs) * 1e9)
         return MsgDuration(sec=secs, nanosec=nsecs)
+
+    def _multi_point_trajectory_goal(
+        self,
+        joint_names: Sequence[str],
+        joint_targets: Sequence[Sequence[float]],
+        segment_durations_s: Sequence[float],
+    ) -> FollowJointTrajectory.Goal:
+        """Build one trajectory with cumulative times for all targets."""
+        if not joint_targets:
+            raise ValueError('A multi-point trajectory requires at least one target.')
+        if len(joint_targets) != len(segment_durations_s):
+            raise ValueError('Each trajectory target requires one segment duration.')
+
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory.joint_names = list(joint_names)
+        elapsed_s = 0.0
+        for target, duration_s in zip(joint_targets, segment_durations_s):
+            if len(target) != len(joint_names):
+                raise ValueError('Trajectory target has the wrong joint count.')
+            if duration_s <= 0.0:
+                raise ValueError('Trajectory segment durations must be positive.')
+            elapsed_s += duration_s
+            point = JointTrajectoryPoint()
+            point.positions = [float(value) for value in target]
+            point.time_from_start = self.float_to_ros_duration(elapsed_s)
+            goal.trajectory.points.append(point)
+        return goal
+
+    def _send_cancellable_trajectory_goal(
+        self,
+        client: ActionClient,
+        goal: FollowJointTrajectory.Goal,
+        cancel_requested: Callable[[], bool] | None = None,
+    ) -> bool:
+        """Send one controller goal and propagate cancellation while it runs."""
+        client.wait_for_server()
+        send_future = client.send_goal_async(goal)
+        while not send_future.done():
+            time.sleep(0.02)
+        if send_future.exception() is not None:
+            raise send_future.exception()
+        goal_handle = send_future.result()
+        if goal_handle is None or not goal_handle.accepted:
+            self._node.get_logger().info('Trajectory goal rejected.')
+            return False
+
+        result_future = goal_handle.get_result_async()
+        cancellation_sent = False
+        while not result_future.done():
+            if (
+                not cancellation_sent
+                and cancel_requested is not None
+                and cancel_requested()
+            ):
+                goal_handle.cancel_goal_async()
+                cancellation_sent = True
+            time.sleep(0.02)
+        if result_future.exception() is not None:
+            raise result_future.exception()
+        if cancellation_sent:
+            return False
+        result = result_future.result().result
+        return result.error_code == FollowJointTrajectory.Result.SUCCESSFUL
+
+    def send_xyz_trajectory_goal_absolut_multi(
+        self,
+        joint_targets: Sequence[Sequence[float]],
+        segment_durations_s: Sequence[float],
+        cancel_requested: Callable[[], bool] | None = None,
+    ) -> bool:
+        """Execute XYZ targets as one continuous controller trajectory."""
+        goal = self._multi_point_trajectory_goal(
+            [self.X_Axis_JOINT_NAME, self.Y_Axis_JOINT_NAME, self.Z_Axis_JOINT_NAME],
+            joint_targets,
+            segment_durations_s,
+        )
+        return self._send_cancellable_trajectory_goal(
+            self.xyz_joint_client,
+            goal,
+            cancel_requested,
+        )
+
+    def send_smarpod_trajectory_goal_absolut_multi(
+        self,
+        joint_targets: Sequence[Sequence[float]],
+        segment_durations_s: Sequence[float],
+        cancel_requested: Callable[[], bool] | None = None,
+    ) -> bool:
+        """Execute SmarPod targets as one continuous controller trajectory."""
+        goal = self._multi_point_trajectory_goal(
+            ['SP_X_Joint', 'SP_Y_Joint', 'SP_Z_Joint',
+             'SP_A_Joint', 'SP_B_Joint', 'SP_C_Joint'],
+            joint_targets,
+            segment_durations_s,
+        )
+        return self._send_cancellable_trajectory_goal(
+            self.smarpod_joint_client,
+            goal,
+            cancel_requested,
+        )
 
     def send_xyz_trajectory_goal_absolut(self,  x_joint:float, 
                                         y_joint:float, 

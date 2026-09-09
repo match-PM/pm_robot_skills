@@ -15,13 +15,16 @@
 """Tests for rectangular spiral alignment result selection."""
 
 import csv
+import math
 
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Quaternion
 import pytest
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
+from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 from pm_skills.py_modules.pm_alignment_search_skills import (
     PmAlignmentSearchSkills,
 )
+from pm_skills_interfaces.msg import BoolStamped, Float64Stamped
 
 
 def test_bool_result_is_centroid_of_true_samples():
@@ -65,6 +68,129 @@ def test_float_result_still_selects_maximum_sample():
 
     assert offset == (3.0, 4.0, 0.0)
     assert value == 0.9
+
+
+def test_float_plot_order_draws_maximum_last():
+    """Overlapping plot markers leave the greatest finite value on top."""
+    values = [18.8, 5.0, float('nan'), 18.9, 12.0]
+
+    order = PmAlignmentSearchSkills._float_plot_order(values)
+
+    assert order[-1] == 3
+    assert [values[index] for index in order if math.isfinite(values[index])] == [
+        5.0,
+        12.0,
+        18.8,
+        18.9,
+    ]
+
+
+def test_multi_point_goal_contains_cumulative_trajectory_times():
+    """The whole spiral is represented by one goal with timed waypoints."""
+    utils = object.__new__(PmRobotUtils)
+
+    goal = utils._multi_point_trajectory_goal(
+        ('x', 'y', 'z'),
+        ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0)),
+        (0.25, 0.5, 1.25),
+    )
+
+    assert goal.trajectory.joint_names == ['x', 'y', 'z']
+    assert [list(point.positions) for point in goal.trajectory.points] == [
+        [1.0, 2.0, 3.0],
+        [4.0, 5.0, 6.0],
+        [7.0, 8.0, 9.0],
+    ]
+    assert [
+        point.time_from_start.sec
+        + point.time_from_start.nanosec / 1e9
+        for point in goal.trajectory.points
+    ] == pytest.approx([0.25, 0.75, 2.0])
+
+
+def test_signal_positions_are_interpolated_at_acquisition_time():
+    """Sparse feedback does not pin several signals to one stale position."""
+    signals = [
+        (0.1, 1_000, 1_200, 11_000),
+        (0.9, 2_000, 2_800, 12_000),
+        (0.2, 3_000, 3_200, 13_000),
+    ]
+    positions = [
+        (1_000, (0.100, 0.200, 0.300)),
+        (3_000, (0.102, 0.204, 0.306)),
+    ]
+
+    synchronized = PmAlignmentSearchSkills._synchronize_samples(
+        signals,
+        positions,
+        center_joints=(0.100, 0.200, 0.300),
+        orientation=Quaternion(w=1.0),
+    )
+
+    assert [sample[4] for sample in synchronized] == [
+        (0.100, 0.200, 0.300),
+        pytest.approx((0.101, 0.202, 0.303)),
+        (0.102, 0.204, 0.306),
+    ]
+    assert synchronized[1][0] == pytest.approx((1_000.0, 2_000.0, 3_000.0))
+    offset, value = PmAlignmentSearchSkills._best_result(
+        [(sample[0], sample[1]) for sample in synchronized],
+        False,
+    )
+    assert offset == pytest.approx((1_000.0, 2_000.0, 3_000.0))
+    assert value == 0.9
+
+
+@pytest.mark.parametrize('message_type', (BoolStamped, Float64Stamped))
+def test_message_acquisition_stamp_uses_required_header(
+    message_type,
+):
+    message = message_type()
+    message.header.stamp.sec = 12
+    message.header.stamp.nanosec = 345
+
+    assert PmAlignmentSearchSkills._message_has_stamp(message)
+    assert PmAlignmentSearchSkills._message_stamp_ns(
+        message
+    ) == 12_000_000_345
+
+    message.header.stamp.sec = 0
+    message.header.stamp.nanosec = 0
+    assert not PmAlignmentSearchSkills._message_has_stamp(message)
+    with pytest.raises(ValueError, match='no acquisition timestamp'):
+        PmAlignmentSearchSkills._message_stamp_ns(message)
+
+
+def test_signal_positions_outside_actual_feedback_are_discarded():
+    """Signals are never clamped to an assumed endpoint position."""
+    synchronized = PmAlignmentSearchSkills._synchronize_samples(
+        [
+            (1.0, 500, 600, 5_000),
+            (2.0, 3_500, 3_600, 8_000),
+        ],
+        [(1_000, (1.0, 2.0, 3.0)), (3_000, (4.0, 5.0, 6.0))],
+        center_joints=(0.0, 0.0, 0.0),
+        orientation=Quaternion(w=1.0),
+    )
+
+    assert synchronized == []
+
+
+def test_actual_feedback_dwell_is_preserved():
+    """Equal measured positions correctly represent a physical dwell."""
+    synchronized = PmAlignmentSearchSkills._synchronize_samples(
+        [(0.5, 15, 18, 150)],
+        [
+            (0, (0.0, 0.0, 0.0)),
+            (10, (1.0, 0.0, 0.0)),
+            (20, (1.0, 0.0, 0.0)),
+            (30, (1.0, 1.0, 0.0)),
+        ],
+        center_joints=(0.0, 0.0, 0.0),
+        orientation=Quaternion(w=1.0),
+    )
+
+    assert synchronized[0][4] == (1.0, 0.0, 0.0)
 
 
 def test_constant_float_result_returns_to_initial_position():
@@ -205,6 +331,7 @@ def test_measurements_csv_contains_timestamps_and_positions(tmp_path):
         12_345_678_901,
         1_700_000_000_123_456_789,
         (0.101, 0.202, 0.303),
+        12_300_000_000,
     )]
 
     csv_path = PmAlignmentSearchSkills._save_csv(str(image_path), samples)
@@ -214,6 +341,10 @@ def test_measurements_csv_contains_timestamps_and_positions(tmp_path):
         rows = list(csv.DictReader(csv_file))
     assert len(rows) == 1
     assert rows[0]['ros_time_ns'] == '12345678901'
+    assert rows[0]['acquisition_ros_time_ns'] == '12300000000'
+    assert float(rows[0]['acquisition_to_receive_ms']) == pytest.approx(
+        45.678901
+    )
     assert rows[0]['wall_time_unix_ns'] == '1700000000123456789'
     assert rows[0]['local_offset_y_um'] == '2.0'
     assert rows[0]['controller_position_z_m'] == '0.303'
@@ -233,7 +364,6 @@ def test_plot_with_selected_result_is_created(tmp_path):
         samples,
         False,
         (5.0, 5.0, 0.0),
-        0.9,
     )
 
     assert path.endswith('alignment.png')

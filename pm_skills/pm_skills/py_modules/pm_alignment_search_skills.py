@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from bisect import bisect_left
 from datetime import datetime, timezone
 import math
 from pathlib import Path
@@ -18,8 +19,9 @@ from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 from pm_skills.py_modules.pm_skill_domain import PmSkillDomain
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 import pm_skills_interfaces.action as pm_skill_action
+from pm_skills_interfaces.msg import BoolStamped, Float64Stamped
 from rclpy.action import CancelResponse, GoalResponse
-from std_msgs.msg import Bool, Float64
+from sensor_msgs.msg import JointState
 
 if TYPE_CHECKING:
     from rclpy.action.server import ServerGoalHandle
@@ -60,7 +62,9 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         self._active = False
         self._signal_lock = threading.Lock()
         self._signal_event = threading.Event()
+        self._position_event = threading.Event()
         self._latest_signal: float | bool | None = None
+        self._latest_acquisition_ros_time_ns: int | None = None
         self._latest_ros_time_ns: int | None = None
         self._latest_wall_time_ns: int | None = None
         self._signal_is_bool: bool | None = None
@@ -68,14 +72,11 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         self._sampling_joint_names: Sequence[str] = ()
         self._center_joints: Sequence[float] = ()
         self._frame_orientation = Quaternion(w=1.0)
-        self._samples: list[
-            tuple[
-                tuple[float, float, float],
-                float | bool,
-                int,
-                int,
-                tuple[float, float, float],
-            ]
+        self._signal_samples: list[
+            tuple[float | bool, int, int, int]
+        ] = []
+        self._position_samples: list[
+            tuple[int, tuple[float, float, float]]
         ] = []
 
     @staticmethod
@@ -102,19 +103,13 @@ class PmAlignmentSearchSkills(PmSkillDomain):
 
     @staticmethod
     def _rsap_path(goal: pm_skill_action.RectSpiralSearch.Goal) -> str:
-        """Read the renamed path field while an older overlay is being rebuilt."""
-        return getattr(goal, 'rsap_path', getattr(goal, 'plot_file_path', ''))
+        """Return the configured output root."""
+        return goal.rsap_path
 
     @staticmethod
     def _alignment_topic(goal: pm_skill_action.RectSpiralSearch.Goal) -> str:
-        """Read the unified topic or a topic from an older generated action."""
-        topic = getattr(goal, 'alignment_topic', '')
-        if topic:
-            return topic
-        return (
-            getattr(goal, 'bool_alignment_topic', '')
-            or getattr(goal, 'float_alignment_topic', '')
-        )
+        """Return the configured timestamped alignment topic."""
+        return goal.alignment_topic
 
     def goal_callback(self, goal_request: pm_skill_action.RectSpiralSearch.Goal) -> GoalResponse:
         """Validate and reserve an incoming search goal."""
@@ -200,48 +195,180 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         )
         return cls._rotate(vector, inverse)
 
-    def _capture_sample(
+    def _record_position_sample(
         self,
-        value: float | bool,
+        positions: Sequence[float],
         ros_time_ns: int,
-        wall_time_ns: int,
-    ) -> None:
-        """Associate a timestamped signal message with the controller position."""
-        current = [
-            self.pm_robot_utils.get_current_joint_state(name)
-            for name in self._sampling_joint_names[:3]
-        ]
-        if len(current) != 3 or any(position is None for position in current):
-            return
-        world_offset_um = tuple(
-            (current[index] - self._center_joints[index]) * 1e6
-            for index in range(3)
-        )
-        local_offset_um = self._inverse_rotate(world_offset_um, self._frame_orientation)
-        self._samples.append((
-            local_offset_um,
-            value,
-            ros_time_ns,
-            wall_time_ns,
-            tuple(current),
-        ))
-
-    def _signal_callback(self, message: Bool | Float64) -> None:
-        ros_time_ns = self.node.get_clock().now().nanoseconds
-        wall_time_ns = time.time_ns()
+    ) -> int | None:
+        """Store one timestamped XYZ position read from joint feedback."""
+        if len(positions) < 3 or any(
+            position is None for position in positions[:3]
+        ):
+            return None
         with self._signal_lock:
-            message_is_bool = isinstance(message, Bool)
+            self._position_samples.append((ros_time_ns, tuple(positions[:3])))
+        self._position_event.set()
+        return ros_time_ns
+
+    def _joint_state_callback(self, message: JointState) -> None:
+        """Record joint feedback at its acquisition time when available."""
+        positions_by_name = dict(zip(message.name, message.position))
+        positions = [
+            positions_by_name.get(name) for name in self._sampling_joint_names[:3]
+        ]
+        if not self._message_has_stamp(message):
+            self._logger.error(
+                'Ignoring joint-state sample without an acquisition timestamp.'
+            )
+            return
+        self._record_position_sample(
+            positions,
+            self._message_stamp_ns(message),
+        )
+
+    @staticmethod
+    def _message_stamp_ns(message: object) -> int:
+        """Return a required, non-zero ROS header stamp."""
+        header = getattr(message, 'header', None)
+        stamp = getattr(header, 'stamp', None)
+        if stamp is None:
+            raise ValueError('Message has no acquisition timestamp.')
+        stamp_ns = int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+        if stamp_ns <= 0:
+            raise ValueError('Message has no acquisition timestamp.')
+        return stamp_ns
+
+    @staticmethod
+    def _message_has_stamp(message: object) -> bool:
+        """Return whether a message contains a non-zero ROS header stamp."""
+        header = getattr(message, 'header', None)
+        stamp = getattr(header, 'stamp', None)
+        return stamp is not None and (stamp.sec != 0 or stamp.nanosec != 0)
+
+    @classmethod
+    def _synchronize_samples(
+        cls,
+        signal_samples: Sequence[
+            tuple[float | bool, int, int, int]
+        ],
+        position_samples: Sequence[tuple[int, Sequence[float]]],
+        center_joints: Sequence[float],
+        orientation: Quaternion,
+    ) -> list[tuple]:
+        """Interpolate only between actual feedback samples."""
+        if not signal_samples or not position_samples:
+            return []
+        ordered_positions = sorted(
+            position_samples, key=lambda sample: sample[0]
+        )
+        position_times = [sample[0] for sample in ordered_positions]
+        synchronized = []
+        for (
+            value,
+            acquisition_time_ns,
+            receive_time_ns,
+            wall_time_ns,
+        ) in signal_samples:
+            right_index = bisect_left(position_times, acquisition_time_ns)
+            if (
+                right_index < len(ordered_positions)
+                and position_times[right_index] == acquisition_time_ns
+            ):
+                position = tuple(ordered_positions[right_index][1][:3])
+            elif right_index == 0 or right_index == len(ordered_positions):
+                # Never extrapolate or clamp a measurement to an assumed pose.
+                continue
+            else:
+                left_time, left_position = ordered_positions[right_index - 1]
+                right_time, right_position = ordered_positions[right_index]
+                if right_time == left_time:
+                    position = tuple(right_position[:3])
+                else:
+                    fraction = (
+                        (acquisition_time_ns - left_time)
+                        / (right_time - left_time)
+                    )
+                    position = tuple(
+                        left_position[axis]
+                        + fraction * (right_position[axis] - left_position[axis])
+                        for axis in range(3)
+                    )
+            world_offset_um = tuple(
+                (position[axis] - center_joints[axis]) * 1e6
+                for axis in range(3)
+            )
+            local_offset_um = cls._inverse_rotate(world_offset_um, orientation)
+            synchronized.append((
+                local_offset_um,
+                value,
+                receive_time_ns,
+                wall_time_ns,
+                position,
+                acquisition_time_ns,
+            ))
+        return synchronized
+
+    def _wait_for_position_sample_after(
+        self,
+        minimum_time_ns: int,
+        timeout_s: float | None = None,
+    ) -> tuple[int, tuple[float, float, float]]:
+        """Wait for actual joint feedback acquired after a time boundary."""
+        timeout = self.SIGNAL_TIMEOUT_S if timeout_s is None else timeout_s
+        deadline = time.monotonic() + timeout
+        while True:
+            self._position_event.clear()
+            with self._signal_lock:
+                if self._position_samples:
+                    newest = max(
+                        self._position_samples,
+                        key=lambda sample: sample[0],
+                    )
+                    if newest[0] >= minimum_time_ns:
+                        return newest
+            remaining_s = deadline - time.monotonic()
+            if remaining_s <= 0.0 or not self._position_event.wait(remaining_s):
+                raise PmRobotError(
+                    'Timed out waiting for timestamped joint feedback after '
+                    'the trajectory boundary.'
+                )
+
+    def _signal_callback(
+        self,
+        message: BoolStamped | Float64Stamped,
+    ) -> None:
+        receive_time_ns = self.node.get_clock().now().nanoseconds
+        wall_time_ns = time.time_ns()
+        if not self._message_has_stamp(message):
+            self._logger.error(
+                'Ignoring alignment sample without an acquisition timestamp.'
+            )
+            return
+        acquisition_time_ns = self._message_stamp_ns(
+            message
+        )
+        with self._signal_lock:
+            message_is_bool = isinstance(message, BoolStamped)
             if self._signal_is_bool is None:
                 self._signal_is_bool = message_is_bool
-                detected_type = 'std_msgs/Bool' if message_is_bool else 'std_msgs/Float64'
+                if message_is_bool:
+                    detected_type = 'pm_skills_interfaces/BoolStamped'
+                else:
+                    detected_type = 'pm_skills_interfaces/Float64Stamped'
                 self._logger.info(f'Alignment topic type detected as {detected_type}.')
             elif self._signal_is_bool != message_is_bool:
                 return
             self._latest_signal = message.data
-            self._latest_ros_time_ns = ros_time_ns
+            self._latest_acquisition_ros_time_ns = acquisition_time_ns
+            self._latest_ros_time_ns = receive_time_ns
             self._latest_wall_time_ns = wall_time_ns
             if self._recording:
-                self._capture_sample(message.data, ros_time_ns, wall_time_ns)
+                self._signal_samples.append((
+                    message.data,
+                    acquisition_time_ns,
+                    receive_time_ns,
+                    wall_time_ns,
+                ))
             self._signal_event.set()
 
     def _wait_for_signal(self, timeout_s: float | None = None) -> float | bool:
@@ -253,15 +380,43 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                 raise PmRobotError('The alignment topic has not supplied a value.')
             return self._latest_signal
 
+    def _wait_for_signal_acquired_after(
+        self,
+        minimum_time_ns: int,
+        timeout_s: float | None = None,
+    ) -> float | bool:
+        """Wait for a signal whose source acquisition meets the boundary."""
+        timeout = self.SIGNAL_TIMEOUT_S if timeout_s is None else timeout_s
+        deadline = time.monotonic() + timeout
+        while True:
+            self._signal_event.clear()
+            self._position_event.clear()
+            with self._signal_lock:
+                if (
+                    self._latest_signal is not None
+                    and self._latest_acquisition_ros_time_ns is not None
+                    and self._latest_acquisition_ros_time_ns >= minimum_time_ns
+                ):
+                    return self._latest_signal
+            remaining_s = deadline - time.monotonic()
+            if remaining_s <= 0.0 or not self._signal_event.wait(remaining_s):
+                raise PmRobotError(
+                    'Timed out waiting for an alignment sample acquired after '
+                    'the trajectory boundary.'
+                )
+
     def _detect_signal_type(
         self,
         topic: str,
         deadline: float,
-    ) -> tuple[type[Bool] | type[Float64], bool]:
+    ) -> tuple[type[BoolStamped] | type[Float64Stamped], bool]:
         """Discover the single supported type advertised for a topic."""
         supported_types = {
-            'std_msgs/msg/Bool': (Bool, True),
-            'std_msgs/msg/Float64': (Float64, False),
+            'pm_skills_interfaces/msg/BoolStamped': (BoolStamped, True),
+            'pm_skills_interfaces/msg/Float64Stamped': (
+                Float64Stamped,
+                False,
+            ),
         }
         while time.monotonic() < deadline:
             publisher_info = self.node.get_publishers_info_by_topic(topic)
@@ -271,7 +426,7 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             matches = advertised_types.intersection(supported_types)
             if len(matches) > 1:
                 raise PmRobotError(
-                    f"Alignment topic '{topic}' has both Bool and Float64 publishers."
+                    f"Alignment topic '{topic}' has multiple supported types."
                 )
             if len(matches) == 1:
                 return supported_types[matches.pop()]
@@ -410,6 +565,36 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         if not success:
             raise PmRobotError('Trajectory controller did not reach the spiral waypoint.')
 
+    def _move_trajectory(
+        self,
+        targets: Sequence[Sequence[float]],
+        durations_s: Sequence[float],
+        use_hexapod: bool,
+        goal_handle: 'ServerGoalHandle',
+    ) -> None:
+        """Send the complete spiral as one cancellable controller goal."""
+        cancel_requested = lambda: goal_handle.is_cancel_requested
+        if use_hexapod:
+            success = (
+                self.pm_robot_utils.send_smarpod_trajectory_goal_absolut_multi(
+                    targets,
+                    durations_s,
+                    cancel_requested,
+                )
+            )
+        else:
+            success = self.pm_robot_utils.send_xyz_trajectory_goal_absolut_multi(
+                targets,
+                durations_s,
+                cancel_requested,
+            )
+        if goal_handle.is_cancel_requested:
+            raise AlignmentSearchCancelled()
+        if not success:
+            raise PmRobotError(
+                'Trajectory controller did not complete the continuous spiral.'
+            )
+
     def _target_joints(
         self,
         center_joints: Sequence[float],
@@ -454,6 +639,16 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         return tuple(best_offset), best_value
 
     @staticmethod
+    def _float_plot_order(values: Sequence[float]) -> list[int]:
+        """Return indices from smallest to largest finite plotted value."""
+        return sorted(
+            range(len(values)),
+            key=lambda index: (
+                values[index] if math.isfinite(values[index]) else -math.inf
+            ),
+        )
+
+    @staticmethod
     def _output_image_path(
         path_text: str,
         timestamp: str | None = None,
@@ -485,12 +680,9 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         path_text: str,
         axes: Sequence[int],
         path_offsets: Sequence[Sequence[float]],
-        samples: Sequence[
-            tuple[Sequence[float], float | bool, int, int, Sequence[float]]
-        ],
+        samples: Sequence[tuple],
         bool_signal: bool,
         selected_offset: Sequence[float],
-        selected_value: float | bool,
     ) -> str:
         """Save the signal map and visibly mark the selected result."""
         with warnings.catch_warnings():
@@ -530,58 +722,27 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                     )
         else:
             colors = [float(value) for value in values]
+            # Draw low values first so higher-value samples remain visible when
+            # several measurements share nearly the same position.
+            plot_order = PmAlignmentSearchSkills._float_plot_order(colors)
             collection = plot.scatter(
-                sample_first, sample_second, c=colors, cmap='viridis', s=18,
+                [sample_first[index] for index in plot_order],
+                [sample_second[index] for index in plot_order],
+                c=[colors[index] for index in plot_order],
+                cmap='viridis',
+                s=18,
             )
             figure.colorbar(collection, ax=plot, label='Alignment value')
         plot.scatter(
             [selected_offset[first_axis]],
             [selected_offset[second_axis]],
-            s=260,
+            s=160,
             facecolors='none',
             edgecolors='magenta',
-            linewidths=2.5,
+            linewidths=2.0,
             marker='o',
             label='selected result',
             zorder=6,
-        )
-        plot.scatter(
-            [selected_offset[first_axis]],
-            [selected_offset[second_axis]],
-            s=90,
-            c='black',
-            linewidths=2.0,
-            marker='+',
-            zorder=7,
-        )
-        horizontal_midpoint = (min(path_first) + max(path_first)) / 2.0
-        vertical_midpoint = (min(path_second) + max(path_second)) / 2.0
-        annotation_x = (
-            -12 if selected_offset[first_axis] >= horizontal_midpoint else 12
-        )
-        annotation_y = (
-            -12 if selected_offset[second_axis] >= vertical_midpoint else 12
-        )
-        plot.annotate(
-            f'Selected: {selected_value}\n'
-            f'({selected_offset[first_axis]:.3f}, '
-            f'{selected_offset[second_axis]:.3f}) µm',
-            xy=(
-                selected_offset[first_axis],
-                selected_offset[second_axis],
-            ),
-            xytext=(annotation_x, annotation_y),
-            textcoords='offset points',
-            horizontalalignment='right' if annotation_x < 0 else 'left',
-            verticalalignment='top' if annotation_y < 0 else 'bottom',
-            arrowprops={'arrowstyle': '->', 'color': 'magenta'},
-            bbox={
-                'boxstyle': 'round,pad=0.3',
-                'facecolor': 'white',
-                'edgecolor': 'magenta',
-                'alpha': 0.9,
-            },
-            zorder=8,
         )
         plot.legend(
             loc='upper center',
@@ -594,16 +755,14 @@ class PmAlignmentSearchSkills(PmSkillDomain):
         plot.set_aspect('equal', adjustable='box')
         plot.grid(True, alpha=0.25)
         figure.tight_layout()
-        figure.savefig(path, dpi=180, bbox_inches='tight')
+        figure.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(figure)
         return str(path.resolve())
 
     @staticmethod
     def _save_csv(
         image_path: str,
-        samples: Sequence[
-            tuple[Sequence[float], float | bool, int, int, Sequence[float]]
-        ],
+        samples: Sequence[tuple],
     ) -> str:
         """Save timestamped measurements and positions beside the plot."""
         path = Path(image_path).with_suffix('.csv')
@@ -613,6 +772,9 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                 'sample_index',
                 'ros_time_ns',
                 'ros_time_s',
+                'acquisition_ros_time_ns',
+                'acquisition_ros_time_s',
+                'acquisition_to_receive_ms',
                 'wall_time_unix_ns',
                 'wall_time_utc',
                 'value',
@@ -624,15 +786,25 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                 'controller_position_z_m',
             ])
             for index, sample in enumerate(samples):
-                offset, value, ros_time_ns, wall_time_ns, position = sample
+                (
+                    offset,
+                    value,
+                    receive_time_ns,
+                    wall_time_ns,
+                    position,
+                    acquisition_time_ns,
+                ) = sample
                 wall_time_utc = datetime.fromtimestamp(
                     wall_time_ns / 1e9,
                     tz=timezone.utc,
                 ).isoformat(timespec='microseconds')
                 writer.writerow([
                     index,
-                    ros_time_ns,
-                    f'{ros_time_ns / 1e9:.9f}',
+                    receive_time_ns,
+                    f'{receive_time_ns / 1e9:.9f}',
+                    acquisition_time_ns,
+                    f'{acquisition_time_ns / 1e9:.9f}',
+                    (receive_time_ns - acquisition_time_ns) / 1e6,
                     wall_time_ns,
                     wall_time_utc,
                     value,
@@ -733,63 +905,117 @@ class PmAlignmentSearchSkills(PmSkillDomain):
             self._signal_event.clear()
             with self._signal_lock:
                 self._latest_signal = None
+                self._latest_acquisition_ros_time_ns = None
                 self._latest_ros_time_ns = None
                 self._latest_wall_time_ns = None
                 self._signal_is_bool = signal_is_bool
-                self._samples = []
+                self._signal_samples = []
+                self._position_samples = []
                 self._recording = False
-            subscriptions = [self.node.create_subscription(
-                message_type, topic, self._signal_callback, 10
-            )]
+            subscriptions = [
+                self.node.create_subscription(
+                    JointState, '/joint_states', self._joint_state_callback, 10
+                ),
+                self.node.create_subscription(
+                    message_type, topic, self._signal_callback, 10
+                ),
+            ]
             # Start consuming the signal only after every collision-check pose
-            # has been calculated, but still prove the source is alive before moving.
+            # has been calculated, but still prove the source is alive before
+            # moving.
             self._wait_for_signal(signal_deadline - time.monotonic())
 
             self._move(center_joints, on_hexapod, goal.segment_time_s)
-            self._signal_event.clear()
-            center_value = self._wait_for_signal()
+            center_boundary_ns = self.node.get_clock().now().nanoseconds
+            center_feedback_ns, measured_center_position = (
+                self._wait_for_position_sample_after(
+                    center_boundary_ns
+                )
+            )
+            measurement_center_joints = list(center_joints)
+            measurement_center_joints[:3] = measured_center_position
+            self._center_joints = measurement_center_joints
+            self._wait_for_signal_acquired_after(center_feedback_ns)
             with self._signal_lock:
                 if (
-                    self._latest_ros_time_ns is None
+                    self._latest_signal is None
+                    or self._latest_acquisition_ros_time_ns is None
+                    or self._latest_ros_time_ns is None
                     or self._latest_wall_time_ns is None
                 ):
-                    raise PmRobotError('The alignment sample has no receive timestamp.')
-                self._capture_sample(
-                    center_value,
+                    raise PmRobotError(
+                        'The alignment sample has no receive timestamp.'
+                    )
+                self._signal_samples.append((
+                    self._latest_signal,
+                    self._latest_acquisition_ros_time_ns,
                     self._latest_ros_time_ns,
                     self._latest_wall_time_ns,
-                )
+                ))
                 self._recording = True
 
-            feedback = pm_skill_action.RectSpiralSearch.Feedback()
-            for index, (offset, duration_s) in enumerate(
-                zip(path_offsets[1:], segment_durations),
-                start=1,
-            ):
-                self._check_cancel(goal_handle)
-                self._signal_event.clear()
-                self._move(
-                    self._target_joints(center_joints, offset, base_pose.orientation),
-                    on_hexapod,
-                    duration_s,
+            targets = [
+                self._target_joints(
+                    measurement_center_joints,
+                    offset,
+                    base_pose.orientation,
                 )
-                latest_value = self._wait_for_signal()
-                with self._signal_lock:
-                    latest_offset = self._samples[-1][0]
-                feedback.current_point = index + 1
-                feedback.total_points = len(path_offsets)
-                feedback.current_offset_um = Vector3(
-                    x=latest_offset[0], y=latest_offset[1], z=latest_offset[2]
-                )
-                feedback.current_value = float(latest_value)
-                feedback.current_bool_value = bool(latest_value)
-                feedback.sample_count = len(self._samples)
-                goal_handle.publish_feedback(feedback)
-
+                for offset in path_offsets[1:]
+            ]
+            self._check_cancel(goal_handle)
+            self._signal_event.clear()
+            self._move_trajectory(
+                targets,
+                segment_durations,
+                on_hexapod,
+                goal_handle,
+            )
+            trajectory_boundary_ns = self.node.get_clock().now().nanoseconds
+            endpoint_feedback_ns, _ = self._wait_for_position_sample_after(
+                trajectory_boundary_ns
+            )
+            latest_value = self._wait_for_signal_acquired_after(
+                endpoint_feedback_ns
+            )
             with self._signal_lock:
                 self._recording = False
-                samples = list(self._samples)
+                signal_samples = list(self._signal_samples)
                 signal_is_bool = bool(self._signal_is_bool)
+                sample_count = len(self._signal_samples)
+            if not signal_samples:
+                raise PmRobotError(
+                    'No timestamped alignment samples were recorded.'
+                )
+            final_signal_time_ns = max(sample[1] for sample in signal_samples)
+            # Ensure the final recorded signal also has real feedback on its
+            # right side, so synchronization never needs extrapolation.
+            self._wait_for_position_sample_after(final_signal_time_ns)
+            with self._signal_lock:
+                position_samples = list(self._position_samples)
+            feedback = pm_skill_action.RectSpiralSearch.Feedback()
+            feedback.current_point = len(path_offsets)
+            feedback.total_points = len(path_offsets)
+            final_offset = path_offsets[-1]
+            feedback.current_offset_um = Vector3(
+                x=final_offset[0], y=final_offset[1], z=final_offset[2]
+            )
+            feedback.current_value = float(latest_value)
+            feedback.current_bool_value = bool(latest_value)
+            feedback.sample_count = sample_count
+            goal_handle.publish_feedback(feedback)
+
+            samples = self._synchronize_samples(
+                signal_samples,
+                position_samples,
+                measurement_center_joints,
+                base_pose.orientation,
+            )
+            discarded_sample_count = len(signal_samples) - len(samples)
+            if discarded_sample_count:
+                self._logger.warning(
+                    f'Discarded {discarded_sample_count} alignment samples '
+                    'that were not bracketed by actual joint feedback.'
+                )
             if not samples:
                 raise PmRobotError('No positioned alignment samples were received.')
             valid_samples = [
@@ -807,7 +1033,11 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                 / commanded_speed_um_s
             )
             self._move(
-                self._target_joints(center_joints, best_offset, base_pose.orientation),
+                self._target_joints(
+                    measurement_center_joints,
+                    best_offset,
+                    base_pose.orientation,
+                ),
                 on_hexapod,
                 max(return_duration_s, 0.001),
             )
@@ -824,13 +1054,9 @@ class PmAlignmentSearchSkills(PmSkillDomain):
                     samples,
                     signal_is_bool,
                     best_offset,
-                    best_value,
                 )
                 self._save_csv(saved_path, samples)
-            if hasattr(result, 'rsap_path'):
-                result.rsap_path = saved_path
-            else:
-                result.plot_file_path = saved_path
+            result.rsap_path = saved_path
             result.success = True
             result.message = 'Rectangular spiral search completed.'
             result.best_value = float(best_value)

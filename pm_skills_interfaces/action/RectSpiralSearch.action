@@ -10,8 +10,8 @@ uint32 spiral_turns 3
 float64 segment_time_s 2.0
 # Assembly-scene frame which is moved during the search.
 string frame_name
-# Topic carrying either std_msgs/Bool or std_msgs/Float64. The action subscribes
-# to both types and uses the type of the first message received.
+# Topic carrying pm_skills_interfaces/BoolStamped or Float64Stamped.
+# The action discovers which timestamped type is advertised.
 string alignment_topic
 # Optional output root. Each plot/CSV pair is stored in its own timestamped
 # folder below <rsap_path>/rect_spiral_search. An image filename is also accepted
@@ -26,7 +26,8 @@ bool best_bool_value
 geometry_msgs/Vector3 best_offset_um
 uint32 visited_points
 string rsap_path
-# Every topic sample paired with its measured position in frame-local axes.
+# Every topic sample paired with its acquisition-time position in frame-local
+# axes.
 float64[] sample_offset_x_um
 float64[] sample_offset_y_um
 float64[] sample_offset_z_um
