@@ -38,16 +38,18 @@ class PmDispensingSkills(PmSkillDomain):
             move_request.execute_movement = True
             move_request.target_frame = request.target_frame_disp
 
-            self.pm_robot_utils.prepare_dispenser(move_request) 
+            self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", activate = True) 
 
+            self.pm_robot_utils.prepare_2k_dispenser(move_request)
 
-            if not (self.pm_robot_utils.client_move_robot_1k_dispenser_to_frame.wait_for_service(timeout_sec=1.0)):
-                raise PmRobotError(f"Service '{self.pm_robot_utils.client_move_robot_1k_dispenser_to_frame.srv_name}' not available!")
-            
-            response_move: pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.client_move_robot_1k_dispenser_to_frame.call(move_request)
-
-            if not response_move.success:
-                raise PmRobotError(f"Failed to move dispenser to frame '{request.target_frame_disp}': {response_move.message}")
+            # Keep the dispense height above the frame (along world Z, like the 1K dispensing).
+            # Moving the tip exactly onto the frame makes it intersect the component if the
+            # component is tilted, so the goal state is in collision and planning fails.
+            # The G-code path starts from the resulting joint values, so the gap is kept for the whole path.
+            # Raises a PmRobotError if the movement fails
+            response_move: pm_moveit_srv.MoveToFrame.Response = self.pm_robot_utils.move_2k_dispenser_to_frame(
+                move_request,
+                z_offset_m=self.pm_robot_utils.DEFAULT_DISPENSE_HEIGHT * 1e-3)
 
             start_joints = Point() 
             start_joints.x = response_move.joint_values[0]
@@ -84,37 +86,38 @@ class PmDispensingSkills(PmSkillDomain):
             elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
                 self.logger.warn("Unity mode detected!")
 
-                # self.pm_robot_utils.extend_2k_dispenser()
-
                 self.logger.warn("Switching off controller!")
 
                 self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", activate = False) 
 
                 time.sleep(3.0) # wait for controller switch
 
-                # Call the Unity-specific dispensing service. The request carries the
-                # start frame so Unity can attach the adhesive bead to that frame's
-                # parent component. The service only acks that the motion was
-                # accepted/started; completion is signalled later on
-                # '/unity_skills/dispense_2k_done'. Clear the event before calling so we
-                # don't consume a stale signal from a previous run.
-                self.dispense_2k_unity_done_event.clear()
-                unity_request = pm_skill_srv.DispensePathUnity.Request()
-                unity_request.start_frame = request.target_frame_disp
-                unity_response = self.dispense_2k_unity_client.call(unity_request)
-                self.logger.info(f"Unity dispensing service response: success={unity_response.success}, message='{unity_response.message}'")
+                try:
+                    # Call the Unity-specific dispensing service. The request carries the
+                    # start frame so Unity can attach the adhesive bead to that frame's
+                    # parent component. The service only acks that the motion was
+                    # accepted/started; completion is signalled later on
+                    # '/unity_skills/dispense_2k_done'. Clear the event before calling so we
+                    # don't consume a stale signal from a previous run.
+                    self.dispense_2k_unity_done_event.clear()
+                    unity_request = pm_skill_srv.DispensePathUnity.Request()
+                    unity_request.start_frame = request.target_frame_disp
+                    unity_response = self.dispense_2k_unity_client.call(unity_request)
+                    self.logger.info(f"Unity dispensing service response: success={unity_response.success}, message='{unity_response.message}'")
 
-                if not unity_response.success:
-                    raise PmRobotError(f"Unity dispensing service failed: {unity_response.message}")
+                    if not unity_response.success:
+                        raise PmRobotError(f"Unity dispensing service failed: {unity_response.message}")
 
-                # Block until Unity reports the dispense motion has finished.
-                self.logger.info("Waiting for Unity to finish the dispense motion...")
-                if not self.dispense_2k_unity_done_event.wait(timeout=600.0):
-                    raise PmRobotError("Timed out waiting for Unity dispense completion signal!")
-                self.logger.info("Unity dispense motion finished.")
-
-                self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True)
-                time.sleep(5.0) # wait for controller switch
+                    # Block until Unity reports the dispense motion has finished.
+                    self.logger.info("Waiting for Unity to finish the dispense motion...")
+                    if not self.dispense_2k_unity_done_event.wait(timeout=600.0):
+                        raise PmRobotError("Timed out waiting for Unity dispense completion signal!")
+                    self.logger.info("Unity dispense motion finished.")
+                finally:
+                    # Always re-enable, otherwise every later xyz move fails with
+                    # "Controller is not running" (e.g. Unity never sends the done signal).
+                    self.pm_robot_utils.set_controller_activation("pm_robot_xyz_axis_controller", True)
+                    time.sleep(5.0) # wait for controller switch
             else:
                 # only for gazebo
                 self._test_gcode(g_code, start_frame=request.target_frame_disp)
@@ -134,17 +137,13 @@ class PmDispensingSkills(PmSkillDomain):
 
         finally:
             
-            # self.pm_robot_utils.retract_2k_dispenser()
+            self.pm_robot_utils.retract_2k_dispenser()
 
-            self.pm_robot_utils.retract_dispenser()
-            time.sleep(0.5)
-            self.pm_robot_utils.close_protection()
-
-            success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0,0,-0.05,time=0.5) # move up after dispensing to be safe
-            if not success:
-                response.message = response.message + "Failed to move up after dispensing! Please check the robot state!"
-                self.logger.error(response.message)
-                response.success = False
+            # success = self.pm_robot_utils.send_xyz_trajectory_goal_relative(0,0,-0.05,time=0.5) # move up after dispensing to be safe
+            # if not success:
+            #     response.message = response.message + "Failed to move up after dispensing! Please check the robot state!"
+            #     self.logger.error(response.message)
+            #     response.success = False
 
         return response
 
