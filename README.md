@@ -65,9 +65,33 @@ This will start the following nodes:
 
 ## Available ROS 2 Services
 
+All check services use the `/pm_skills_planning` namespace. Measurement checks plan without moving the robot and require a successful `/assembly_manager/check_line_of_sight` result. They return `success` and an explanatory `message`.
+
 ### pm_skills Node
 
 #### Griping and Placement
+
+Measurement readiness is a planning policy. The PDDL grip operator and
+`/pm_skills_planning/check_component_grippable` require all recursive measurement
+dependencies of the gripping frame to be measured, including dependencies on other
+components and both flags for dual-role frames. Direct `/pm_skills/grip_component`
+and `/pm_skills/force_grip_component` calls leave this policy unenforced for manual
+use; their measurement guard calls are commented out. Unrelated sensor frames do
+not block planning.
+
+- **`/pm_skills_planning/check_component_grippable`** (`CheckComponentGrippable`)
+  - Checks that the component exists, is unassembled, has a gripping frame, and the gripper is empty
+  - Requires every active recursive measurement dependency of the gripping frame to be measured
+  - Plans the normal grip's approach, sensing-start and gripping poses without executing movement
+  - Uses the current component orientation; does not align goniometers or operate the gripper
+  - Temporarily disables gripper/component collision checking for the gripping pose and re-enables it afterward, including on failure; assumes collision checking was initially enabled
+  - Each pose is planned independently from the current robot state; this does not validate transitions between poses, force sensing, or the lift after gripping
+  - Parameters: component_name (str)
+  - Returns: success (bool), message (str, including the failed planning stage)
+
+  ```bash
+  ros2 service call /pm_skills_planning/check_component_grippable pm_skills_interfaces/srv/CheckComponentGrippable "{component_name: 'my_component'}"
+  ```
 
 - **`/pm_skills/force_grip_component`** (`GripComponent`)
   - Force-based gripping with iterative force sensing
@@ -129,6 +153,26 @@ This will start the following nodes:
 
 #### Goniometer Alignment
 
+- **`/pm_skills/align_component_to_gripper`** (`AlignComponentToGripper`)
+  - Selects the left or right goniometer carrying the component
+  - Uses the component's gripping frame as the endeffector override and `PM_Robot_Tool_TCP` as the target frame
+  - Calls `/pm_moveit_server/align_gonio_left` or `/pm_moveit_server/align_gonio_right` with movement enabled
+  - Parameters: component_name (str)
+  - Returns: success (bool), message (str)
+
+- **`/pm_skills_planning/check_gripper_is_alignable`** (`CheckGripperIsAlignable`)
+  - Checks the same goniometer alignment with `execute_movement=False`
+  - Checks alignment feasibility only; does not check the gripper approach or grip poses
+  - Parameters: component_name (str)
+  - Returns: success (bool), message (str)
+
+Both services fail if the component does not exist, has no gripping frame, or is not on either goniometer.
+
+```bash
+ros2 service call /pm_skills/align_component_to_gripper pm_skills_interfaces/srv/AlignComponentToGripper "{component_name: 'my_component'}"
+ros2 service call /pm_skills_planning/check_gripper_is_alignable pm_skills_interfaces/srv/CheckGripperIsAlignable "{component_name: 'my_component'}"
+```
+
 - **`/pm_skills/iterative_align_gonio_right`** (`IterativeGonioAlign`)
   - Iteratively aligns right goniometer to target orientation
   - Parameters: component_alignment_frame (str), target_alignment_frame (str), num_iterations (int), frames_to_measure (list[str])
@@ -146,20 +190,20 @@ This will start the following nodes:
   - Parameters: step_size (float), target_joints_xyz (list[float]), max_f_xyz (list[float])
   - Returns: success (bool), completed (bool), error (str)
 
-- **`/pm_skills/check_frame_measureble_confocal_top`** (`CheckFrameMeasurable`)
-  - Checks if a frame is measurable with top confocal microscope
+- **`/pm_skills_planning/check_frame_measureble_confocal_top`** (`CheckFrameMeasurable`)
+  - Checks reachability and assembly-manager line of sight for a frame with top confocal microscope
   - Parameters: frame_name (str)
-  - Returns: success (bool), is_measurable (bool)
+  - Returns: success (bool), message (str)
 
-- **`/pm_skills/check_frame_measureble_confocal_bottom`** (`CheckFrameMeasurable`)
-  - Checks if a frame is measurable with bottom confocal microscope
+- **`/pm_skills_planning/check_frame_measureble_confocal_bottom`** (`CheckFrameMeasurable`)
+  - Checks reachability and assembly-manager line of sight for a frame with bottom confocal microscope
   - Parameters: frame_name (str)
-  - Returns: success (bool), is_measurable (bool)
+  - Returns: success (bool), message (str)
 
-- **`/pm_skills/check_frame_measureble_laser_top`** (`CheckFrameMeasurable`)
-  - Checks if a frame is measurable with laser
+- **`/pm_skills_planning/check_frame_measureble_laser_top`** (`CheckFrameMeasurable`)
+  - Checks reachability and assembly-manager line of sight for a frame with laser
   - Parameters: frame_name (str)
-  - Returns: success (bool), is_measurable (bool)
+  - Returns: success (bool), message (str)
 
 ### pm_vision_skills Node
 
@@ -177,15 +221,15 @@ This will start the following nodes:
 
 #### Camera Frame Checking
 
-- **`/pm_skills/check_frame_measureble_cam_top`** (`CheckFrameMeasurable`)
-  - Checks if a frame is measurable with top camera
+- **`/pm_skills_planning/check_frame_measureble_cam_top`** (`CheckFrameMeasurable`)
+  - Checks reachability and assembly-manager line of sight for a frame with top camera
   - Parameters: frame_name (str)
-  - Returns: success (bool), is_measurable (bool)
+  - Returns: success (bool), message (str)
 
-- **`/pm_skills/check_frame_measureble_cam_bottom`** (`CheckFrameMeasurable`)
-  - Checks if a frame is measurable with bottom camera
+- **`/pm_skills_planning/check_frame_measureble_cam_bottom`** (`CheckFrameMeasurable`)
+  - Checks reachability and assembly-manager line of sight for a frame with bottom camera
   - Parameters: frame_name (str)
-  - Returns: success (bool), is_measurable (bool)
+  - Returns: success (bool), message (str)
 
 ### pm_robot_calibration Node
 

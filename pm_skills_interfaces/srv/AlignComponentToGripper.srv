@@ -1,0 +1,5 @@
+# Align the component's gripping frame to the robot gripper using its goniometer.
+string component_name
+---
+bool success
+string message

@@ -50,6 +50,7 @@ from assembly_scene_publisher.py_modules.AssemblySceneAnalyzer import UnInitiali
 from assembly_scene_publisher.py_modules.scene_errors import (RefAxisNotFoundError, 
                                                               RefFrameNotFoundError, 
                                                               RefPlaneNotFoundError, 
+                                                              TfFrameLookupError,
                                                               ComponentNotFoundError)
 # create new error
 
@@ -851,7 +852,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
 
         set_response:ami_srv.SetCollisionChecking.Response = self.client_set_collision.call(set_request)
 
-        if not set_response.success:
+        if set_response is None or not set_response.success:
             raise PmRobotError(f"Could not set collision between '{link_1}' and '{link_2}' to '{should_check}'")
     
     def set_tool_vaccum(self, state:bool)->bool:
@@ -905,7 +906,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             self.set_collision(part_name,
                                gripper_link,
                                state)
-            
+
     def set_gripper_component_collision(self, component_name:str, state:bool):
         """
         Enable or disable collision between the gripped component and a specified part.
@@ -1321,7 +1322,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         offset_m: float,
         move_client
         ) -> pm_skill_srv.CheckFrameMeasurable.Response:
-
+        """Check top-sensor reachability and assembly-manager line of sight."""
         response = pm_skill_srv.CheckFrameMeasurable.Response()
         try:
             self.assembly_scene_analyzer.wait_for_initial_scene_update()
@@ -1341,10 +1342,12 @@ class PmRobotUtils(PrimitiveSkillsUtils):
 
             move_response: MoveToFrame.Response = move_client.call(move_request)
 
-            self._node.get_logger().error(f"Move response: {str(move_response)}"
-                                          )
+            if move_response is None:
+                raise PmRobotError(f"Service '{move_client.srv_name}' returned no response")
             if not move_response.success:
-                raise PmRobotError(f"Failed to move to frame '{request.frame_name}'")
+                raise PmRobotError(
+                    f"Planning measurement pose for frame '{request.frame_name}' failed: "
+                    f'{move_response.message}')
 
             # ------------------------
             # Line of sight service
@@ -1377,9 +1380,16 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                 self.client_check_line_of_sight.call(line_of_sight_request)
             )
 
-            response.success = check_response.success
+            if check_response is None:
+                raise PmRobotError('Assembly manager line-of-sight service returned no response')
+            if not check_response.success:
+                raise PmRobotError(
+                    f"Assembly manager line-of-sight check failed for frame '{request.frame_name}': "
+                    'the view is blocked or the frame could not be checked.')
+            response.success = True
+            response.message = f"Frame '{request.frame_name}' is reachable with a clear line of sight."
 
-        except PmRobotError as e:
+        except (PmRobotError, TfFrameLookupError, ValueError, RuntimeError) as e:
             response.success = False
             response.message = str(e)
             self._node.get_logger().error(response.message)
@@ -1392,7 +1402,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         target_tcp_frame:str,
         offset_m: float,
         ) -> pm_skill_srv.CheckFrameMeasurable.Response:
-
+        """Check bottom-sensor reachability and line of sight at the planned pose."""
         response = pm_skill_srv.CheckFrameMeasurable.Response()
         try:
             self.assembly_scene_analyzer.wait_for_initial_scene_update()
@@ -1413,8 +1423,13 @@ class PmRobotUtils(PrimitiveSkillsUtils):
 
             move_response: MoveToFrame.Response = self.client_move_robot_cam1_to_frame.call(move_request)
 
+            if move_response is None:
+                raise PmRobotError(
+                    f"Service '{self.client_move_robot_cam1_to_frame.srv_name}' returned no response")
             if not move_response.success:
-                raise PmRobotError(f"Failed to move to frame '{request.frame_name}'")
+                raise PmRobotError(
+                    f"Planning measurement pose for frame '{request.frame_name}' failed: "
+                    f'{move_response.message}')
 
             # ------------------------
             # Line of sight service
@@ -1437,8 +1452,6 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                                                                            tf_buffer=self.tf_buffer, 
                                                                            logger=self._node.get_logger())
 
-            move_response.calculated_endeffector_pose.orientation = Quaternion()
-
             result_transform = multiply_ros_transforms(move_response.calculated_endeffector_pose, 
                                                        relative_transform, 
                                                        output_type=Transform)
@@ -1457,9 +1470,16 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                 self.client_check_line_of_sight.call(line_of_sight_request)
             )
 
-            response.success = check_response.success
+            if check_response is None:
+                raise PmRobotError('Assembly manager line-of-sight service returned no response')
+            if not check_response.success:
+                raise PmRobotError(
+                    f"Assembly manager line-of-sight check failed for frame '{request.frame_name}': "
+                    'the view is blocked or the frame could not be checked.')
+            response.success = True
+            response.message = f"Frame '{request.frame_name}' is reachable with a clear line of sight."
 
-        except PmRobotError as e:
+        except (PmRobotError, TfFrameLookupError, ValueError, RuntimeError) as e:
             response.success = False
             response.message = str(e)
             self._node.get_logger().error(response.message)

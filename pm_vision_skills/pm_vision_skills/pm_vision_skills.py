@@ -42,8 +42,8 @@ class VisionSkillsNode(Node):
         self.srv_measure = self.create_service(skills_srv.MeasureFrameVision, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
         self.srv_correct = self.create_service(skills_srv.CorrectFrameVision, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
 
-        self.srv_check_frame_measureble_cam_top = self.create_service(skills_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_top', self.check_frame_mes_cam_top, callback_group=self.callback_group)   
-        self.srv_check_frame_measureble_cam_bottom = self.create_service(skills_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_cam_bottom', self.check_frame_mes_cam_bottom, callback_group=self.callback_group)   
+        self.srv_check_frame_measureble_cam_top = self.create_service(skills_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_cam_top', self.check_frame_mes_cam_top, callback_group=self.callback_group)
+        self.srv_check_frame_measureble_cam_bottom = self.create_service(skills_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_cam_bottom', self.check_frame_mes_cam_bottom, callback_group=self.callback_group)
     
         self.tf_buffer = Buffer()
         

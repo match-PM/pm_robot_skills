@@ -80,7 +80,25 @@ class PmSkills(Node):
         
         # services
         self.grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/grip_component", self.gripper_skills.grip_component_callback,callback_group=self.callback_group_me)
+        self.check_component_grippable_srv = self.create_service(
+            pm_skill_srv.CheckComponentGrippable,
+            '/pm_skills_planning/check_component_grippable',
+            self.gripper_skills.check_component_grippable_callback,
+            callback_group=self.callback_group_me,
+        )
         self.force_grip_component_srv = self.create_service(pm_skill_srv.GripComponent, "pm_skills/force_grip_component", self.gripper_skills.force_grip_component_callback,callback_group=self.callback_group_me)
+        self.align_component_to_gripper_srv = self.create_service(
+            pm_skill_srv.AlignComponentToGripper,
+            '/pm_skills/align_component_to_gripper',
+            self.gonio_skills.align_component_to_gripper_callback,
+            callback_group=self.callback_group_me,
+        )
+        self.check_gripper_is_alignable_srv = self.create_service(
+            pm_skill_srv.CheckGripperIsAlignable,
+            '/pm_skills_planning/check_gripper_is_alignable',
+            self.gonio_skills.check_gripper_is_alignable_callback,
+            callback_group=self.callback_group_me,
+        )
 
         self.place_component_srv = self.create_service(pm_skill_srv.PlaceComponent, "pm_skills/place_component", self.gripper_skills.place_component_callback,callback_group=self.callback_group_me)
         self.release_component_srv = self.create_service(EmptyWithSuccess, "pm_skills/release_component", self.gripper_skills.release_component_callback,callback_group=self.callback_group_me)
@@ -145,9 +163,9 @@ class PmSkills(Node):
         self.srv_iter_align_gonio_right = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_right', self.gonio_skills.iterative_align_gonio_right, callback_group=self.callback_group_me)
         self.srv_iter_align_gonio_left = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_left', self.gonio_skills.iterative_align_gonio_left, callback_group=self.callback_group_me)
 
-        self.srv_check_frame_measureble_confocal_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_confocal_top', self.measurement_skills.check_frame_mes_confocal_top, callback_group=self.callback_group_me)
-        self.srv_check_frame_measureble_laser_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_laser_top', self.measurement_skills.check_frame_mes_laser_top, callback_group=self.callback_group_me)
-        self.srv_check_frame_measureble_confocal_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, self.get_name()+'/check_frame_measureble_confocal_bottom', self.measurement_skills.check_frame_mes_confocal_bottom, callback_group=self.callback_group_me)
+        self.srv_check_frame_measureble_confocal_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_confocal_top', self.measurement_skills.check_frame_mes_confocal_top, callback_group=self.callback_group_me)
+        self.srv_check_frame_measureble_laser_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_laser_top', self.measurement_skills.check_frame_mes_laser_top, callback_group=self.callback_group_me)
+        self.srv_check_frame_measureble_confocal_bottom = self.create_service(pm_skill_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_confocal_bottom', self.measurement_skills.check_frame_mes_confocal_bottom, callback_group=self.callback_group_me)
 
         self.srv_dispense_at_points = self.create_service(pm_msg_srv.DispenseAtPoints, self.get_name()+'/dispense_at_frames', self.dispensing_skills.dispense_at_frames_callback, callback_group=self.callback_group_me)
 

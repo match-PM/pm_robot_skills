@@ -1,0 +1,5 @@
+# Check the same alignment without executing movement.
+string component_name
+---
+bool success
+string message

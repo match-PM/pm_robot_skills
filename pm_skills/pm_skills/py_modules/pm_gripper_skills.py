@@ -27,6 +27,89 @@ from pm_skills.py_modules.pm_skill_domain import PmSkillDomain
 
 
 class PmGripperSkills(PmSkillDomain):
+    def check_component_grippable_callback(
+        self,
+        request: pm_skill_srv.CheckComponentGrippable.Request,
+        response: pm_skill_srv.CheckComponentGrippable.Response,
+    ):
+        """Plan normal grip poses in the current scene without executing motion.
+
+        Each pose is planned from the current robot state. Goniometer alignment,
+        gripper actuation, force sensing, attachment and lift are not performed.
+        """
+        response.success = False
+        try:
+            self.pm_robot_utils.wait_for_initial_scene_update()
+            analyzer = self.pm_robot_utils.assembly_scene_analyzer
+            if not analyzer.check_object_exists(request.component_name):
+                raise PmRobotError(f"Object '{request.component_name}' does not exist!")
+            if not analyzer.is_gripper_empty():
+                raise PmRobotError('Gripper is not empty! Can not grip new component!')
+            if analyzer.check_component_assembled(request.component_name):
+                raise PmRobotError(
+                    f"Component '{request.component_name}' is already assembled! Can not grip it!")
+
+            gripping_frame = analyzer.get_gripping_frame_of_component(request.component_name)
+            self._require_grip_measurements(gripping_frame)
+            for pose_name, offset in (
+                ('approach', self.GRIP_APPROACH_OFFSET),
+                ('sensing start', self.GRIP_SENSING_START_OFFSET),
+            ):
+                self._check_grip_pose(gripping_frame, pose_name, offset)
+
+            # Normal gripping allows tool/component contact only after approach.
+            try:
+                self.pm_robot_utils.set_gripper_component_collision(request.component_name, False)
+                self._check_grip_pose(gripping_frame, 'gripping', 0.0)
+            finally:
+                self.pm_robot_utils.set_gripper_component_collision(request.component_name, True)
+
+            response.success = True
+            response.message = (
+                f"Component '{request.component_name}' is grippable in its current orientation: "
+                'approach, sensing start and gripping poses can each be planned '
+                'from the current robot state. No movement was executed.')
+            self.logger.info(response.message)
+        except (PmRobotError, ComponentNotFoundError, GrippingFrameNotFoundError,
+                RefFrameNotFoundError, RuntimeError) as exc:
+            response.message = str(exc)
+            self.logger.error(response.message)
+        return response
+
+    def _check_grip_pose(self, frame_name: str, pose_name: str, z_offset: float):
+        success, message = self.move_gripper_to_frame(
+            frame_name, z_offset=z_offset, execute_movement=False)
+        if not success:
+            raise PmRobotError(
+                f"Planning {pose_name} pose at frame '{frame_name}' "
+                f'(z offset {z_offset} m) failed: {message}')
+
+    def _require_grip_measurements(self, gripping_frame: str):
+        """Check the planning policy for the gripping frame's measurements.
+
+        The analyzer includes the gripping frame itself if it has a measurement
+        role, follows active dependencies across components, and requires both
+        flags for frames with vision and laser roles. Read its current scene on
+        every planning check. Executing actions deliberately do not enforce
+        this policy; it is a hard precondition of the planner's grip operator.
+        """
+        try:
+            measurements = (
+                self.pm_robot_utils.assembly_scene_analyzer
+                .get_measurement_frames_for_gripping_frame(gripping_frame))
+        except (RefFrameNotFoundError, GrippingFrameNotFoundError, ValueError) as exc:
+            raise PmRobotError(
+                f"Cannot verify measurement dependencies of gripping frame "
+                f"'{gripping_frame}': {exc}") from exc
+
+        missing = [frame.frame_name for frame, measured in measurements
+                   if measured is not True]
+        if missing:
+            raise PmRobotError(
+                f"Cannot grip: unmeasured dependencies of gripping frame "
+                f"'{gripping_frame}': {', '.join(missing)}. "
+                'All required vision and laser measurements must be valid before gripping.')
+
     def force_grip_component_callback(self, request:pm_skill_srv.GripComponent.Request, response:pm_skill_srv.GripComponent.Response):
         """TO DO: Add docstring"""
 
@@ -48,6 +131,8 @@ class PmGripperSkills(PmSkillDomain):
                 raise PmRobotError(f"Component '{request.component_name}' is already assembled! Can not grip it!")
             
             gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame_of_component(request.component_name)
+            # Planning policy only; direct action calls remain flexible.
+            # self._require_grip_measurements(gripping_frame)
             
             self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
             
@@ -65,6 +150,8 @@ class PmGripperSkills(PmSkillDomain):
 
             if not algin_success:
                 raise PmRobotError(f"Failed to align gonio for component '{request.component_name}': {align_msg}")
+
+            # self._require_grip_measurements(gripping_frame)  # Planning only.
 
             #Offset
             move_tool_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
@@ -150,6 +237,8 @@ class PmGripperSkills(PmSkillDomain):
             if not force_sensing_response.completed:
                 raise PmRobotError("Fine approach did not detect contact! Make sure the gripping frame has been measured correctly and that the force thresholds are set appropriately!")
             
+            # self._require_grip_measurements(gripping_frame)  # Planning only.
+
             # enable vacuum
             enable_success = self.pm_robot_utils.set_tool_vaccum(True)
 
@@ -228,6 +317,8 @@ class PmGripperSkills(PmSkillDomain):
                 raise PmRobotError(f"Component '{request.component_name}' is already assembled! Can not grip it!")
             
             gripping_frame = self.pm_robot_utils.assembly_scene_analyzer.get_gripping_frame_of_component(request.component_name)
+            # Planning policy only; direct action calls remain flexible.
+            # self._require_grip_measurements(gripping_frame)
             
             self.logger.info(f"Gripping component '{request.component_name}' at frame '{gripping_frame}'")
             
@@ -245,6 +336,8 @@ class PmGripperSkills(PmSkillDomain):
 
             if not algin_success:
                 raise PmRobotError(f"Failed to align gonio for component '{request.component_name}': {align_msg}")
+
+            # self._require_grip_measurements(gripping_frame)  # Planning only.
 
             #Offset
             move_tool_to_part_offset_success, move_offset_msg = self.move_gripper_to_frame(gripping_frame, z_offset=self.GRIP_APPROACH_OFFSET)
@@ -281,6 +374,8 @@ class PmGripperSkills(PmSkillDomain):
 
             if not move_tool_to_part_success:
                 raise PmRobotError(f"Failed to move gripper to part '{request.component_name}': {move_part_msg}")
+
+            # self._require_grip_measurements(gripping_frame)  # Planning only.
 
             if self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type() == VacuumGripperConfig.TOOL_VACUUM_IDENT:
                 # enable vacuum
@@ -741,7 +836,11 @@ class PmGripperSkills(PmSkillDomain):
             response:pm_moveit_srv.MoveRelative.Response = self.pm_robot_utils.client_move_robot_tool_relative.call(req)
             return response.success, response.message
         
-    def move_gripper_to_frame(self, frame_name:str, endeffector_override = None, x_offset=None, y_offset=None, z_offset=None)-> tuple[bool, str]:
+    def move_gripper_to_frame(
+        self, frame_name: str, endeffector_override=None,
+        x_offset=None, y_offset=None, z_offset=None, execute_movement: bool = True,
+    ) -> tuple[bool, str]:
+        """Plan to a gripper frame, executing the plan by default."""
         call_async = False
 
         if not self.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
@@ -750,7 +849,7 @@ class PmGripperSkills(PmSkillDomain):
         
         req = pm_moveit_srv.MoveToFrame.Request()
         req.target_frame = frame_name
-        req.execute_movement = True
+        req.execute_movement = execute_movement
         req.translation.x = 0.0000001
         req.translation.y = 0.0000001
         req.translation.z = 0.0000001
@@ -776,6 +875,8 @@ class PmGripperSkills(PmSkillDomain):
             return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.MoveToFrame.Response = self.client_move_robot_tool_to_frame.call(req)
+            if response is None:
+                return False, "Service '/pm_moveit_server/move_tool_to_frame' returned no response"
             return response.success, response.message
 
     def move_laser_to_frame(self, frame_name:str, z_offset: float=None)-> tuple[bool, str]:

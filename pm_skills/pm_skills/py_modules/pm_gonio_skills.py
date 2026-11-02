@@ -7,6 +7,11 @@ from scipy.spatial.transform import Rotation as R
 
 import pm_moveit_interfaces.srv as pm_moveit_srv
 import pm_skills_interfaces.srv as pm_skill_srv
+from assembly_scene_publisher.py_modules.scene_errors import (
+    ComponentNotFoundError,
+    GrippingFrameNotFoundError,
+    RefFrameNotFoundError,
+)
 from pm_moveit_interfaces.srv import MoveRelative
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 from pm_skills.py_modules.pm_skill_domain import PmSkillDomain
@@ -15,6 +20,68 @@ PM_ROBOT_GRIPPER_FRAME = 'PM_Robot_Tool_TCP'
 
 
 class PmGonioSkills(PmSkillDomain):
+    def align_component_to_gripper_callback(
+        self,
+        request: pm_skill_srv.AlignComponentToGripper.Request,
+        response: pm_skill_srv.AlignComponentToGripper.Response,
+    ):
+        """Align a component's gripping frame using the goniometer carrying it."""
+        return self._align_component_to_gripper(request, response, execute_movement=True)
+
+    def check_gripper_is_alignable_callback(
+        self,
+        request: pm_skill_srv.CheckGripperIsAlignable.Request,
+        response: pm_skill_srv.CheckGripperIsAlignable.Response,
+    ):
+        """Check the component-to-gripper alignment without executing movement."""
+        return self._align_component_to_gripper(request, response, execute_movement=False)
+
+    def _align_component_to_gripper(self, request, response, execute_movement: bool):
+        response.success = False
+        try:
+            self.pm_robot_utils.wait_for_initial_scene_update()
+            analyzer = self.pm_robot_utils.assembly_scene_analyzer
+            if not analyzer.check_object_exists(request.component_name):
+                raise PmRobotError(f"Object '{request.component_name}' does not exist!")
+
+            if analyzer.is_object_on_gonio_left(request.component_name):
+                align = self.align_gonio_left
+                side = 'left'
+            elif analyzer.is_object_on_gonio_right(request.component_name):
+                align = self.align_gonio_right
+                side = 'right'
+            else:
+                raise PmRobotError(
+                    f"Component '{request.component_name}' is not on either goniometer.")
+
+            gripping_frame = analyzer.get_gripping_frame_of_component(request.component_name)
+            success, message = align(
+                endeffector_override=gripping_frame,
+                alignment_frame=self.PM_ROBOT_GRIPPER_FRAME,
+                execute_movement=execute_movement,
+            )
+            if not success:
+                raise PmRobotError(
+                    f"Alignment of component '{request.component_name}' on the {side} "
+                    f'goniometer failed: {message}')
+
+            response.success = True
+            if execute_movement:
+                response.message = (
+                    f"Component '{request.component_name}' aligned to gripper frame "
+                    f"'{self.PM_ROBOT_GRIPPER_FRAME}' using the {side} goniometer.")
+            else:
+                response.message = (
+                    f"Alignment of component '{request.component_name}' to gripper frame "
+                    f"'{self.PM_ROBOT_GRIPPER_FRAME}' can be planned using the {side} "
+                    'goniometer. No movement was executed.')
+            self.logger.info(response.message)
+        except (PmRobotError, ComponentNotFoundError, GrippingFrameNotFoundError,
+                RefFrameNotFoundError, RuntimeError) as exc:
+            response.message = str(exc)
+            self.logger.error(response.message)
+        return response
+
     def iterative_align_gonio_right(self, request: pm_skill_srv.IterativeGonioAlign.Request, response:pm_skill_srv.IterativeGonioAlign.Response):
         
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
@@ -249,7 +316,10 @@ class PmGonioSkills(PmSkillDomain):
 
         return response
 
-    def align_gonio_right(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> tuple[bool, str]:
+    def align_gonio_right(
+        self, endeffector_override: str, alignment_frame: str = PM_ROBOT_GRIPPER_FRAME,
+        execute_movement: bool = True,
+    ) -> tuple[bool, str]:
         call_async = False
 
         if not self.pm_robot_utils.client_align_gonio_right.wait_for_service(timeout_sec=1.0):
@@ -258,7 +328,7 @@ class PmGonioSkills(PmSkillDomain):
         
         req = pm_moveit_srv.AlignGonio.Request()
         req.target_frame = alignment_frame
-        req.execute_movement = True
+        req.execute_movement = execute_movement
         req.endeffector_frame_override = endeffector_override
 
         if call_async:
@@ -270,9 +340,14 @@ class PmGonioSkills(PmSkillDomain):
             return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_right.call(req)
+            if response is None:
+                return False, "Service '/pm_moveit_server/align_gonio_right' returned no response"
             return response.success, response.message
         
-    def align_gonio_left(self, endeffector_override:str, alignment_frame:str = PM_ROBOT_GRIPPER_FRAME)-> tuple[bool, str]:
+    def align_gonio_left(
+        self, endeffector_override: str, alignment_frame: str = PM_ROBOT_GRIPPER_FRAME,
+        execute_movement: bool = True,
+    ) -> tuple[bool, str]:
         call_async = False
 
         if not self.pm_robot_utils.client_align_gonio_left.wait_for_service(timeout_sec=1.0):
@@ -281,7 +356,7 @@ class PmGonioSkills(PmSkillDomain):
         
         req = pm_moveit_srv.AlignGonio.Request()
         req.target_frame = alignment_frame
-        req.execute_movement = True
+        req.execute_movement = execute_movement
         req.endeffector_frame_override = endeffector_override
 
         if call_async:
@@ -293,4 +368,6 @@ class PmGonioSkills(PmSkillDomain):
             return future.result().success, future.result().message
         else:
             response:pm_moveit_srv.AlignGonio.Response = self.pm_robot_utils.client_align_gonio_left.call(req)
+            if response is None:
+                return False, "Service '/pm_moveit_server/align_gonio_left' returned no response"
             return response.success, response.message

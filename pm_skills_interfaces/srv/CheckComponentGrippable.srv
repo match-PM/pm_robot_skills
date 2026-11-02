@@ -1,0 +1,6 @@
+# Check normal gripping in the component's current orientation, without motion.
+string component_name
+---
+# True when grip preconditions and planning to all three grip poses succeed.
+bool success
+string message
