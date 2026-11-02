@@ -12,7 +12,6 @@ import time
 import os
 import datetime
 import copy
-from assembly_scene_publisher.py_modules.scene_functions import get_rel_transform_for_frames
 from pm_robot_calibration.py_modules.pm_calibration_utils import PmRobotCalibrationUtils
 
 class PmRobotCalibrationGripper:
@@ -290,11 +289,9 @@ class PmRobotCalibrationGripper:
 
                 frame_poses_list.append(copy.deepcopy(ref_frame.pose))
             
-            relative_transform:Transform = get_rel_transform_for_frames(scene=self.pm_robot_utils.assembly_scene_analyzer._get_scene(),
-                                        from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
-                                        to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
-                                        tf_buffer=self.pm_robot_utils.tf_buffer,
-                                        logger=self._logger)
+            relative_transform:Transform = self.pm_robot_utils.get_transform_for_frame(
+                frame_name=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
+                parent_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial')
             
             # Check if calibration was done without rotation (single rotation of 0)
             if len(rotations) > 1 and len(distance_list) > 0:
@@ -432,11 +429,9 @@ class PmRobotCalibrationGripper:
         default_transformation = Transform()
 
         
-        relative_transform_angle:Transform =    get_rel_transform_for_frames(scene=self.pm_robot_utils.assembly_scene_analyzer._get_scene(),
-                                        from_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
-                                        to_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP',
-                                        tf_buffer=self.pm_robot_utils.tf_buffer,
-                                        logger=self._logger)
+        relative_transform_angle:Transform = self.pm_robot_utils.get_transform_for_frame(
+            frame_name=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP_initial',
+            parent_frame=f'{unique_identifier}CALIBRATION_PM_Robot_Tool_TCP')
         
         roll, pitch, yaw = R.from_quat([relative_transform_angle.rotation.x, 
                                         relative_transform_angle.rotation.y,

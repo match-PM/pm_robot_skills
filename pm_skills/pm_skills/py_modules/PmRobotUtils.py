@@ -26,7 +26,6 @@ import pm_skills_interfaces.srv as pm_skill_srv
 
 from std_msgs.msg import Float64MultiArray
 
-from assembly_scene_publisher.py_modules.scene_functions import is_frame_from_scene
 from assembly_scene_publisher.py_modules.tf_functions import get_transform_for_frame_in_world, get_transform_for_frame
 from assembly_scene_publisher.py_modules.geometry_functions import multiply_ros_transforms, inverse_ros_transform
 
@@ -885,7 +884,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         Returns:
             None
         """
-
+        self.update_pm_robot_config()
         tool_type = self.pm_robot_config.tool.get_active_tool_type()
 
         if tool_type == self.pm_robot_config.tool._gripper_vacuum.TOOL_VACUUM_IDENT:
