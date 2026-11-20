@@ -416,11 +416,14 @@ class PmMeasurementSkills(PmSkillDomain):
 
     def check_frame_mes_confocal_top(self, request:pm_skill_srv.CheckFrameMeasurable.Request, response:pm_skill_srv.CheckFrameMeasurable.Response):
 
-        CONFOCAL_LASER_OFFSET = 8*1e-3 # in m, distance from confocal top to laser point
+        # in m, start of the line-of-sight ray above the measuring point. It only
+        # has to lie outside the part; sensor collisions are checked elsewhere.
+        CONFOCAL_LASER_OFFSET = 10*1e-3
 
+        # Same move group as measure_frame_with_confocal_top (confocal head TCP).
         res = self.pm_robot_utils.check_frame_mes(request = request,
                                                          offset_m=CONFOCAL_LASER_OFFSET,
-                                                         move_client= self.pm_robot_utils.client_move_robot_laser_to_frame)
+                                                         move_client= self.pm_robot_utils.client_move_robot_confocal_top_to_frame)
         response = res
         
         return response

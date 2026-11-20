@@ -34,8 +34,10 @@ def utils(monkeypatch):
     instance.assembly_scene_analyzer = MagicMock()
     instance.client_move_robot_laser_to_frame = MagicMock()
     instance.client_move_robot_cam1_to_frame = MagicMock()
+    instance.client_move_robot_confocal_top_to_frame = MagicMock()
     for client in (instance.client_move_robot_laser_to_frame,
-                   instance.client_move_robot_cam1_to_frame):
+                   instance.client_move_robot_cam1_to_frame,
+                   instance.client_move_robot_confocal_top_to_frame):
         pose = Pose(orientation=Quaternion(w=1.0))
         client.call.return_value = moveit_srv.MoveToFrame.Response(
             success=True, calculated_endeffector_pose=pose)
@@ -78,7 +80,8 @@ def test_all_sensor_callbacks_require_line_of_sight(utils, domain_class, method,
     assert 'line of sight' in result.message or 'line-of-sight' in result.message
     sight_request = utils.client_check_line_of_sight.call.call_args.args[0]
     assert sight_request.frame_name == 'part_measurement'
-    clients = (utils.client_move_robot_laser_to_frame, utils.client_move_robot_cam1_to_frame)
+    clients = (utils.client_move_robot_laser_to_frame, utils.client_move_robot_cam1_to_frame,
+               utils.client_move_robot_confocal_top_to_frame)
     planned_requests = [call.args[0] for client in clients for call in client.call.call_args_list]
     assert len(planned_requests) == 1
     assert planned_requests[0].execute_movement is False
@@ -151,3 +154,23 @@ def test_bottom_visibility_ray_preserves_the_planned_orientation(utils, monkeypa
 
     ray = utils.client_check_line_of_sight.call.call_args.args[0].transform_from_frame
     assert (ray.translation.x, ray.translation.y, ray.translation.z) == pytest.approx((0, -1, -0.04))
+
+
+@pytest.mark.parametrize('method, client', [
+    ('check_frame_mes_laser_top', 'client_move_robot_laser_to_frame'),
+    ('check_frame_mes_confocal_top', 'client_move_robot_confocal_top_to_frame'),
+])
+def test_top_checks_plan_with_the_move_group_of_their_sensor(utils, method, client):
+    # The check must plan with the same move group the measuring skill moves.
+    domain = MagicMock()
+    domain.pm_robot_utils = utils
+    getattr(PmMeasurementSkills, method)(
+        domain,
+        skill_srv.CheckFrameMeasurable.Request(frame_name='part_measurement'),
+        skill_srv.CheckFrameMeasurable.Response(),
+    )
+    used = [name for name in ('client_move_robot_laser_to_frame',
+                              'client_move_robot_confocal_top_to_frame',
+                              'client_move_robot_cam1_to_frame')
+            if getattr(utils, name).call.called]
+    assert used == [client]
