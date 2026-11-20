@@ -651,6 +651,7 @@ class PmGripperSkills(PmSkillDomain):
             properties = ami_msg.ComponentProperties()
             properties.is_gripped = False
             properties.is_placed = True
+            properties.is_assembled = True
 
             set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(gripped_component, properties)
 

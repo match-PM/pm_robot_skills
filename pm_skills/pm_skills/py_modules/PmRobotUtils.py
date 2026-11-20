@@ -765,6 +765,12 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         req = pm_msg_srv.LaserGetMeasurement.Request()
 
         response:pm_msg_srv.LaserGetMeasurement.Response = self.client_get_laser_mes.call(req)
+
+        if response is None:
+            raise PmRobotError("Laser measurement service returned no response")
+
+        if not math.isfinite(response.measurement):
+            raise PmRobotError("Laser measurement is unavailable or invalid")
         
         multiplier = self._get_multiplier(unit)
 
