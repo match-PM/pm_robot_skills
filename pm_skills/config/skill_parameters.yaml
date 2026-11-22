@@ -1,0 +1,26 @@
+# Parameters of the pm_skills skills.
+#
+# Read by the pm_skills node at start (restart it after a change) and by the
+# planner (pm_pddl_planning) on every evaluation, so planned and executed
+# motions use the same values. Installed to share/pm_skills/config; rebuild
+# pm_skills after editing (or build with --symlink-install).
+#
+# Lengths in m.
+
+# Robot frame a gripped component is attached to and aligned with.
+gripper_frame: PM_Robot_Tool_TCP
+
+grip:
+  # Above the gripping frame, along the gripper TCP z axis.
+  approach_offset: 0.05
+  sensing_start_offset: 0.0005
+  # Force grip: end of the sensing move and its rough phase.
+  sensing_end_offset: -0.0005
+  sensing_end_rough: 0.0002
+  gripping_offset: 0.0001
+  # Relative move of the gripper after gripping (and after a failed grip).
+  lift_distance: 0.05
+
+release:
+  # Relative move of the gripper after releasing a component.
+  lift_distance: 0.02

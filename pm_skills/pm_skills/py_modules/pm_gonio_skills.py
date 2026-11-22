@@ -16,7 +16,6 @@ from pm_moveit_interfaces.srv import MoveRelative
 from pm_robot_primitive_skills.py_modules.PmRobotError import PmRobotError
 from pm_skills.py_modules.pm_skill_domain import PmSkillDomain
 
-PM_ROBOT_GRIPPER_FRAME = 'PM_Robot_Tool_TCP'
 
 
 class PmGonioSkills(PmSkillDomain):
@@ -317,10 +316,12 @@ class PmGonioSkills(PmSkillDomain):
         return response
 
     def align_gonio_right(
-        self, endeffector_override: str, alignment_frame: str = PM_ROBOT_GRIPPER_FRAME,
+        self, endeffector_override: str, alignment_frame: str = None,
         execute_movement: bool = True,
     ) -> tuple[bool, str]:
         call_async = False
+        if alignment_frame is None:
+            alignment_frame = self.PM_ROBOT_GRIPPER_FRAME
 
         if not self.pm_robot_utils.client_align_gonio_right.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/align_gonio_right' not available")
@@ -345,10 +346,12 @@ class PmGonioSkills(PmSkillDomain):
             return response.success, response.message
         
     def align_gonio_left(
-        self, endeffector_override: str, alignment_frame: str = PM_ROBOT_GRIPPER_FRAME,
+        self, endeffector_override: str, alignment_frame: str = None,
         execute_movement: bool = True,
     ) -> tuple[bool, str]:
         call_async = False
+        if alignment_frame is None:
+            alignment_frame = self.PM_ROBOT_GRIPPER_FRAME
 
         if not self.pm_robot_utils.client_align_gonio_left.wait_for_service(timeout_sec=1.0):
             self.logger.error("Service '/pm_moveit_server/align_gonio_left' not available")

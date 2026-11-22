@@ -41,6 +41,9 @@ class VisionSkillsNode(Node):
 
         self.srv_measure = self.create_service(skills_srv.MeasureFrameVision, self.get_name()+'/vision_measure_frame', self.measure_frame, callback_group=self.callback_group)
         self.srv_correct = self.create_service(skills_srv.CorrectFrameVision, self.get_name()+'/vision_correct_frame', self.correct_frame, callback_group=self.callback_group)
+        # Same interface with a fixed camera (no fallback), for planned measurements.
+        self.srv_correct_top = self.create_service(skills_srv.CorrectFrameVision, self.get_name()+'/vision_correct_frame_top', self.correct_frame_top, callback_group=self.callback_group)
+        self.srv_correct_bottom = self.create_service(skills_srv.CorrectFrameVision, self.get_name()+'/vision_correct_frame_bottom', self.correct_frame_bottom, callback_group=self.callback_group)
 
         self.srv_check_frame_measureble_cam_top = self.create_service(skills_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_cam_top', self.check_frame_mes_cam_top, callback_group=self.callback_group)
         self.srv_check_frame_measureble_cam_bottom = self.create_service(skills_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_cam_bottom', self.check_frame_mes_cam_bottom, callback_group=self.callback_group)
@@ -82,9 +85,73 @@ class VisionSkillsNode(Node):
         return result
 
 
+    CAMERAS = ('top', 'bottom')
+
+    def _camera_config(self, camera: str) -> str:
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
+            return {'bottom': 'pm_robot_basler_bottom_cam_2.yaml',
+                    'top': 'pm_robot_basler_top_cam_1.yaml'}[camera]
+        if self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
+            self._logger.info("Unity is running. Using simulated camera...")
+            return {'bottom': 'pm_robot_bottom_cam_2_Unity.yaml',
+                    'top': 'pm_robot_top_cam_1_Unity.yaml'}[camera]
+        raise PmRobotError("Gazebo mode is not supported for this operation!")
+
+    def _move_to_camera(self, frame_name: str, camera: str) -> bool:
+        """Move the frame onto the bottom camera, or the top camera onto the frame."""
+        move_request = MoveToFrame.Request()
+        move_request.execute_movement = True
+        if camera == 'bottom':
+            move_request.endeffector_frame_override = frame_name
+            move_request.target_frame = 'Camera_Station_TCP'
+        else:
+            move_request.target_frame = frame_name
+
+        if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
+            raise PmRobotError("Service 'MoveCamToFrame' not available...")
+
+        result: MoveToFrame.Response = self._call_service_with_timeout(
+            self.pm_robot_utils.client_move_robot_cam1_to_frame,
+            move_request,
+            'MoveCamToFrame'
+        )
+        return result.success
+
+    def _move_frame_to_camera(self, frame_name: str, camera: str = None) -> tuple[str, str]:
+        """Bring frame and camera together; return (camera config file, camera TCP frame).
+
+        camera None: bottom camera if the frame can be moved onto it, otherwise
+        the top camera (the behavior of vision_correct_frame).
+        """
+        if camera not in (None, *self.CAMERAS):
+            raise PmRobotError(f"Unknown camera '{camera}'.")
+        tcp = {'bottom': self.pm_robot_utils.TCP_CAMERA_BOTTOM,
+               'top': self.pm_robot_utils.TCP_CAMERA_TOP}
+
+        if camera in (None, 'bottom'):
+            config = self._camera_config('bottom')
+            if self._move_to_camera(frame_name, 'bottom'):
+                return config, tcp['bottom']
+            if camera == 'bottom':
+                raise PmRobotError("Can not move frame to the bottom cam. Cannot execute vision measurement!")
+            self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
+
+        config = self._camera_config('top')
+        if not self._move_to_camera(frame_name, 'top'):
+            if camera == 'top':
+                raise PmRobotError("Failed to move the top camera to the frame. Cannot execute vision measurement!")
+            raise PmRobotError("Failed to move tool to frame with both cameras. Cannot execute vision measurement!")
+        return config, tcp['top']
+
     def measure_frame(self, 
                       request:skills_srv.MeasureFrameVision.Request, 
-                      response:skills_srv.MeasureFrameVision.Response):
+                      response:skills_srv.MeasureFrameVision.Response,
+                      camera: str = None):
+        """Measure a frame with a camera.
+
+        camera: None tries the bottom camera first and falls back to the top
+        camera; 'top' or 'bottom' uses only that camera.
+        """
         
         # get compenent id if possible
         comp_id = "None"
@@ -127,70 +194,8 @@ class VisionSkillsNode(Node):
             
             self._logger.info("Service 'ExecuteVision' is available...")
 
-            # try to move the frame to the bottom camera
-            move_request = MoveToFrame.Request()
-            move_request.execute_movement = True
-            move_request.endeffector_frame_override = request.frame_name
-            move_request.target_frame = 'Camera_Station_TCP'
-
-            #self._logger.error(f"Moving tool to frame: {request.frame_name}... executing movement: {move_request.execute_movement} edgeffector frame override: {move_request.endeffector_frame_override} target frame: {move_request.target_frame}")
-            
-            # select the bottom camera
-            if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-                vision_request.camera_config_filename = 'pm_robot_basler_bottom_cam_2.yaml'
-
-            elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
-                self._logger.info("Unity is running. Using simulated camera...")
-                vision_request.camera_config_filename = 'pm_robot_bottom_cam_2_Unity.yaml'
-            else:
-                raise PmRobotError("Gazebo mode is not supported for this operation!")
-
-            #if not self.pm_robot_utils.client_move_robot_tool_to_frame.wait_for_service(timeout_sec=1.0):
-            if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
-                raise PmRobotError("Service 'MoveCamToFrame' not available...")
-
-            #result_tool_to_bottom_cam:MoveToFrame.Response = self.pm_robot_utils.client_move_robot_tool_to_frame.call(move_request)
-            result_tool_to_bottom_cam:MoveToFrame.Response = self._call_service_with_timeout(
-                self.pm_robot_utils.client_move_robot_cam1_to_frame,
-                move_request,
-                'MoveCamToFrame'
-            )
-
-            #self._logger.warn(f"MOOOOVOEE SUCCCEESS {result_tool_to_bottom_cam.success}")
-            
-            # If the tool cannot be moved to the bottom camera, try to move it to the top camera
-            if not result_tool_to_bottom_cam.success:
-                self._logger.warn("Can not move frame to the bottom cam. Trying to reach frame with the top camera...")
-
-                # selct the top camera
-                if self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE:
-                    vision_request.camera_config_filename = 'pm_robot_basler_top_cam_1.yaml'
-
-                elif self.pm_robot_utils.get_mode() == self.pm_robot_utils.UNITY_MODE:
-                    self._logger.info("Unity is running. Using simulated camera...")
-                    vision_request.camera_config_filename = 'pm_robot_top_cam_1_Unity.yaml'
-
-                else:
-                    raise PmRobotError("Gazebo mode is not supported for this operation!")
-
-                move_request = MoveToFrame.Request()
-                move_request.execute_movement = True
-                move_request.target_frame = request.frame_name
-
-                if not self.pm_robot_utils.client_move_robot_cam1_to_frame.wait_for_service(timeout_sec=1.0):
-                    raise PmRobotError("Service 'MoveCamToFrame' not available...")
-                
-                result_move_tool:MoveToFrame.Response = self._call_service_with_timeout(
-                    self.pm_robot_utils.client_move_robot_cam1_to_frame,
-                    move_request,
-                    'MoveCamToFrame'
-                )
-
-                if not result_move_tool.success:
-                    raise PmRobotError("Failed to move tool to frame with both cameras. Cannot execute vision measurement!")
-                self._last_measure_camera_tcp_frame = self.pm_robot_utils.TCP_CAMERA_TOP
-            else:
-                self._last_measure_camera_tcp_frame = self.pm_robot_utils.TCP_CAMERA_BOTTOM
+            vision_request.camera_config_filename, self._last_measure_camera_tcp_frame = \
+                self._move_frame_to_camera(request.frame_name, camera)
 
             # Measure the frame
             if (self.pm_robot_utils.get_mode() == self.pm_robot_utils.REAL_MODE or 
@@ -311,7 +316,9 @@ class VisionSkillsNode(Node):
     
     def correct_frame(self, 
                       request:skills_srv.CorrectFrameVision.Request, 
-                      response:skills_srv.CorrectFrameVision.Response):
+                      response:skills_srv.CorrectFrameVision.Response,
+                      camera: str = None):
+        """Measure a frame and correct its pose (camera: see measure_frame)."""
         try:
             self.pm_robot_utils.wait_for_initial_scene_update()
             
@@ -359,7 +366,8 @@ class VisionSkillsNode(Node):
                 response_em = skills_srv.MeasureFrameVision.Response()
                 result:skills_srv.MeasureFrameVision.Response = self.measure_frame(
                     measure_frame_request,
-                    response_em
+                    response_em,
+                    camera=camera
                 )
 
                 response.correction_values = result.result_vector
@@ -449,6 +457,16 @@ class VisionSkillsNode(Node):
             return response
 
         return response
+
+    def correct_frame_top(self, request: skills_srv.CorrectFrameVision.Request,
+                          response: skills_srv.CorrectFrameVision.Response):
+        """vision_correct_frame with the top camera only."""
+        return self.correct_frame(request, response, camera='top')
+
+    def correct_frame_bottom(self, request: skills_srv.CorrectFrameVision.Request,
+                             response: skills_srv.CorrectFrameVision.Response):
+        """vision_correct_frame with the bottom camera only."""
+        return self.correct_frame(request, response, camera='bottom')
 
     @staticmethod
     def _get_rotation_axis(vision_response) -> str | None:

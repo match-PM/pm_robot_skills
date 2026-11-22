@@ -24,23 +24,34 @@ from pm_skills.py_modules.pm_gripper_skills import PmGripperSkills
 from pm_skills.py_modules.pm_laser_line_scan_skills import PmLineScanSkills
 from pm_skills.py_modules.pm_measurement_skills import PmMeasurementSkills
 from pm_skills.py_modules.pm_uv_skills import PmUvSkills
+from pm_skills.skill_parameters import SkillParameters, load_skill_parameters
 
 
 class PmSkills(Node):
-    PM_ROBOT_GRIPPER_FRAME = 'PM_Robot_Tool_TCP'
     PM_ROBOT_GONIO_LEFT_FRAME_INDICATOR = 'Gonio_Left_Part'
     PM_ROBOT_GONIO_RIGHT_FRAME_INDICATOR = 'Gonio_Right_Part'
-    GRIP_RELATIVE_LIFT_DISTANCE = 0.05
-    RELEASE_LIFT_DISTANCE = 0.02
-    GRIP_APPROACH_OFFSET = 0.05
-    GRIP_SENSING_START_OFFSET = 0.000500
-    GRIP_SENSING_END_OFFSET = -0.0005
-    GRIP_SENSING_END_ROUGH = 0.00020
     ASSEMBLY_FRAME_INDICATOR = 'assembly_frame_Description'
     TARGET_FRAME_INDICATOR = 'target_frame_Description'
-    GRIPPING_OFFSET = 0.0001
+
+    def _apply_skill_parameters(self, parameters: SkillParameters) -> None:
+        self.PM_ROBOT_GRIPPER_FRAME = parameters.gripper_frame
+        self.GRIP_RELATIVE_LIFT_DISTANCE = parameters.grip.lift_distance
+        self.GRIP_APPROACH_OFFSET = parameters.grip.approach_offset
+        self.GRIP_SENSING_START_OFFSET = parameters.grip.sensing_start_offset
+        self.GRIP_SENSING_END_OFFSET = parameters.grip.sensing_end_offset
+        self.GRIP_SENSING_END_ROUGH = parameters.grip.sensing_end_rough
+        self.GRIPPING_OFFSET = parameters.grip.gripping_offset
+        self.RELEASE_LIFT_DISTANCE = parameters.release.lift_distance
+
     def __init__(self) -> None:
         super().__init__('pm_skills')
+
+        # Motion parameters shared with the planner (config/skill_parameters.yaml).
+        # They must be set before the skill domains below copy them.
+        self.skill_parameters = load_skill_parameters()
+        self._apply_skill_parameters(self.skill_parameters)
+        self.get_logger().info(f'Skill parameters from {self.skill_parameters.path} '
+                               f'(sha256 {self.skill_parameters.sha256[:12]})')
 
         self.callback_group_me = MutuallyExclusiveCallbackGroup()
         self.callback_group_re = ReentrantCallbackGroup()
