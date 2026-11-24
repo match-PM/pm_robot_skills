@@ -32,6 +32,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/CorrectFrameVision.srv"
   "srv/CorrectFrameLaser.srv"
   "srv/IterativeGonioAlign.srv"
+  "srv/IterativeAlignComponentToGripper.srv"
+  "srv/IterativeAlignAssemblyComponentToTarget.srv"
   "srv/CheckFrameMeasurable.srv"
   "srv/DispenseAtPointsAdv.srv"
   "srv/ForceScan.srv"

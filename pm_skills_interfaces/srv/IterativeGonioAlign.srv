@@ -6,3 +6,6 @@ string[] frames_to_measure
 ---
 bool success
 string message
+# Per iteration: how far gonio stage 1 and stage 2 moved (deg)
+float64[] gonio_stage_1_moved_deg
+float64[] gonio_stage_2_moved_deg

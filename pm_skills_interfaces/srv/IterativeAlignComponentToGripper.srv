@@ -1,0 +1,13 @@
+# Iteratively align a component's gripping frame to the robot gripper using its goniometer.
+# The laser frames the gripping frame depends on are measured in every iteration.
+# The service name decides the sensor (..._laser or ..._confocal).
+string component_name
+# Number of measure/align iterations (must be at least 1).
+int32 num_iterations 2
+---
+bool success
+string message
+string[] frames_measured
+# Per iteration: how far gonio stage 1 and stage 2 moved (deg)
+float64[] gonio_stage_1_moved_deg
+float64[] gonio_stage_2_moved_deg

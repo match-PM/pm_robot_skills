@@ -173,6 +173,30 @@ class PmSkills(Node):
 
         self.srv_iter_align_gonio_right = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_right', self.gonio_skills.iterative_align_gonio_right, callback_group=self.callback_group_me)
         self.srv_iter_align_gonio_left = self.create_service(pm_skill_srv.IterativeGonioAlign, self.get_name()+'/iterative_align_gonio_left', self.gonio_skills.iterative_align_gonio_left, callback_group=self.callback_group_me)
+        self.srv_iter_align_component_to_gripper_laser = self.create_service(
+            pm_skill_srv.IterativeAlignComponentToGripper,
+            '/pm_skills/iterative_align_component_to_gripper_laser',
+            self.gonio_skills.iterative_align_component_to_gripper_laser_callback,
+            callback_group=self.callback_group_me,
+        )
+        self.srv_iter_align_component_to_gripper_confocal = self.create_service(
+            pm_skill_srv.IterativeAlignComponentToGripper,
+            '/pm_skills/iterative_align_component_to_gripper_confocal',
+            self.gonio_skills.iterative_align_component_to_gripper_confocal_callback,
+            callback_group=self.callback_group_me,
+        )
+        self.srv_iter_align_assembly_component_to_target_laser = self.create_service(
+            pm_skill_srv.IterativeAlignAssemblyComponentToTarget,
+            '/pm_skills/iterative_align_assembly_component_to_target_laser',
+            self.gonio_skills.iterative_align_assembly_component_to_target_laser_callback,
+            callback_group=self.callback_group_me,
+        )
+        self.srv_iter_align_assembly_component_to_target_confocal = self.create_service(
+            pm_skill_srv.IterativeAlignAssemblyComponentToTarget,
+            '/pm_skills/iterative_align_assembly_component_to_target_confocal',
+            self.gonio_skills.iterative_align_assembly_component_to_target_confocal_callback,
+            callback_group=self.callback_group_me,
+        )
 
         self.srv_check_frame_measureble_confocal_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_confocal_top', self.measurement_skills.check_frame_mes_confocal_top, callback_group=self.callback_group_me)
         self.srv_check_frame_measureble_laser_top = self.create_service(pm_skill_srv.CheckFrameMeasurable, '/pm_skills_planning/check_frame_measureble_laser_top', self.measurement_skills.check_frame_mes_laser_top, callback_group=self.callback_group_me)
