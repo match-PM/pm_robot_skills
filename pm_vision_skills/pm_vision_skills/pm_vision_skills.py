@@ -582,7 +582,8 @@ class VisionSkillsNode(Node):
 
         res = self.pm_robot_utils.check_frame_mes(request = request,
                                                         offset_m=CAMERA_TOP_OFFSET,
-                                                         move_client = self.pm_robot_utils.client_move_robot_cam1_to_frame)
+                                                         move_client = self.pm_robot_utils.client_move_robot_cam1_to_frame,
+                                                         sensor_kind='camera')
         response = res
 
         return response
@@ -592,7 +593,8 @@ class VisionSkillsNode(Node):
 
         res = self.pm_robot_utils.check_frame_mes_bot(request = request,
                                                         target_tcp_frame = self.pm_robot_utils.TCP_CAMERA_BOTTOM,
-                                                        offset_m=CAMERA_BOTTOM_OFFSET)
+                                                        offset_m=CAMERA_BOTTOM_OFFSET,
+                                                        sensor_kind='camera')
         response = res
 
         return response

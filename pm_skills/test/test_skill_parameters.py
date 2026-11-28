@@ -32,6 +32,16 @@ def test_source_file_has_the_former_constants():
     assert len(parameters.sha256) == 64
 
 
+def test_source_file_has_the_line_of_sight_values():
+    import math
+    sight = load_skill_parameters(SOURCE).line_of_sight
+    assert (sight.feature_radius.camera, sight.feature_radius.laser,
+            sight.feature_radius.confocal) == (0.0003, 0.00005, 0.00005)
+    assert sight.request_values('camera') == (0.0003, math.radians(0.5))
+    with pytest.raises(SkillParameterError, match='Unknown sensor kind'):
+        sight.request_values('sonar')
+
+
 def test_node_applies_the_parameters_to_its_constants(tmp_path):
     from pm_skills.pm_skills import PmSkills
 
@@ -53,6 +63,13 @@ def test_node_applies_the_parameters_to_its_constants(tmp_path):
     (lambda d: d['release'].update(lift_distance=True), 'release.lift_distance must be a number'),
     (lambda d: d.update(gripper_frame=''), 'gripper_frame must be a frame name'),
     (lambda d: d.pop('release'), 'missing release'),
+    (lambda d: d.pop('line_of_sight'), 'missing line_of_sight'),
+    (lambda d: d['line_of_sight']['feature_radius'].pop('camera'),
+     'missing line_of_sight.feature_radius.camera'),
+    (lambda d: d['line_of_sight']['feature_radius'].update(laser=-0.1),
+     'line_of_sight.feature_radius.laser must not be negative'),
+    (lambda d: d['line_of_sight'].update(tilt_tolerance_deg='half'),
+     'line_of_sight.tilt_tolerance_deg must be a number'),
 ])
 def test_invalid_files_are_rejected(tmp_path, change, text):
     data = source_data()

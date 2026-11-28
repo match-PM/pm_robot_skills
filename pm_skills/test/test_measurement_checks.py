@@ -1,6 +1,7 @@
 """Measurement checks require a planned pose and assembly-manager visibility."""
 
 import importlib
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from geometry_msgs.msg import Pose, Quaternion, TransformStamped
@@ -13,7 +14,11 @@ from scipy.spatial.transform import Rotation
 from assembly_scene_publisher.py_modules.scene_errors import TfFrameLookupError
 from pm_skills.py_modules.PmRobotUtils import PmRobotUtils
 from pm_skills.py_modules.pm_measurement_skills import PmMeasurementSkills
+from pm_skills.skill_parameters import load_skill_parameters
 from pm_vision_skills.pm_vision_skills import VisionSkillsNode
+
+PARAMETERS = load_skill_parameters(
+    Path(__file__).resolve().parents[1] / 'config' / 'skill_parameters.yaml')
 
 
 UTILS_MODULE = importlib.import_module('pm_skills.py_modules.PmRobotUtils')
@@ -41,6 +46,7 @@ def utils(monkeypatch):
         pose = Pose(orientation=Quaternion(w=1.0))
         client.call.return_value = moveit_srv.MoveToFrame.Response(
             success=True, calculated_endeffector_pose=pose)
+    instance._line_of_sight_parameters = PARAMETERS.line_of_sight
     instance.client_check_line_of_sight = MagicMock()
     instance.client_check_line_of_sight.call.return_value = (
         assembly_srv.CheckLineOfSight.Response(success=True))
@@ -174,3 +180,30 @@ def test_top_checks_plan_with_the_move_group_of_their_sensor(utils, method, clie
                               'client_move_robot_cam1_to_frame')
             if getattr(utils, name).call.called]
     assert used == [client]
+
+
+@pytest.mark.parametrize('domain_class, method, kind', [
+    (PmMeasurementSkills, 'check_frame_mes_confocal_top', 'confocal'),
+    (PmMeasurementSkills, 'check_frame_mes_laser_top', 'laser'),
+    (PmMeasurementSkills, 'check_frame_mes_confocal_bottom', 'confocal'),
+    (VisionSkillsNode, 'check_frame_mes_cam_top', 'camera'),
+    (VisionSkillsNode, 'check_frame_mes_cam_bottom', 'camera'),
+])
+def test_line_of_sight_request_carries_the_sensor_surroundings_and_tilt(
+        utils, domain_class, method, kind):
+    domain = MagicMock()
+    domain.pm_robot_utils = utils
+    getattr(domain_class, method)(
+        domain, skill_srv.CheckFrameMeasurable.Request(frame_name='part_measurement'),
+        skill_srv.CheckFrameMeasurable.Response())
+    sight_request = utils.client_check_line_of_sight.call.call_args.args[0]
+    radius, tilt = PARAMETERS.line_of_sight.request_values(kind)
+    assert (sight_request.feature_radius, sight_request.tilt_tolerance) == (radius, tilt)
+    assert radius > 0 and tilt == pytest.approx(0.5 * 3.141592653589793 / 180)
+
+
+def test_blocked_rays_are_named_in_the_failure(utils):
+    utils.client_check_line_of_sight.call.return_value = assembly_srv.CheckLineOfSight.Response(
+        success=False, blocked_rays=['ring 3', 'ring 4 tilt u+'])
+    result = run_check(utils)
+    assert not result.success and 'ring 3, ring 4 tilt u+' in result.message

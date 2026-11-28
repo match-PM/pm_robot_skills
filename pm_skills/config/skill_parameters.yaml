@@ -24,3 +24,16 @@ grip:
 release:
   # Relative move of the gripper after releasing a component.
   lift_distance: 0.02
+
+line_of_sight:
+  # Measurement planning checks (/assembly_manager/check_line_of_sight): a
+  # sensor needs the surroundings of a frame clear, not one point, and the
+  # part's orientation is known only roughly before it is measured. Rays onto
+  # a ring of this radius around the frame are checked too, each also tilted
+  # by the tolerance; 0 and 0: one ray. Assumed values, to be confirmed.
+  feature_radius:
+    camera: 0.0003
+    laser: 0.00005
+    confocal: 0.00005
+  # Tilt of the part around its expected orientation [deg].
+  tilt_tolerance_deg: 0.5

@@ -1322,11 +1322,31 @@ class PmRobotUtils(PrimitiveSkillsUtils):
 
         return response
 
+    def line_of_sight_request(self, frame_name, transform_from_frame, sensor_kind):
+        """CheckLineOfSight request with the surroundings and tilt tolerance
+        of ``sensor_kind`` (camera, laser, confocal) from the shared skill
+        parameters (config/skill_parameters.yaml, read once)."""
+        from pm_skills.skill_parameters import load_skill_parameters
+        if getattr(self, '_line_of_sight_parameters', None) is None:
+            self._line_of_sight_parameters = load_skill_parameters().line_of_sight
+        radius, tilt = self._line_of_sight_parameters.request_values(sensor_kind)
+        return ami_srv.CheckLineOfSight.Request(
+            frame_name=frame_name, transform_from_frame=transform_from_frame,
+            feature_radius=radius, tilt_tolerance=tilt)
+
+    @staticmethod
+    def _line_of_sight_failure(frame_name, response):
+        blocked = list(response.blocked_rays)
+        detail = f' Blocked rays: {", ".join(blocked)}.' if blocked else ''
+        return (f"Assembly manager line-of-sight check failed for frame '{frame_name}': "
+                f'the view is blocked or the frame could not be checked.{detail}')
+
     def check_frame_mes(
         self,
         request: pm_skill_srv.CheckFrameMeasurable.Request,
         offset_m: float,
-        move_client
+        move_client,
+        sensor_kind: str = 'laser',
         ) -> pm_skill_srv.CheckFrameMeasurable.Response:
         """Check top-sensor reachability and assembly-manager line of sight."""
         response = pm_skill_srv.CheckFrameMeasurable.Response()
@@ -1378,9 +1398,8 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                 output_type=Transform
             )
 
-            line_of_sight_request = ami_srv.CheckLineOfSight.Request()
-            line_of_sight_request.frame_name = request.frame_name
-            line_of_sight_request.transform_from_frame = line_of_sight_t
+            line_of_sight_request = self.line_of_sight_request(
+                request.frame_name, line_of_sight_t, sensor_kind)
 
             check_response: ami_srv.CheckLineOfSight.Response = (
                 self.client_check_line_of_sight.call(line_of_sight_request)
@@ -1389,9 +1408,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             if check_response is None:
                 raise PmRobotError('Assembly manager line-of-sight service returned no response')
             if not check_response.success:
-                raise PmRobotError(
-                    f"Assembly manager line-of-sight check failed for frame '{request.frame_name}': "
-                    'the view is blocked or the frame could not be checked.')
+                raise PmRobotError(self._line_of_sight_failure(request.frame_name, check_response))
             response.success = True
             response.message = f"Frame '{request.frame_name}' is reachable with a clear line of sight."
 
@@ -1407,6 +1424,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
         request: pm_skill_srv.CheckFrameMeasurable.Request,
         target_tcp_frame:str,
         offset_m: float,
+        sensor_kind: str = 'camera',
         ) -> pm_skill_srv.CheckFrameMeasurable.Response:
         """Check bottom-sensor reachability and line of sight at the planned pose."""
         response = pm_skill_srv.CheckFrameMeasurable.Response()
@@ -1468,9 +1486,8 @@ class PmRobotUtils(PrimitiveSkillsUtils):
                 output_type=Transform
             )
 
-            line_of_sight_request = ami_srv.CheckLineOfSight.Request()
-            line_of_sight_request.frame_name = request.frame_name
-            line_of_sight_request.transform_from_frame = line_of_sight_t
+            line_of_sight_request = self.line_of_sight_request(
+                request.frame_name, line_of_sight_t, sensor_kind)
 
             check_response: ami_srv.CheckLineOfSight.Response = (
                 self.client_check_line_of_sight.call(line_of_sight_request)
@@ -1479,9 +1496,7 @@ class PmRobotUtils(PrimitiveSkillsUtils):
             if check_response is None:
                 raise PmRobotError('Assembly manager line-of-sight service returned no response')
             if not check_response.success:
-                raise PmRobotError(
-                    f"Assembly manager line-of-sight check failed for frame '{request.frame_name}': "
-                    'the view is blocked or the frame could not be checked.')
+                raise PmRobotError(self._line_of_sight_failure(request.frame_name, check_response))
             response.success = True
             response.message = f"Frame '{request.frame_name}' is reachable with a clear line of sight."
 

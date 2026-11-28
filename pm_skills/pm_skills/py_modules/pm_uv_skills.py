@@ -53,36 +53,20 @@ class PmUvSkills(PmSkillDomain):
                 response.message = res.message
                 raise PmRobotError(f"UV curing service call failed: {res.message}")
             
+            # Curing only cures: is_placed / is_assembled stay with place and
+            # release, so a state captured between curing and release still
+            # shows the component placed and gripped.
             all_frame_names = self.pm_robot_utils.assembly_scene_analyzer.get_all_component_frames()
 
             for frame_name in all_frame_names:
                 frame = self.pm_robot_utils.assembly_scene_analyzer.get_ref_frame_by_name(frame_name)
                 g_properties = frame.properties.glue_pt_frame_properties
-                    
-                if g_properties.is_glue_point and g_properties.has_been_placed:
+
+                if (g_properties.is_glue_point and g_properties.has_been_placed
+                        and not g_properties.has_been_cured):
                     g_properties.has_been_cured = True
                     self.pm_robot_utils.set_frame_properties(frame.frame_name, frame.properties)
 
-            placed_components = self.pm_robot_utils.assembly_scene_analyzer.get_placed_components()
-            
-            if not placed_components:
-                raise PmRobotError("No placed components found!")
-            
-            properties = ami_msg.ComponentProperties()
-            properties.is_assembled = True
-
-            # do not change the is_gripped property during curing
-            if self.pm_robot_utils.assembly_scene_analyzer.is_gripper_empty():
-                properties.is_gripped = False
-            else:
-                properties.is_gripped = True
-
-            for placed_component in placed_components:
-                set_properties_response: ami_srv.SetComponentProperties.Response = self.pm_robot_utils.set_component_properties(placed_component, properties)
-            
-            if not set_properties_response.success:
-                raise PmRobotError(f"Failed to set component properties for component '{placed_component}' after curing!") 
-            
             response.success = True
             response.message = "UV curing completed successfully and glue point frame properties updated."
 

@@ -423,7 +423,8 @@ class PmMeasurementSkills(PmSkillDomain):
         # Same move group as measure_frame_with_confocal_top (confocal head TCP).
         res = self.pm_robot_utils.check_frame_mes(request = request,
                                                          offset_m=CONFOCAL_LASER_OFFSET,
-                                                         move_client= self.pm_robot_utils.client_move_robot_confocal_top_to_frame)
+                                                         move_client= self.pm_robot_utils.client_move_robot_confocal_top_to_frame,
+                                                         sensor_kind='confocal')
         response = res
         
         return response
@@ -434,7 +435,8 @@ class PmMeasurementSkills(PmSkillDomain):
 
         res = self.pm_robot_utils.check_frame_mes(request = request,
                                                          offset_m=CONFOCAL_LASER_OFFSET,
-                                                         move_client = self.pm_robot_utils.client_move_robot_laser_to_frame)
+                                                         move_client = self.pm_robot_utils.client_move_robot_laser_to_frame,
+                                                         sensor_kind='laser')
         response = res
 
         return response
@@ -444,7 +446,8 @@ class PmMeasurementSkills(PmSkillDomain):
 
         res = self.pm_robot_utils.check_frame_mes_bot(request = request,
                                                         target_tcp_frame = self.pm_robot_utils.TCP_CONFOCAL_BOTTOM,
-                                                        offset_m=CONFOCAL_LASER_OFFSET)
+                                                        offset_m=CONFOCAL_LASER_OFFSET,
+                                                        sensor_kind='confocal')
         response = res
 
         return response

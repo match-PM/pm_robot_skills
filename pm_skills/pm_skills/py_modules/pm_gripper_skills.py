@@ -1,4 +1,5 @@
 import random
+from copy import deepcopy
 import time
 
 import rclpy
@@ -117,6 +118,7 @@ class PmGripperSkills(PmSkillDomain):
 
         try:
             should_move_up_at_error = False
+            attached, support_frame, gonio_side = False, None, None
             self.logger.info(f"Force gripping component '{request.component_name}'")
 
             if not self.pm_robot_utils.assembly_scene_analyzer.check_object_exists(request.component_name):
@@ -246,6 +248,14 @@ class PmGripperSkills(PmSkillDomain):
                 raise PmRobotError(f"Failed to enable vacuum for component '{request.component_name}'!")
 
             disable_success = True
+            # Where the component lies, to put it back if the lift fails.
+            support_frame = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(
+                request.component_name).parent_frame
+            analyzer = self.pm_robot_utils.assembly_scene_analyzer
+            if analyzer.is_object_on_gonio_left(request.component_name, max_depth=1):
+                gonio_side = 'left'
+            elif analyzer.is_object_on_gonio_right(request.component_name, max_depth=1):
+                gonio_side = 'right'
 
             # turn off the vacuum
             if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name, max_depth=1):
@@ -266,6 +276,7 @@ class PmGripperSkills(PmSkillDomain):
             
             if not attach_component_success:
                 raise PmRobotError(f"Failed to attach component '{request.component_name}' to gripper")
+            attached = True
             
             properties = ami_msg.ComponentProperties()
             properties.is_gripped = True
@@ -292,6 +303,9 @@ class PmGripperSkills(PmSkillDomain):
                 if not move_relatively_success:
                     response.success = False
                     response.message = f"Failed to lift gripper after attaching component '{request.component_name}': {lift_msg}"
+                    if attached:
+                        response.message += ' ' + self._undo_grip(
+                            request.component_name, support_frame, gonio_side)
                     self.logger.error(response.message)
 
         return response
@@ -303,6 +317,7 @@ class PmGripperSkills(PmSkillDomain):
 
         try:
             should_move_up_at_error = False
+            attached, support_frame, gonio_side = False, None, None
             self.logger.info(f"Force gripping component '{request.component_name}'")
 
             if not self.pm_robot_utils.assembly_scene_analyzer.check_object_exists(request.component_name):
@@ -395,6 +410,14 @@ class PmGripperSkills(PmSkillDomain):
                 self.pm_robot_utils.close_gripper_2_jaws()
 
             disable_success = True
+            # Where the component lies, to put it back if the lift fails.
+            support_frame = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(
+                request.component_name).parent_frame
+            analyzer = self.pm_robot_utils.assembly_scene_analyzer
+            if analyzer.is_object_on_gonio_left(request.component_name, max_depth=1):
+                gonio_side = 'left'
+            elif analyzer.is_object_on_gonio_right(request.component_name, max_depth=1):
+                gonio_side = 'right'
 
             # turn off the vacuum
             if self.pm_robot_utils.assembly_scene_analyzer.is_object_on_gonio_left(request.component_name, max_depth=1):
@@ -415,6 +438,7 @@ class PmGripperSkills(PmSkillDomain):
             
             if not attach_component_success:
                 raise PmRobotError(f"Failed to attach component '{request.component_name}' to gripper")
+            attached = True
             
             properties = ami_msg.ComponentProperties()
             properties.is_gripped = True
@@ -441,9 +465,57 @@ class PmGripperSkills(PmSkillDomain):
                 if not move_relatively_success:
                     response.success = False
                     response.message = f"Failed to lift gripper after attaching component '{request.component_name}': {lift_msg}"
+                    if attached:
+                        response.message += ' ' + self._undo_grip(
+                            request.component_name, support_frame, gonio_side)
                     self.logger.error(response.message)
 
         return response
+
+    def _undo_grip(self, component_name: str, support_frame: str, gonio_side) -> str:
+        """Undo a grip whose lift failed, without moving the robot: the
+        component goes back to the frame it lay on and is no longer gripped,
+        the gripper lets go (vacuum off, jaws open) and the goniometer holds
+        it again (vacuum on). Returns a sentence for the response message."""
+        problems = []
+        try:
+            if not support_frame or not self.attach_component_to_component(
+                    component_name, support_frame):
+                problems.append(f"reparenting to '{support_frame}' failed")
+            component = self.pm_robot_utils.assembly_scene_analyzer.get_component_by_name(
+                component_name)
+            properties = deepcopy(component.properties)
+            properties.is_gripped = False
+            if not self.pm_robot_utils.set_component_properties(component_name,
+                                                                properties).success:
+                problems.append('resetting is_gripped failed')
+        except (PmRobotError, ComponentNotFoundError) as error:
+            problems.append(str(error))
+
+        tool_type = self.pm_robot_utils.pm_robot_config.tool.get_active_tool_type()
+        try:
+            if tool_type == VacuumGripperConfig.TOOL_VACUUM_IDENT:
+                if not self.pm_robot_utils.set_tool_vaccum(False):
+                    problems.append('switching the gripper vacuum off failed')
+            elif tool_type == ParallelGripperConfig.TOOL_GRIPPER_2_JAW_IDENT:
+                self.pm_robot_utils.open_gripper_2_jaws()
+        except PmRobotError as error:
+            problems.append(str(error))
+
+        try:
+            if gonio_side == 'left' and not self.pm_robot_utils.set_gonio_left_vacuum(True):
+                problems.append('switching the gonio left vacuum on failed')
+            elif gonio_side == 'right' and not self.pm_robot_utils.set_gonio_right_vacuum(True):
+                problems.append('switching the gonio right vacuum on failed')
+        except PmRobotError as error:
+            problems.append(str(error))
+
+        if problems:
+            return (f"Returning '{component_name}' to '{support_frame}' was incomplete: "
+                    + '; '.join(problems) + '. The robot stays at the grip pose.')
+        vacuum = f' and the gonio {gonio_side} vacuum on' if gonio_side else ''
+        return (f"'{component_name}' was returned to '{support_frame}' (no longer gripped, "
+                f'gripper released{vacuum}); the robot stays at the grip pose.')
 
     def place_component_callback(self, request:pm_skill_srv.PlaceComponent.Request, response:pm_skill_srv.PlaceComponent.Response):
         self.pm_robot_utils.assembly_scene_analyzer.wait_for_initial_scene_update()
